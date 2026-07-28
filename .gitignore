@@ -1,0 +1,16 @@
+# Secrets — never commit
+.env
+
+# Virtualenv
+.venv/
+
+# Persisted vector memory (contains embedded research notes)
+*_memory_store.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editor / OS / tooling
+.DS_Store
+.claude/
