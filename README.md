@@ -96,8 +96,8 @@ The parts worth reading the code for.
 ## Quickstart
 
 ```bash
-git clone <your-repo-url>
-cd research-and-report-agent-system
+git clone https://github.com/future-beat/research-agent.git
+cd research-agent
 
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
