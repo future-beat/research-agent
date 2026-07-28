@@ -11,7 +11,7 @@ Usage:  .venv/bin/python chat.py
 Commands:  /help  /memory  /trace  /exit
 """
 
-# Load .env BEFORE importing the agent: capstone_research_agent constructs
+# Load .env BEFORE importing the agent: research_agent constructs
 # anthropic.Anthropic() and VectorMemory() at module scope, and both read
 # their keys from the environment at that moment. Importing first would
 # read an empty environment.
@@ -26,7 +26,7 @@ import sys
 
 import anthropic
 
-from capstone_research_agent import MAX_REVISIONS, app, memory
+from research_agent import MAX_REVISIONS, app, memory
 
 # Announced as each node finishes. supervisor is omitted deliberately --
 # it fires between every other node and would drown out the real progress.

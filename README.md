@@ -144,7 +144,7 @@ Ctrl-C during a run cancels that run and returns you to the prompt. API errors a
 **One-shot:**
 
 ```bash
-python capstone_research_agent.py
+python research_agent.py
 ```
 
 Runs the single hardcoded task at the bottom of the file and prints the report plus the full trace.
@@ -155,8 +155,8 @@ Runs the single hardcoded task at the bottom of the file and prints the report p
 
 | Knob | Where | Default |
 |---|---|---|
-| `MAX_REVISIONS` | `capstone_research_agent.py` | `2` |
-| `MAX_ITERATIONS` | `capstone_research_agent.py` | `8` |
+| `MAX_REVISIONS` | `research_agent.py` | `2` |
+| `MAX_ITERATIONS` | `research_agent.py` | `8` |
 | Model | per-node `model=` | `claude-sonnet-5` |
 | Effort | per-node `output_config` | `low` (classifier) / `medium` (rest) |
 | `EMBEDDING_MODEL` | `vector_memory.py` | `voyage-3.5` |
@@ -169,11 +169,11 @@ Research strategies and critic rubrics live in the `RESEARCH_STRATEGY` and `CRIT
 ## Project structure
 
 ```
-capstone_research_agent.py   the graph: nodes, supervisor, routing, compile
-vector_memory.py             embedding-backed persistent memory (add / query)
-chat.py                      terminal REPL with streamed progress
-requirements.txt             pinned dependencies
-.env.example                 key template
+research_agent.py    the graph: nodes, supervisor, routing, compile
+vector_memory.py     embedding-backed persistent memory (add / query)
+chat.py              terminal REPL with streamed progress
+requirements.txt     pinned dependencies
+.env.example         key template
 ```
 
 The memory store is written next to `vector_memory.py`, not to the working directory, so the same store is used no matter where you launch from.

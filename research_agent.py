@@ -1,5 +1,5 @@
 """
-CAPSTONE: Research-and-Report Agent System
+Research-and-Report Agent System
 
 Architecture (supervisor pattern, extended with a critic + persisted memory
 + topic-type classification for generalizing across any subject):
