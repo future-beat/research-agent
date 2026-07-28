@@ -41,20 +41,31 @@ A **supervisor pattern**. Every worker node returns to a central supervisor, whi
 ```mermaid
 flowchart TD
     START([task]) --> S{supervisor}
-    S -->|topic_type unset| C[classifier]
-    S -->|no research notes| R[researcher]
-    S -->|no draft| W[writer]
-    S -->|draft unreviewed| K[critic]
-    S -->|approved, or guardrail hit| E([END])
+    S --> C[classifier]
+    S --> R[researcher]
+    S --> W[writer]
+    S --> K[critic]
+    S --> E([END])
     C --> S
     R --> S
     W --> S
     K --> S
-    K -.->|REVISE| W
 
     style S fill:#4a5568,color:#fff
     style E fill:#2f855a,color:#fff
 ```
+
+Every worker returns to the supervisor, which re-reads state and picks the next hop. The routing table *is* `supervisor_node`, in order:
+
+| Supervisor sees | Routes to |
+|---|---|
+| iteration or revision cap exceeded | END *(sets `forced_stop_reason`)* |
+| `topic_type` unset | classifier |
+| no research notes | researcher |
+| no draft | writer |
+| draft not yet reviewed | critic |
+| critic returned `REVISE` | writer *(revision)* |
+| otherwise — approved | END |
 
 | Node | Role |
 |---|---|
@@ -87,7 +98,7 @@ The parts worth reading the code for.
 
 **Memory is real retrieval, not a growing prompt.** Notes are embedded with `voyage-3.5` and retrieved by cosine similarity with a relevance floor, so an unrelated past task doesn't leak into the current one. The researcher is explicitly told to prefer information not already covered, which turns memory into a coverage-expander rather than an echo. The file-backed store is deliberately swappable — `add()` / `query()` is the whole interface, so a real vector DB drops in without touching the graph.
 
-**Inference settings are tuned per node, not globally.** The classifier emits one word from a fixed set, so it runs with thinking disabled and `effort: "low"` under a 20-token ceiling. The researcher, writer, and critic do genuine reasoning and run with adaptive thinking at `effort: "medium"`. Uniform settings would either overpay for the classifier or starve the critic.
+**Inference settings are tuned per node, not globally.** The classifier emits one word from a fixed set, so it runs with thinking disabled under a 20-token ceiling — no budget spent deliberating a four-way label. The researcher, writer, and critic do genuine reasoning and run with adaptive thinking, letting the model scale its own depth per task. Everything runs at `effort: "medium"`.
 
 **Every run is traceable.** Each node appends to `state["trace"]`, giving a full record of routing decisions, recall counts, draft lengths, and critic verdicts. Inspect it with `/trace` in the REPL.
 
@@ -158,7 +169,8 @@ Runs the single hardcoded task at the bottom of the file and prints the report p
 | `MAX_REVISIONS` | `research_agent.py` | `2` |
 | `MAX_ITERATIONS` | `research_agent.py` | `8` |
 | Model | per-node `model=` | `claude-sonnet-5` |
-| Effort | per-node `output_config` | `low` (classifier) / `medium` (rest) |
+| Effort | per-node `output_config` | `medium` |
+| Thinking | per-node `thinking` | `disabled` (classifier) / `adaptive` (rest) |
 | `EMBEDDING_MODEL` | `vector_memory.py` | `voyage-3.5` |
 | `min_similarity` | `VectorMemory.query()` | `0.3` |
 
@@ -185,7 +197,7 @@ The memory store is written next to `vector_memory.py`, not to the working direc
 Known, and deliberate for the scope:
 
 - **One-shot per task.** Each turn is an independent pipeline run. You can't ask a follow-up about the report you just got — continuity comes only through vector recall.
-- **Linear similarity scan.** `query()` compares against every stored note. Fine at hundreds of entries; swap in a real vector DB before it's thousands.
+- **Retrieval scans the whole store.** `query()` scores every stored note to find the top matches — O(n) per call. The ranking metric is fine; it's the exhaustive scan that doesn't scale. A real vector DB keeps cosine ranking but adds an approximate-nearest-neighbor index. Fine at hundreds of notes, swap it out before thousands.
 - **The critic shares the writer's model.** Independent enough to catch ungrounded claims, but not a genuinely independent evaluator.
 - **The store grows without bound.** No eviction, no deduplication, no summarization.
 - **No test suite.** The graph is deterministic and the nodes are pure functions of state, so it's very testable — there just aren't tests yet.
