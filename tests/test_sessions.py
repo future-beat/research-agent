@@ -5,12 +5,12 @@ nothing."""
 import pytest
 
 from research_agent import followup_state, initial_state
-from sessions import SessionStore
+from sessions import SQLiteSessionStore
 
 
 @pytest.fixture
 def store(tmp_path):
-    s = SessionStore(str(tmp_path / "sessions.db"))
+    s = SQLiteSessionStore(str(tmp_path / "sessions.db"))
     yield s
     s.close()
 
@@ -51,11 +51,11 @@ def test_get_unknown_session_returns_none(store):
 
 def test_state_survives_reopening_the_database(tmp_path):
     path = str(tmp_path / "sessions.db")
-    first = SessionStore(path)
+    first = SQLiteSessionStore(path)
     session_id = first.create("why is the sky blue?", finished_run())
     first.close()
 
-    reopened = SessionStore(path)
+    reopened = SQLiteSessionStore(path)
     try:
         assert reopened.get(session_id).state["draft"] == "the report"
     finally:
@@ -130,7 +130,7 @@ def test_store_creates_its_parent_directory(tmp_path):
     """The container mounts a volume and points SESSION_DB_PATH into it;
     the directory may not exist on first boot."""
     path = tmp_path / "data" / "nested" / "sessions.db"
-    s = SessionStore(str(path))
+    s = SQLiteSessionStore(str(path))
     try:
         s.create("q", finished_run())
         assert path.exists()

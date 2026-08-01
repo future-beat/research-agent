@@ -35,6 +35,8 @@ from typing import Protocol
 
 import numpy as np
 
+import db
+
 EMBEDDING_MODEL = os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-3.5")
 
 # Anchored to this file's directory, not the working directory, so the store
@@ -46,6 +48,13 @@ STORE_PATH = os.environ.get(
 )
 CHROMA_PATH = os.environ.get("CHROMA_PATH", os.path.join(_MODULE_DIR, "chroma_store"))
 CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION", "research_notes")
+
+# pgvector needs a fixed column width, and voyage-3.5 emits 1024 dimensions.
+# Validated on the first write rather than trusted: a mismatch would otherwise
+# surface as a Postgres type error deep inside an insert, which is a miserable
+# way to find out you changed embedding model.
+PGVECTOR_TABLE = os.environ.get("PGVECTOR_TABLE", "research_notes")
+VECTOR_DIMENSIONS = int(os.environ.get("VECTOR_DIMENSIONS", "1024"))
 
 DEFAULT_TOP_K = 3
 DEFAULT_MIN_SIMILARITY = 0.3
@@ -122,6 +131,14 @@ class MemoryStore(ABC):
     @abstractmethod
     def describe(self) -> str:
         """One line naming the backend and where it lives, for the REPL."""
+
+    def close(self) -> None:  # noqa: B027 - a deliberate no-op default
+        """Release any connection.
+
+        Not abstract: three of the four backends hold nothing to close, and
+        forcing each to write an empty method would be noise. Callers get to
+        call close() without asking which kind of store they were handed.
+        """
 
 
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
@@ -291,6 +308,122 @@ class ChromaMemoryStore(MemoryStore):
         return f"{len(self)} note(s) in Chroma collection at {self.path}"
 
 
+class PgVectorMemoryStore(MemoryStore):
+    """Notes in Postgres, retrieved by an indexed cosine search.
+
+    Two things this fixes at once. It is *shared*, so every machine recalls
+    everything the agent has learned rather than only what it personally
+    wrote. And it is *indexed*: the brute-force stores score every stored note
+    on every query, which is exact but O(n) and pulls the whole corpus into
+    the agent process. HNSW keeps the same cosine ranking and stops doing
+    either.
+
+    Requires the `vector` extension. Most managed Postgres offerings ship it;
+    `CREATE EXTENSION` here is a no-op when it already exists.
+    """
+
+    def __init__(
+        self,
+        embedder: Embedder | None = None,
+        dsn: str | None = None,
+        table: str = PGVECTOR_TABLE,
+        dimensions: int = VECTOR_DIMENSIONS,
+        database: db.Database | None = None,
+    ):
+        self.embedder = embedder or VoyageEmbedder()
+        self.dimensions = dimensions
+        # Interpolated into DDL, so it must not be attacker-controlled. It
+        # comes from an env var set by whoever runs the service, but identifier
+        # quoting is not available for CREATE TABLE names in psycopg's
+        # parameter binding, so validate rather than trust.
+        if not table.replace("_", "").isalnum():
+            raise ValueError(f"PGVECTOR_TABLE {table!r} must be alphanumeric or underscores.")
+        self.table = table
+        self.db = database or db.Database(dsn)
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        self.db.executescript(
+            f"""
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE TABLE IF NOT EXISTS {self.table} (
+                id         BIGSERIAL PRIMARY KEY,
+                text       TEXT NOT NULL,
+                embedding  vector({self.dimensions}) NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS {self.table}_embedding_hnsw
+                ON {self.table} USING hnsw (embedding vector_cosine_ops);
+            """
+        )
+
+    @staticmethod
+    def _literal(vector: Sequence[float]) -> str:
+        """pgvector's text input format.
+
+        Formatting the vector by hand rather than taking the `pgvector` python
+        package as a dependency: this is the only place a vector crosses the
+        boundary, embeddings are never read back, and one fewer dependency in
+        the runtime image is worth more than the adapter.
+        """
+        return "[" + ",".join(repr(float(x)) for x in vector) + "]"
+
+    def _check_dimensions(self, vector: Sequence[float]) -> None:
+        if len(vector) != self.dimensions:
+            raise ValueError(
+                f"Embedder returned {len(vector)} dimensions but the {self.table} column "
+                f"is vector({self.dimensions}). Set VECTOR_DIMENSIONS to match the "
+                f"embedding model, and note that an existing table keeps its original "
+                f"width -- changing model means a new table, not just a new setting."
+            )
+
+    def add(self, text: str) -> None:
+        embedding = self.embedder.embed_documents([text])[0]
+        self._check_dimensions(embedding)
+        self.db.execute(
+            f"INSERT INTO {self.table} (text, embedding) VALUES (%s, %s::vector)",
+            (text, self._literal(embedding)),
+        )
+
+    def query(
+        self,
+        query_text: str,
+        top_k: int = DEFAULT_TOP_K,
+        min_similarity: float = DEFAULT_MIN_SIMILARITY,
+    ) -> list[str]:
+        if not len(self):
+            return []
+
+        embedding = self.embedder.embed_query(query_text)
+        self._check_dimensions(embedding)
+        literal = self._literal(embedding)
+        # `<=>` is cosine distance, so similarity is 1 - distance. Ordering by
+        # the raw operator is what lets the HNSW index serve the query; the
+        # relevance floor is applied as a filter on the same expression.
+        rows = self.db.fetchall(
+            f"""
+            SELECT text, 1 - (embedding <=> %s::vector) AS similarity
+            FROM {self.table}
+            WHERE 1 - (embedding <=> %s::vector) >= %s
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (literal, literal, min_similarity, literal, top_k),
+        )
+        return [row["text"] for row in rows]
+
+    def __len__(self) -> int:
+        return self.db.fetchone(f"SELECT COUNT(*) AS n FROM {self.table}")["n"]
+
+    def describe(self) -> str:
+        from sessions import _describe_dsn
+
+        return f"{len(self)} note(s) in pgvector table {self.table} at {_describe_dsn(self.db.dsn)}"
+
+    def close(self) -> None:
+        self.db.close()
+
+
 # --------------------------------------------------------------------------
 # Selection
 # --------------------------------------------------------------------------
@@ -299,14 +432,28 @@ BACKENDS = {
     "json": JSONMemoryStore,
     "memory": InMemoryStore,
     "chroma": ChromaMemoryStore,
+    "pgvector": PgVectorMemoryStore,
 }
+
+
+def default_backend() -> str:
+    """pgvector when a Postgres DSN is configured, JSON otherwise.
+
+    Same reasoning as the session store: a deploy that provisions a database
+    should get shared notes without a second setting to forget. Forgetting it
+    is how two machines end up with two disjoint memories, each recalling
+    half of what the agent has learned.
+    """
+    return os.environ.get("VECTOR_STORE", "").strip().lower() or (
+        "pgvector" if db.postgres_configured() else "json"
+    )
 
 
 def get_memory_store(
     backend: str | None = None, *, embedder: Embedder | None = None
 ) -> MemoryStore:
-    """Build the configured store. `backend` defaults to $VECTOR_STORE, then json."""
-    name = (backend or os.environ.get("VECTOR_STORE") or "json").strip().lower()
+    """Build the configured store. `backend` defaults to $VECTOR_STORE."""
+    name = (backend or default_backend()).strip().lower()
     try:
         cls = BACKENDS[name]
     except KeyError:

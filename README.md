@@ -34,8 +34,11 @@ Per-run token and cost accounting against a date-aware price table, a spend cap 
 **✅ Phase 6 — Evaluation harness**
 A twelve-case golden set graded by deterministic checks over finished runs, plus LLM-as-judge grounding checks on a stronger model than the pipeline. Runs free and offline in CI, or live against the real API. JSON report artifact and a threshold exit code. It found a real bug on its first run — see below.
 
-**✅ Phase 7 — Ship it** *(this phase)*
-Dependencies split so a worker image doesn't ship a web server. Two-stage Dockerfile on a non-root user with a healthcheck, compose file, and a Fly config with a mounted volume. GitHub Actions runs ruff, 271 tests, the offline evals, and a container smoke test — all with no API keys. The deploy itself is yours to run.
+**✅ Phase 7 — Ship it**
+Dependencies split so a worker image doesn't ship a web server. Two-stage Dockerfile on a non-root user with a healthcheck, compose file, and a Fly config with a mounted volume. GitHub Actions runs ruff, tests, the offline evals, and a container smoke test — all with no API keys.
+
+**✅ Phase 8 — Stateless: Postgres and pgvector** *(this phase)*
+Sessions, metrics, and notes all get Postgres backends behind the interfaces that were built for exactly this. Setting `DATABASE_URL` is the entire switch. Notes move to pgvector with an HNSW index, replacing the O(n) scan. One contract suite runs against every backend so "swappable" is tested rather than asserted, with a real Postgres in CI. Plus a migration script, because a deployment that already has data shouldn't have to choose between scaling and remembering. 337 tests.
 
 ---
 
@@ -165,6 +168,14 @@ The parts worth reading the code for.
 **An unpriced model is reported, not costed at zero.** If `MODEL` is changed to something with no row in the price table, tokens are still counted but `cost_usd` becomes a floor and `pricing_unknown` goes true. Silently costing those calls at zero would quietly disable the budget guardrail — a cost control that fails open without saying so is worse than none.
 
 **Failed runs are in the metrics denominator.** A run that died opens no session, but it still burned tokens and still happened. Recording only successes would make an upstream outage look like a quiet day and would flatter every rate on the dashboard. Rates whose denominator is zero return `null` rather than `0.0`, because "no runs yet" and "nothing was approved" are different facts and a dashboard shouldn't conflate them. Latency percentiles cover completed runs only — time-to-failure is not time-to-report, and mixing them makes an outage look like a speed-up.
+
+**One variable moves all three stores.** Sessions, metrics, and notes each default to Postgres when `DATABASE_URL` is present and to local disk when it isn't. Three separate backend flags would have been more configurable and worse: the failure you'd actually hit is setting one and forgetting another, and a deployment with sessions shared across machines but notes still split between them is broken in a way that only shows up as slowly degrading answers. Any of the three can still be pinned explicitly when you genuinely want a mixture.
+
+**"Swappable" is a test, not a claim.** Two hand-written SQL dialects agreeing is exactly the sort of thing that quietly stops being true — SQLite sums booleans where Postgres needs `COUNT(*) FILTER`, and Postgres returns `SUM(BIGINT)` as `Decimal`, which isn't JSON-serialisable and would have 500'd `/metrics` on the first recorded run. So the behavioural tests live in one file and run against every backend, and one test asserts both metrics backends produce *byte-identical* summaries from identical input.
+
+**pgvector replaces the scan, not just the file.** The brute-force stores score every note on every query and pull the whole corpus into the agent process — exact, O(n), and the thing the Limitations section has flagged since Phase 1. HNSW keeps the same cosine ranking and stops doing either. It's also shared, so every machine recalls everything the agent has learned rather than only what it personally wrote.
+
+**Migration copies embeddings rather than re-embedding.** It's free and exact — but the real reason is that re-embedding would change recall behaviour at the same moment you're changing infrastructure. If recall then got worse you'd have two suspects and no way to separate them.
 
 **The image ships what it runs, and nothing else.** `requirements.txt` is the agent alone; the web server lives in `requirements-service.txt`, so a worker or batch job that imports the graph doesn't drag in FastAPI and uvicorn. The image installs the service file, not the dev one, and `.dockerignore` keeps `tests/` and `evals/` out — the eval dataset contains scripted model output, which has no business inside a production image.
 
@@ -321,7 +332,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-271 tests, ~1.7s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
+337 tests, ~2s, no API keys and no network. The 27 Postgres tests skip locally unless `DATABASE_URL` is set, and run for real in CI against a `pgvector/pgvector` service container — with a guard test that **fails** rather than skips if CI's database is missing, so the build can't go green over an untested backend. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
 
 | File | Covers |
 |---|---|
@@ -335,6 +346,7 @@ pytest
 | `tests/test_metrics.py` | Aggregation, rate denominators, percentile edges, concurrent writes |
 | `tests/test_observability.py` | JSON log shape, handler idempotence, the tracing no-op |
 | `tests/test_evals.py` | Dataset coverage, every grader's failure path, judge parsing, threshold and exit-code behaviour |
+| `tests/test_store_contract.py` | One suite run against **every** backend — SQLite/Postgres sessions and metrics, JSON/in-memory/pgvector notes |
 
 ---
 
@@ -388,6 +400,27 @@ The image runs as a non-root user, installs `requirements-service.txt` only, and
 
 **Mount a volume at `/data`.** Both SQLite databases and the vector store live there. Without it, every follow-up thread and every stored note dies with the container, and the memory feature quietly becomes a no-op.
 
+### Going stateless
+
+One volume on one machine is fine for a demo, but it means downtime during host maintenance and up to 24h of data loss between snapshots. Moving the state to Postgres removes both, and it's one variable:
+
+```bash
+fly postgres create --name research-agent-db
+fly postgres attach research-agent-db      # sets DATABASE_URL for you
+fly deploy
+
+fly ssh console -C "python /app/migrate_to_postgres.py --dry-run"
+fly ssh console -C "python /app/migrate_to_postgres.py"
+```
+
+Then delete the `[[mounts]]` block from `fly.toml` and `fly scale count 2`. Sessions, metrics, and notes all follow `DATABASE_URL`, so there's no second flag to forget.
+
+The migration is re-runnable — anything already copied is skipped — and it carries notes across with their existing embeddings rather than re-embedding them. `/health` reports which backend each store is actually using, so you can confirm the switch took:
+
+```bash
+curl https://YOUR-APP.fly.dev/health
+```
+
 **Deploying to Fly.io:**
 
 ```bash
@@ -438,6 +471,9 @@ Set by environment variable:
 | `AGENT_RETRY_BASE_DELAY` | Seconds before the first retry | `1.0` |
 | `AGENT_RETRY_MAX_DELAY` | Ceiling on any single backoff sleep | `30.0` |
 | `AGENT_MAX_RUN_COST_USD` | Per-run spend cap; `0` disables it | `1.00` |
+| `DATABASE_URL` | Postgres DSN. **Setting it moves all three stores.** | *(unset)* |
+| `SESSION_BACKEND` / `METRICS_BACKEND` | `sqlite` or `postgres` | follows `DATABASE_URL` |
+| `PGVECTOR_TABLE` / `VECTOR_DIMENSIONS` | pgvector table and column width | `research_notes` / `1024` |
 | `METRICS_DB_PATH` | Runs table location | same file as sessions |
 | `LOG_FORMAT` / `LOG_LEVEL` | `json` or `text`; log level | `json` / `INFO` |
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is present | `true` |
@@ -454,6 +490,8 @@ Research strategies and critic rubrics live in the `RESEARCH_STRATEGY` and `CRIT
 research_agent.py       the graph: nodes, supervisor, routing, compile
 vector_memory.py        Embedder + MemoryStore seams and the three backends
 retry.py                retryable-error classification, backoff, node decorator
+db.py                   reconnecting Postgres connection shared by the stores
+migrate_to_postgres.py  copies an existing SQLite/JSON deployment across
 usage.py                effective-dated price table, cost accounting, spend cap
 observability.py        JSON logging and the optional OpenTelemetry seam
 metrics.py              runs table and the /metrics aggregation
@@ -495,7 +533,10 @@ Known, and deliberate for the scope:
 - **The judge is one model's opinion.** `judge_grounding` is a stronger, independent check than the in-graph critic, not ground truth. Twelve cases is a smoke test, not a benchmark.
 - **Cost is computed from list prices.** Enterprise discounts, batch pricing, and the `inference_geo` multiplier are not modelled, so `/metrics` is an estimate that tracks the shape of the bill, not the bill itself.
 - **Sessions grow without bound and belong to nobody.** No expiry, no ownership, no pagination beyond a 50-row cap on listing. Anyone who can reach the service can read any session.
-- **Single-writer SQLite, so one machine.** `fly.toml` pins `min_machines_running = 1` for that reason: a second machine gets its own volume and its own database, and a follow-up routed to it would 404 on a session that exists. Horizontal scaling wants Postgres for sessions and Chroma for notes — both already behind interfaces, so it's a swap rather than a rewrite.
+- **SQLite is still the default, and it pins you to one machine.** `fly.toml` keeps `min_machines_running = 1` for that reason. Set `DATABASE_URL` and the constraint lifts; until you do, a second machine would hold its own database and 404 on sessions that exist.
+- **Postgres adds a failure mode SQLite didn't have.** The database is now a dependency the service can't start without. `/health` will report the backend but won't tell you the connection is dead until something tries to use it.
+- **No connection pool.** One lock-guarded connection per machine, which is right when a run occupies a worker for tens of seconds and a query takes milliseconds — but it's a ceiling worth knowing about before raising machine concurrency much past the current `soft_limit = 8`.
+- **Changing embedding model means a new pgvector table.** The column width is fixed at creation. The dimension check fails loudly rather than mysteriously, but it can't migrate for you.
 - **The container image is unbuilt.** Docker isn't installed on the machine this was written on, so the Dockerfile, compose file, and CI smoke test are written but have never been run. The first `docker compose up --build` may need a fix.
 - **Nothing is deployed.** `fly.toml` needs your own `app` name and region, and the deploy step is deliberately left to you — it spends money on your account.
 

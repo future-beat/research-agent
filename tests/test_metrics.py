@@ -3,13 +3,13 @@ that make a dashboard lie."""
 
 import pytest
 
-from metrics import COMPLETED, FAILED, MetricsStore, RunRecord, _percentile
+from metrics import COMPLETED, FAILED, RunRecord, SQLiteMetricsStore, _percentile
 from research_agent import initial_state
 
 
 @pytest.fixture
 def store(tmp_path):
-    s = MetricsStore(str(tmp_path / "metrics.db"))
+    s = SQLiteMetricsStore(str(tmp_path / "metrics.db"))
     yield s
     s.close()
 
@@ -217,11 +217,11 @@ def test_percentile_edges(values, fraction, expected):
 
 def test_records_survive_reopening(tmp_path):
     path = str(tmp_path / "metrics.db")
-    first = MetricsStore(path)
+    first = SQLiteMetricsStore(path)
     first.record(run())
     first.close()
 
-    reopened = MetricsStore(path)
+    reopened = SQLiteMetricsStore(path)
     try:
         assert reopened.count() == 1
     finally:

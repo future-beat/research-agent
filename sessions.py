@@ -12,9 +12,18 @@ what LangGraph's checkpointer is for, and it is a different feature with a
 different failure model; conflating the two would buy resumability nobody
 asked for at the cost of a schema tied to LangGraph internals.
 
-SQLite is the right size here: one file, no server to run, survives a restart,
-and fine for the request rate a single agent container can serve. Point
-SESSION_DB_PATH at a mounted volume so it outlives the container.
+Two backends behind one interface:
+
+    SESSION_BACKEND=sqlite    one file, no server, survives a restart. Right
+                              for a single container; point SESSION_DB_PATH at
+                              a mounted volume so it outlives it.
+    SESSION_BACKEND=postgres  shared state, so any machine can serve any
+                              follow-up. This is what makes running more than
+                              one machine possible at all -- with SQLite on a
+                              per-machine volume, a follow-up routed to the
+                              wrong host 404s on a session that exists.
+
+Defaults to postgres when DATABASE_URL is set, sqlite otherwise.
 """
 
 from __future__ import annotations
@@ -25,12 +34,15 @@ import sqlite3
 import threading
 import time
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
+
+import db
 
 _MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSION_DB_PATH = os.environ.get("SESSION_DB_PATH", os.path.join(_MODULE_DIR, "sessions.db"))
 
-SCHEMA = """
+SQLITE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT PRIMARY KEY,
     created_at  REAL NOT NULL,
@@ -38,6 +50,21 @@ CREATE TABLE IF NOT EXISTS sessions (
     task        TEXT NOT NULL,
     turns       INTEGER NOT NULL DEFAULT 1,
     state       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_updated_at ON sessions (updated_at DESC);
+"""
+
+# JSONB, not TEXT: the state blob is genuinely a document, and JSONB lets a
+# future query reach into it (e.g. every session whose run was unapproved)
+# without a migration.
+POSTGRES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sessions (
+    id          TEXT PRIMARY KEY,
+    created_at  DOUBLE PRECISION NOT NULL,
+    updated_at  DOUBLE PRECISION NOT NULL,
+    task        TEXT NOT NULL,
+    turns       INTEGER NOT NULL DEFAULT 1,
+    state       JSONB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_updated_at ON sessions (updated_at DESC);
 """
@@ -66,7 +93,43 @@ class Session:
         }
 
 
-class SessionStore:
+class SessionStore(ABC):
+    """The contract every backend implements, and the whole of what the
+    service depends on. `tests/test_store_contract.py` runs the same suite
+    against each implementation, so "swappable" is a tested claim rather
+    than an aspiration."""
+
+    #: Human-readable location, shown by /health. Never a credential --
+    #: a DSN carries a password, so Postgres reports host and database only.
+    path: str
+
+    @abstractmethod
+    def create(self, task: str, state: dict, session_id: str | None = None) -> str:
+        """Record a completed research run as a new session. Returns its id."""
+
+    @abstractmethod
+    def append_turn(self, session_id: str, state: dict) -> None:
+        """Record a follow-up as the session's new latest state.
+        Raises KeyError if the session does not exist."""
+
+    @abstractmethod
+    def get(self, session_id: str) -> Session | None: ...
+
+    @abstractmethod
+    def list(self, limit: int = 50) -> list[Session]: ...
+
+    @abstractmethod
+    def delete(self, session_id: str) -> bool:
+        """True if a session was removed, False if there was nothing to remove."""
+
+    @abstractmethod
+    def count(self) -> int: ...
+
+    @abstractmethod
+    def close(self) -> None: ...
+
+
+class SQLiteSessionStore(SessionStore):
     """Thread-safe SQLite-backed session storage.
 
     One connection guarded by a lock rather than a pool: writes are tiny and
@@ -84,7 +147,7 @@ class SessionStore:
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         with self._lock:
-            self._conn.executescript(SCHEMA)
+            self._conn.executescript(SQLITE_SCHEMA)
             # WAL lets a reader (GET /sessions) proceed while a run is being
             # written. Not available for in-memory databases.
             if path != ":memory:":
@@ -163,3 +226,121 @@ class SessionStore:
             turns=row["turns"],
             state=json.loads(row["state"]),
         )
+
+
+class PostgresSessionStore(SessionStore):
+    """Shared session storage, so any machine can serve any follow-up.
+
+    This is the piece that makes horizontal scaling possible. With SQLite on a
+    per-machine volume, two machines hold two independent databases and a
+    follow-up routed to the wrong one 404s on a session that demonstrably
+    exists. Here the state lives in one place and the machines are stateless.
+    """
+
+    def __init__(self, dsn: str | None = None, database: db.Database | None = None):
+        self.db = database or db.Database(dsn)
+        self.path = _describe_dsn(self.db.dsn)
+        self.db.executescript(POSTGRES_SCHEMA)
+
+    # -- writes ------------------------------------------------------------
+
+    def create(self, task: str, state: dict, session_id: str | None = None) -> str:
+        session_id = session_id or uuid.uuid4().hex
+        now = time.time()
+        self.db.execute(
+            "INSERT INTO sessions (id, created_at, updated_at, task, turns, state) "
+            "VALUES (%s, %s, %s, %s, 1, %s)",
+            (session_id, now, now, task, json.dumps(state)),
+        )
+        return session_id
+
+    def append_turn(self, session_id: str, state: dict) -> None:
+        with self.db.cursor() as cur:
+            cur.execute(
+                "UPDATE sessions SET state = %s, updated_at = %s, turns = turns + 1 "
+                "WHERE id = %s",
+                (json.dumps(state), time.time(), session_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(session_id)
+
+    def delete(self, session_id: str) -> bool:
+        with self.db.cursor() as cur:
+            cur.execute("DELETE FROM sessions WHERE id = %s", (session_id,))
+            return cur.rowcount > 0
+
+    # -- reads -------------------------------------------------------------
+
+    def get(self, session_id: str) -> Session | None:
+        row = self.db.fetchone("SELECT * FROM sessions WHERE id = %s", (session_id,))
+        return self._row_to_session(row) if row else None
+
+    def list(self, limit: int = 50) -> list[Session]:
+        rows = self.db.fetchall(
+            "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT %s", (limit,)
+        )
+        return [self._row_to_session(row) for row in rows]
+
+    def count(self) -> int:
+        return self.db.fetchone("SELECT COUNT(*) AS n FROM sessions")["n"]
+
+    def close(self) -> None:
+        self.db.close()
+
+    @staticmethod
+    def _row_to_session(row: dict) -> Session:
+        state = row["state"]
+        return Session(
+            id=row["id"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            task=row["task"],
+            turns=row["turns"],
+            # JSONB comes back already decoded; a TEXT column would not. Accept
+            # both so the same code survives a column-type change.
+            state=state if isinstance(state, dict) else json.loads(state),
+        )
+
+
+def _describe_dsn(dsn: str) -> str:
+    """host/database, with any password stripped.
+
+    This string is returned by /health, so it must never be able to leak a
+    credential -- a DSN carries one in the netloc.
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(dsn)
+        host = parsed.hostname or "?"
+        name = (parsed.path or "/").lstrip("/") or "?"
+        return f"postgres://{host}/{name}"
+    except ValueError:
+        return "postgres://(unparseable dsn)"
+
+
+BACKENDS = {"sqlite": SQLiteSessionStore, "postgres": PostgresSessionStore}
+
+
+def default_backend() -> str:
+    """Postgres when a DSN is configured, SQLite otherwise.
+
+    Defaulting on DATABASE_URL rather than requiring SESSION_BACKEND means a
+    deploy that provisions a database gets shared sessions without a second
+    setting to forget -- and forgetting it is how you end up with two machines
+    quietly serving from two different databases.
+    """
+    return os.environ.get("SESSION_BACKEND", "").strip().lower() or (
+        "postgres" if db.postgres_configured() else "sqlite"
+    )
+
+
+def get_session_store(backend: str | None = None) -> SessionStore:
+    name = (backend or default_backend()).strip().lower()
+    try:
+        cls = BACKENDS[name]
+    except KeyError:
+        raise ValueError(
+            f"Unknown SESSION_BACKEND {name!r}. Choose one of: {', '.join(sorted(BACKENDS))}."
+        ) from None
+    return cls()

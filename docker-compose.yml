@@ -22,11 +22,33 @@ services:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       VECTOR_STORE: ${VECTOR_STORE:-json}
+      # Set this and sessions, metrics, and notes all move to Postgres --
+      # one variable, all three stores.
+      DATABASE_URL: ${DATABASE_URL:-}
     volumes:
       # Sessions, metrics, and the vector store. Without this, every
       # follow-up thread and every stored note dies with the container.
       - agent-data:/data
     restart: unless-stopped
 
+  # Optional local Postgres with pgvector, for parity with a stateless deploy:
+  #   docker compose --profile postgres up --build
+  #   DATABASE_URL=postgresql://postgres:pw@postgres:5432/postgres docker compose ...
+  postgres:
+    profiles: ["postgres"]
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pw}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   agent-data:
+  postgres-data:

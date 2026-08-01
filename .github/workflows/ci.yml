@@ -19,6 +19,29 @@ jobs:
   test:
     name: lint · tests · evals
     runs-on: ubuntu-latest
+
+    # pgvector's image is stock Postgres plus the extension, so the Postgres
+    # and pgvector backends are tested against the real thing rather than
+    # merely written. Without this the 26 Postgres tests skip and the build
+    # goes green over an untested backend.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # Makes a missing or broken DATABASE_URL a failure rather than a skip.
+      REQUIRE_POSTGRES: "1"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +67,9 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ""
           VOYAGE_API_KEY: ""
+          # The eval harness supplies its own in-process stores; inheriting the
+          # job's DATABASE_URL would point them at Postgres for no reason.
+          DATABASE_URL: ""
         run: python -m evals --report evals-report.json --min-pass-rate 0.9
 
       - name: Upload eval report

@@ -3,3 +3,8 @@
 -r requirements.txt
 fastapi==0.141.1
 uvicorn[standard]==0.52.0
+
+# Postgres-backed sessions, metrics, and pgvector notes. Imported lazily, so
+# a SQLite/JSON deployment never touches it -- but a deploy that provisions a
+# database should not fail on a missing driver.
+psycopg[binary]==3.3.4

@@ -17,8 +17,8 @@ from test_memory_stores import FakeEmbedder
 
 import research_agent
 import service
-from metrics import MetricsStore
-from sessions import SessionStore
+from metrics import SQLiteMetricsStore
+from sessions import SQLiteSessionStore
 from vector_memory import InMemoryStore
 
 
@@ -38,8 +38,8 @@ def make_client(tmp_path, monkeypatch):
         monkeypatch.setattr(research_agent, "client", lambda: fake)
         research_agent.set_memory(InMemoryStore(embedder=FakeEmbedder()))
 
-        store = SessionStore(str(tmp_path / "sessions.db"))
-        metrics = MetricsStore(str(tmp_path / "metrics.db"))
+        store = SQLiteSessionStore(str(tmp_path / "sessions.db"))
+        metrics = SQLiteMetricsStore(str(tmp_path / "metrics.db"))
         service.app.dependency_overrides[service.get_sessions] = lambda: store
         service.app.dependency_overrides[service.get_metrics] = lambda: metrics
 
@@ -555,3 +555,31 @@ def test_health_treats_an_empty_key_as_absent(make_client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
 
     assert client.get("/health").json()["credentials"]["anthropic"] is False
+
+
+def test_the_root_url_is_not_a_404(make_client):
+    """A successful deploy whose front door returns FastAPI's bare
+    `{"detail": "Not Found"}` is indistinguishable from a broken one."""
+    client, _ = make_client()
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["docs"] == "/docs"
+    assert "health" in body["endpoints"]
+
+
+def test_every_advertised_endpoint_actually_exists(make_client):
+    """An index that lists a route the app doesn't serve is worse than no
+    index at all."""
+    client, _ = make_client()
+    served = {
+        (method, route.path)
+        for route in service.app.routes
+        for method in getattr(route, "methods", ())
+    }
+
+    for advertised in client.get("/").json()["endpoints"].values():
+        method, path = advertised.split(" ", 1)
+        assert (method, path) in served, advertised

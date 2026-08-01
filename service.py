@@ -35,10 +35,10 @@ from pydantic import BaseModel, Field
 
 import research_agent
 import usage as usage_accounting
-from metrics import FAILED, MetricsStore, RunRecord
+from metrics import FAILED, MetricsStore, RunRecord, get_metrics_store
 from observability import get_logger
 from research_agent import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
-from sessions import SESSION_DB_PATH, Session, SessionStore
+from sessions import Session, SessionStore, get_session_store
 
 log = get_logger()
 
@@ -131,8 +131,19 @@ def get_metrics(request: Request) -> MetricsStore:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.sessions = SessionStore(os.environ.get("SESSION_DB_PATH", SESSION_DB_PATH))
-    app.state.metrics = MetricsStore()
+    # Backends are chosen here, once, from the environment -- the rest of the
+    # module only ever sees the interfaces.
+    app.state.sessions = get_session_store()
+    app.state.metrics = get_metrics_store()
+    log.info(
+        "service starting",
+        extra={
+            "event": "startup",
+            "sessions_backend": type(app.state.sessions).__name__,
+            "metrics_backend": type(app.state.metrics).__name__,
+            "memory_backend": type(research_agent.memory()).__name__,
+        },
+    )
     try:
         yield
     finally:
@@ -142,7 +153,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Research agent",
-    version="0.5.0",
+    version="0.6.0",
     summary="Supervisor-routed research pipeline with fact-checked reports and follow-ups.",
     lifespan=lifespan,
 )
@@ -263,6 +274,36 @@ def _node_detail(node_name: str, state: dict) -> dict:
 # --------------------------------------------------------------------------
 
 
+@app.get("/", tags=["ops"])
+def index() -> dict:
+    """A front door.
+
+    Without this, the first thing anyone sees after a successful deploy is
+    FastAPI's bare `{"detail": "Not Found"}` at the root URL, which is
+    indistinguishable from a broken deployment. The service is up; it just
+    had nothing to say at `/`.
+    """
+    return {
+        "service": app.title,
+        "version": app.version,
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+        "endpoints": {
+            "health": "GET /health",
+            "research": "POST /research",
+            "research_stream": "POST /research/stream",
+            "ask": "POST /sessions/{session_id}/ask",
+            "ask_stream": "POST /sessions/{session_id}/ask/stream",
+            "sessions": "GET /sessions",
+            "session": "GET /sessions/{session_id}",
+            "trace": "GET /sessions/{session_id}/trace",
+            "metrics": "GET /metrics",
+            "pricing": "GET /pricing",
+            "memory": "GET /memory",
+        },
+    }
+
+
 @app.get("/health", tags=["ops"])
 def health(
     store: SessionStore = Depends(get_sessions),
@@ -283,7 +324,11 @@ def health(
     return {
         "status": "ok",
         "memory": {"backend": type(memory).__name__, "notes": len(memory)},
-        "sessions": {"count": store.count(), "path": store.path},
+        "sessions": {
+            "backend": type(store).__name__,
+            "count": store.count(),
+            "path": store.path,
+        },
         "runs_recorded": metrics.count(),
         "credentials": {
             "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
