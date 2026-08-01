@@ -122,16 +122,34 @@ def test_rejected_draft_is_rewritten_then_approved(fake_client):
 
 def test_a_critic_that_never_approves_stops_at_the_revision_cap(fake_client):
     """The guardrail has to hold against a critic stuck in a loop, and the
-    unapproved draft has to be labelled as such."""
+    unapproved draft has to be labelled as such.
+
+    The reason must be the *revision* cap, not the iteration backstop: the
+    former says the draft never got grounded, the latter reads like an
+    internal fault. They were the wrong way round until the evals caught it.
+    """
     client = fake_client(["REVISE: still wrong"] * 20)
     result = app.invoke(initial_state("why is the sky blue?"))
 
     assert result["approved"] is False
-    assert result["forced_stop_reason"] in (
-        "max_revisions_exceeded",
-        "max_iterations_exceeded",
-    )
-    assert client.nodes_called().count("writer") <= research_agent.MAX_REVISIONS + 1
+    assert result["forced_stop_reason"] == "max_revisions_exceeded"
+    assert client.nodes_called().count("writer") <= research_agent.MAX_REVISIONS + 2
+
+
+def test_the_iteration_backstop_sits_above_the_revision_cap():
+    """If the backstop fires first it isn't a backstop -- it's the cap, wearing
+    a misleading name. Pin the relationship so tuning one can't silently
+    smother the other."""
+    assert research_agent.MAX_ITERATIONS > 2 * (research_agent.MAX_REVISIONS + 2)
+
+
+def test_a_never_approving_followup_also_blames_the_revisions(fake_client):
+    fake_client(["APPROVED"] + ["REVISE: still wrong"] * 20)
+    first = app.invoke(initial_state("why?"))
+
+    result = app.invoke(followup_state(first, "and?"))
+
+    assert result["forced_stop_reason"] == "max_revisions_exceeded"
 
 
 def test_followup_answers_without_searching_again(fake_client):

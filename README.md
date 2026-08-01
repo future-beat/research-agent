@@ -28,11 +28,11 @@ Follow-up turns over the previous run's notes, reusing the critic loop. `MemoryS
 **✅ Phase 4 — Service surface**
 FastAPI over the same graph. Blocking and server-sent-event variants of every run. Sessions persisted to SQLite so follow-ups survive a restart or a different worker. Upstream failures mapped to honest status codes; `/health` that doesn't page you when a third party is down.
 
-**✅ Phase 5 — Observability & cost control** *(this phase)*
-Per-run token and cost accounting against a date-aware price table, a spend cap that becomes another row in the routing table, structured JSON logs keyed by `run_id`, optional OpenTelemetry spans, and `/metrics` over a runs table that counts failures as well as successes. 220 tests.
+**✅ Phase 5 — Observability & cost control**
+Per-run token and cost accounting against a date-aware price table, a spend cap that becomes another row in the routing table, structured JSON logs keyed by `run_id`, optional OpenTelemetry spans, and `/metrics` over a runs table that counts failures as well as successes.
 
-**⬜ Phase 6 — Evaluation harness**
-A golden set of research questions. Deterministic grading of routing, guardrails, and grounding-refusal behaviour, plus an LLM-as-judge check that reports actually follow from their notes. JSON report artifact and a threshold exit code so CI can fail on a regression.
+**✅ Phase 6 — Evaluation harness** *(this phase)*
+A twelve-case golden set graded by deterministic checks over finished runs, plus LLM-as-judge grounding checks on a stronger model than the pipeline. Runs free and offline in CI, or live against the real API. JSON report artifact and a threshold exit code. It found a real bug on its first run — see below. 269 tests.
 
 **⬜ Phase 7 — Ship it**
 Dockerfile with a healthcheck, compose file for local runs, GitHub Actions running lint, tests, and a container smoke test on every push, and a deploy config with a mounted volume for the memory and session stores.
@@ -165,6 +165,12 @@ The parts worth reading the code for.
 **An unpriced model is reported, not costed at zero.** If `MODEL` is changed to something with no row in the price table, tokens are still counted but `cost_usd` becomes a floor and `pricing_unknown` goes true. Silently costing those calls at zero would quietly disable the budget guardrail — a cost control that fails open without saying so is worse than none.
 
 **Failed runs are in the metrics denominator.** A run that died opens no session, but it still burned tokens and still happened. Recording only successes would make an upstream outage look like a quiet day and would flatter every rate on the dashboard. Rates whose denominator is zero return `null` rather than `0.0`, because "no runs yet" and "nothing was approved" are different facts and a dashboard shouldn't conflate them. Latency percentiles cover completed runs only — time-to-failure is not time-to-report, and mixing them makes an outage look like a speed-up.
+
+**Offline evals grade the pipeline; only `--live` grades the model.** The suite drives the real compiled graph either way, but offline it replaces the API with a scripted client whose output is authored in the dataset. That makes it free, deterministic, and safe to run on every push — and it means it cannot say anything about answer quality, because the answers are ours. What it *can* check is everything around the model: routing, both guardrails, follow-up isolation, and the invariant that an unapproved draft is never returned as if approved. The CLI prints that caveat under every offline run, because a green suite that quietly implies "the model is good" is worse than no suite.
+
+**The judge runs on a different, stronger model than the pipeline.** The in-graph critic shares the writer's model — good enough to catch ungrounded claims, not an independent evaluator, and the README has said so since Phase 1. A judge on that same model would inherit exactly the blind spots it exists to find, so it runs on Opus 5 against Sonnet 5, and returns a structured verdict rather than a text convention: a scoring harness that mis-parses a verdict reports a confident wrong number, which is worse than crashing.
+
+**The evals found a real bug on their first run.** `MAX_ITERATIONS` was 8 and `MAX_REVISIONS` 2, which made the revision cap **unreachable in research mode** — reaching `revision_count > 2` needs supervisor turn 10, so the iteration backstop always fired first. A run where the critic kept rejecting reported `max_iterations_exceeded`, which reads like an internal fault, instead of `max_revisions_exceeded`, which is the truth: the draft never got grounded. Both caps "worked"; they were just the wrong way round. `MAX_ITERATIONS` is now derived from `MAX_REVISIONS` so the backstop stays above the cap, and a test pins the relationship. No unit test caught this, because each cap was correct in isolation — it took running whole scenarios and asserting on *which* guardrail fired.
 
 **A stream that fails has to say so in-band.** By the time a node dies, the `200` and the headers are long gone. So `_stream` catches everything and emits a terminal `error` event: exactly one terminal event per stream, never both, never neither. Without it a mid-run failure is indistinguishable from a truncated connection, and the client's only options are to guess or to hang.
 
@@ -303,7 +309,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-220 tests, ~1.5s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
+269 tests, ~1.5s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
 
 | File | Covers |
 |---|---|
@@ -316,6 +322,45 @@ pytest
 | `tests/test_usage.py` | Both Sonnet 5 price windows, cache-rate multipliers, usage extraction, per-run accumulation |
 | `tests/test_metrics.py` | Aggregation, rate denominators, percentile edges, concurrent writes |
 | `tests/test_observability.py` | JSON log shape, handler idempotence, the tracing no-op |
+| `tests/test_evals.py` | Dataset coverage, every grader's failure path, judge parsing, threshold and exit-code behaviour |
+
+---
+
+## Evals
+
+```bash
+python -m evals                                   # offline: free, no keys, CI-safe
+python -m evals --live                            # real API + judge graders (costs money)
+python -m evals --case followup-admits-a-gap      # one case; repeatable
+python -m evals --report evals-report.json --min-pass-rate 0.9
+```
+
+```
+Research agent evals  (offline, 12 cases)
+
+  PASS  technical-figures
+  PASS  contested-viewpoints
+  FAIL  revision-cap-is-labelled
+        forced_stop: expected 'max_revisions_exceeded', got 'max_iterations_exceeded'
+        why it matters: A critic that never approves must not loop forever, and
+        the draft it gives up on must be labelled unapproved.
+  ...
+
+PASS  11/12 cases (92% vs 90% required)
+```
+
+Exits non-zero below `--min-pass-rate`, so CI fails on a regression without anyone reading the output. Every case carries a `why` sentence saying what regressing it would cost — printed next to the failure, which is the moment it's worth reading.
+
+| Grader | Kind | Checks |
+|---|---|---|
+| `never_silently_unapproved` | deterministic | A draft is approved, or says why it isn't. The invariant that matters most. |
+| `terminates` | deterministic | The run reached the supervisor's `done` |
+| `topic_type` · `approval` · `forced_stop` · `revisions` | deterministic | The run took the expected path and the expected guardrail fired |
+| `answer_present` · `within_budget` · `notes_stored` | deterministic | Non-empty output, spend in range, recall still being written |
+| `followup_reuses_notes` · `followup_fact_checked` | deterministic | Follow-ups skip search but not the critic |
+| `judge_grounding` | judge | Every claim in the report follows from the notes |
+| `judge_answers_the_question` | judge | The report addresses what was asked |
+| `judge_followup_honesty` | judge | An uncovered follow-up admits the gap instead of guessing |
 
 ---
 
@@ -365,6 +410,7 @@ metrics.py              runs table and the /metrics aggregation
 sessions.py             SQLite-backed conversation sessions
 service.py              FastAPI surface: blocking + SSE, sessions, ops
 chat.py                 terminal REPL with streamed progress
+evals/                  golden dataset, graders, runner, CLI
 tests/                  pytest suite (no keys, no network)
 requirements.txt        pinned dependencies
 requirements-dev.txt    + pytest
@@ -389,6 +435,8 @@ Known, and deliberate for the scope:
 - **Retries assume nodes are safe to re-run.** They are today — each node overwrites its own fields — but a node that appended to state instead of replacing it would double-write on retry.
 - **No auth, no rate limiting, no per-caller quotas.** The budget caps what a *single* run can spend; nothing caps how many runs a caller can start. Put this behind a gateway before exposing it.
 - **The spend cap is per run, not per hour or per tenant.** A thousand runs at $0.99 each is a thousand dollars and no guardrail fires.
+- **Offline evals cannot measure answer quality.** The model output is authored in the dataset, so a green offline run says the pipeline is intact, not that the answers are good. Only `--live` measures that, and it costs money and varies between runs.
+- **The judge is one model's opinion.** `judge_grounding` is a stronger, independent check than the in-graph critic, not ground truth. Twelve cases is a smoke test, not a benchmark.
 - **Cost is computed from list prices.** Enterprise discounts, batch pricing, and the `inference_geo` multiplier are not modelled, so `/metrics` is an estimate that tracks the shape of the bill, not the bill itself.
 - **Sessions grow without bound and belong to nobody.** No expiry, no ownership, no pagination beyond a 50-row cap on listing. Anyone who can reach the service can read any session.
 - **Single-writer SQLite.** One container is fine. Horizontal scaling wants Postgres for sessions and Chroma for notes — both already behind interfaces, so it's a swap rather than a rewrite.

@@ -25,3 +25,6 @@ chroma_store/
 *.db
 *.db-wal
 *.db-shm
+
+# Eval report artifacts
+evals-report.json

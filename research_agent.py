@@ -36,8 +36,15 @@ from retry import retry_node
 from vector_memory import MemoryStore, get_memory_store
 
 MODEL = "claude-sonnet-5"
-MAX_ITERATIONS = 8
 MAX_REVISIONS = 2
+# The backstop has to sit above the revision cap, or it stops being a backstop.
+# A research run that exhausts its revisions takes: classifier, researcher, then
+# a writer/critic pair per attempt (1 initial + MAX_REVISIONS + 1 to trip it),
+# so the revision cap can only fire on supervisor turn 2 + 2*(MAX_REVISIONS+2).
+# At the original 8 it never did -- a critic stuck rejecting reported
+# "max_iterations_exceeded", which reads like an internal fault rather than
+# the truth, which is that the draft never got grounded. Found by the evals.
+MAX_ITERATIONS = 2 * (MAX_REVISIONS + 2) + 4  # 12: reachable, with headroom
 
 log = get_logger()
 
