@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -33,8 +34,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 import research_agent
+import usage as usage_accounting
+from metrics import COMPLETED, FAILED, MetricsStore, RunRecord
+from observability import get_logger
 from research_agent import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
 from sessions import SESSION_DB_PATH, Session, SessionStore
+
+log = get_logger()
 
 MAX_QUESTION_CHARS = 2000
 SESSION_LIST_LIMIT = 50
@@ -72,10 +78,13 @@ class RunResponse(BaseModel):
     iterations: int
     max_iterations: int = MAX_ITERATIONS
     retries: int
+    usage: dict[str, Any]
+    cost_usd: float
     trace: list[dict[str, Any]]
 
     @classmethod
     def build(cls, session_id: str, state: dict) -> "RunResponse":
+        run_usage = state.get("usage") or usage_accounting.new_usage()
         return cls(
             session_id=session_id,
             mode=state["mode"],
@@ -87,6 +96,8 @@ class RunResponse(BaseModel):
             revision_count=state["revision_count"],
             iterations=state["iteration"],
             retries=sum(1 for e in state["trace"] if e.get("event") == "retry"),
+            usage=run_usage,
+            cost_usd=round(run_usage.get("cost_usd", 0.0), 6),
             trace=state["trace"],
         )
 
@@ -114,46 +125,88 @@ def get_sessions(request: Request) -> SessionStore:
     return request.app.state.sessions
 
 
+def get_metrics(request: Request) -> MetricsStore:
+    return request.app.state.metrics
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.sessions = SessionStore(os.environ.get("SESSION_DB_PATH", SESSION_DB_PATH))
+    app.state.metrics = MetricsStore()
     try:
         yield
     finally:
         app.state.sessions.close()
+        app.state.metrics.close()
 
 
 app = FastAPI(
     title="Research agent",
-    version="0.4.0",
+    version="0.5.0",
     summary="Supervisor-routed research pipeline with fact-checked reports and follow-ups.",
     lifespan=lifespan,
 )
 
 
-def _run(state: dict) -> dict:
-    """Run the graph, translating API failures into HTTP status codes.
+def _http_error(exc: BaseException) -> HTTPException | None:
+    """Map an upstream failure to the status code that tells the caller what
+    to do about it.
 
     Transient errors have already been retried with backoff inside each node,
-    so anything arriving here is either persistent or has outlived its budget.
-    That distinction is what the caller needs, so it maps to the status code:
-    429 means slow down, 502 means upstream is unwell, 500 means our bug.
+    so anything arriving here is either persistent or has outlived its budget:
+    429 means slow down, 502 means upstream is unwell. Anything else is our
+    bug and should surface as a 500 with a traceback, not be dressed up as an
+    upstream problem.
     """
+    if isinstance(exc, anthropic.RateLimitError):
+        return HTTPException(429, "Upstream rate limit exceeded after retries.")
+    if isinstance(exc, anthropic.APIStatusError):
+        return HTTPException(502, f"Upstream API error ({exc.status_code}).")
+    if isinstance(exc, anthropic.APIConnectionError):
+        return HTTPException(502, "Could not reach the upstream API.")
+    return None
+
+
+def _failed_record(state: dict, exc: BaseException, started: float) -> RunRecord:
+    """A run that raised still belongs in the metrics table. Counting only the
+    runs that finished would make an upstream outage look like a quiet day."""
+    record = RunRecord.from_state(state, duration_ms=(time.perf_counter() - started) * 1000)
+    record.status = FAILED
+    record.error_type = type(exc).__name__
+    return record
+
+
+def _execute(state: dict, metrics: MetricsStore, on_complete) -> tuple[str, dict]:
+    """Run the graph to completion, persist the result, and record the run."""
+    started = time.perf_counter()
     try:
-        return research_agent.app.invoke(state)
-    except anthropic.RateLimitError as exc:
-        raise HTTPException(429, "Upstream rate limit exceeded after retries.") from exc
-    except anthropic.APIStatusError as exc:
-        raise HTTPException(502, f"Upstream API error ({exc.status_code}).") from exc
-    except anthropic.APIConnectionError as exc:
-        raise HTTPException(502, "Could not reach the upstream API.") from exc
+        final_state = research_agent.app.invoke(state)
+    except BaseException as exc:
+        metrics.record(_failed_record(state, exc, started))
+        log.warning(
+            "run failed",
+            extra={
+                "event": "run_failed",
+                "run_id": state.get("run_id", ""),
+                "mode": state.get("mode", ""),
+                "error": type(exc).__name__,
+            },
+        )
+        raise (_http_error(exc) or exc) from exc
+
+    duration_ms = (time.perf_counter() - started) * 1000
+    session_id = on_complete(final_state)
+    metrics.record(
+        RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
+    )
+    return session_id, final_state
 
 
 def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
-def _stream(state: dict, on_complete) -> Iterator[str]:
+def _stream(state: dict, metrics: MetricsStore, on_complete) -> Iterator[str]:
     """Emit one SSE `node` event per finished node, then a single terminal
     event -- `result` or `error`, never both, never neither.
 
@@ -161,6 +214,7 @@ def _stream(state: dict, on_complete) -> Iterator[str]:
     we want anyway since the graph is blocking.
     """
     final_state = None
+    started = time.perf_counter()
     try:
         for chunk in research_agent.app.stream(state):
             for node_name, node_state in chunk.items():
@@ -172,14 +226,17 @@ def _stream(state: dict, on_complete) -> Iterator[str]:
         if final_state is None:  # pragma: no cover - graph always yields
             raise RuntimeError("graph produced no state")
 
+        duration_ms = (time.perf_counter() - started) * 1000
         session_id = on_complete(final_state)
+        metrics.record(
+            RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
+        )
         yield _sse("result", RunResponse.build(session_id, final_state).model_dump())
 
-    except anthropic.APIError as exc:
-        yield _sse("error", {"error": type(exc).__name__, "detail": str(exc)})
     except Exception as exc:  # noqa: BLE001 - the stream must terminate cleanly
         # Headers are long gone by now, so an exception here would otherwise
         # look to the client like a truncated stream rather than a failure.
+        metrics.record(_failed_record(state, exc, started))
         yield _sse("error", {"error": type(exc).__name__, "detail": str(exc)})
 
 
@@ -207,7 +264,10 @@ def _node_detail(node_name: str, state: dict) -> dict:
 
 
 @app.get("/health", tags=["ops"])
-def health(store: SessionStore = Depends(get_sessions)) -> dict:
+def health(
+    store: SessionStore = Depends(get_sessions),
+    metrics: MetricsStore = Depends(get_metrics),
+) -> dict:
     """Liveness plus the two facts worth knowing at a glance: which memory
     backend is live, and whether sessions are actually persisting.
 
@@ -219,40 +279,60 @@ def health(store: SessionStore = Depends(get_sessions)) -> dict:
         "status": "ok",
         "memory": {"backend": type(memory).__name__, "notes": len(memory)},
         "sessions": {"count": store.count(), "path": store.path},
+        "runs_recorded": metrics.count(),
     }
 
 
 @app.post("/research", response_model=RunResponse, tags=["research"])
-def research(body: AskRequest, store: SessionStore = Depends(get_sessions)) -> RunResponse:
+def research(
+    body: AskRequest,
+    store: SessionStore = Depends(get_sessions),
+    metrics: MetricsStore = Depends(get_metrics),
+) -> RunResponse:
     """Full pipeline: classify, search, draft, fact-check. Opens a session."""
     question = body.cleaned()
-    state = _run(initial_state(question))
-    session_id = store.create(question, state)
+    session_id, state = _execute(
+        initial_state(question), metrics, lambda final: store.create(question, final)
+    )
     return RunResponse.build(session_id, state)
 
 
 @app.post("/research/stream", tags=["research"])
-def research_stream(body: AskRequest, store: SessionStore = Depends(get_sessions)):
+def research_stream(
+    body: AskRequest,
+    store: SessionStore = Depends(get_sessions),
+    metrics: MetricsStore = Depends(get_metrics),
+):
     question = body.cleaned()
     return _sse_response(
-        initial_state(question), lambda state: store.create(question, state)
+        initial_state(question), metrics, lambda state: store.create(question, state)
     )
 
 
 @app.post("/sessions/{session_id}/ask", response_model=RunResponse, tags=["research"])
 def ask(
-    session_id: str, body: AskRequest, store: SessionStore = Depends(get_sessions)
+    session_id: str,
+    body: AskRequest,
+    store: SessionStore = Depends(get_sessions),
+    metrics: MetricsStore = Depends(get_metrics),
 ) -> RunResponse:
     """Follow up on a session's research notes. No new web search."""
     session = _require(store, session_id)
-    state = _run(followup_state(session.state, body.cleaned()))
-    store.append_turn(session_id, state)
+
+    def on_complete(final: dict) -> str:
+        store.append_turn(session_id, final)
+        return session_id
+
+    _, state = _execute(followup_state(session.state, body.cleaned()), metrics, on_complete)
     return RunResponse.build(session_id, state)
 
 
 @app.post("/sessions/{session_id}/ask/stream", tags=["research"])
 def ask_stream(
-    session_id: str, body: AskRequest, store: SessionStore = Depends(get_sessions)
+    session_id: str,
+    body: AskRequest,
+    store: SessionStore = Depends(get_sessions),
+    metrics: MetricsStore = Depends(get_metrics),
 ):
     session = _require(store, session_id)
 
@@ -260,7 +340,9 @@ def ask_stream(
         store.append_turn(session_id, state)
         return session_id
 
-    return _sse_response(followup_state(session.state, body.cleaned()), on_complete)
+    return _sse_response(
+        followup_state(session.state, body.cleaned()), metrics, on_complete
+    )
 
 
 @app.get("/sessions", tags=["sessions"])
@@ -300,6 +382,42 @@ def memory_stats() -> dict:
     return {"backend": type(store).__name__, "notes": len(store), "detail": store.describe()}
 
 
+@app.get("/metrics", tags=["ops"])
+def metrics_summary(metrics: MetricsStore = Depends(get_metrics)) -> dict:
+    """Aggregate volume, approval rate, guardrail firings, cost, and latency.
+
+    Rate fields are null rather than zero when their denominator is zero --
+    "no runs yet" and "nothing was approved" are different facts.
+    """
+    return metrics.summary()
+
+
+@app.get("/pricing", tags=["ops"])
+def pricing() -> dict:
+    """The rates cost accounting is using today.
+
+    Worth exposing: Claude Sonnet 5 is on introductory pricing that ends
+    2026-08-31, so the same run costs 50% more the following day. A cost
+    dashboard that steps without explanation is a support ticket.
+    """
+    model = research_agent.MODEL
+    try:
+        price = usage_accounting.price_for(model)
+    except usage_accounting.UnknownModelPricing as exc:
+        raise HTTPException(501, str(exc)) from exc
+    return {
+        "model": model,
+        "usd_per_mtok": {
+            "input": price.input,
+            "output": price.output,
+            "cache_write_5m": price.cache_write_5m,
+            "cache_read": price.cache_read,
+        },
+        "web_search_usd_per_request": usage_accounting.WEB_SEARCH_USD_PER_REQUEST,
+        "max_run_cost_usd": usage_accounting.max_run_cost_usd(),
+    }
+
+
 def _require(store: SessionStore, session_id: str) -> Session:
     session = store.get(session_id)
     if session is None:
@@ -307,9 +425,9 @@ def _require(store: SessionStore, session_id: str) -> Session:
     return session
 
 
-def _sse_response(state: dict, on_complete) -> StreamingResponse:
+def _sse_response(state: dict, metrics: MetricsStore, on_complete) -> StreamingResponse:
     return StreamingResponse(
-        _stream(state, on_complete),
+        _stream(state, metrics, on_complete),
         media_type="text/event-stream",
         # Without this, an nginx or Fly proxy will happily buffer a
         # progress stream until it is no longer progress.

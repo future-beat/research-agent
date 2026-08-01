@@ -22,9 +22,29 @@ class Block:
         self.text = text
 
 
+class ServerToolUse:
+    def __init__(self, web_search_requests=0):
+        self.web_search_requests = web_search_requests
+        self.web_fetch_requests = 0
+
+
+class Usage:
+    """Mirrors the shape of the SDK's usage object closely enough for the
+    cost accounting under test -- including the None-valued cache fields the
+    real API returns when nothing was cached."""
+
+    def __init__(self, web_search_requests=0):
+        self.input_tokens = 1000
+        self.output_tokens = 100
+        self.cache_read_input_tokens = None
+        self.cache_creation_input_tokens = None
+        self.server_tool_use = ServerToolUse(web_search_requests)
+
+
 class Response:
-    def __init__(self, text):
+    def __init__(self, text, web_search_requests=0):
         self.content = [Block(text)]
+        self.usage = Usage(web_search_requests)
 
 
 class FakeClient:
@@ -59,7 +79,8 @@ class FakeClient:
             text = "REPORT: the sky is blue."
 
         self.calls.append((node, prompt))
-        return Response(text)
+        # Only the researcher has the web search tool, so only it bills searches.
+        return Response(text, web_search_requests=2 if node == "researcher" else 0)
 
     def nodes_called(self):
         return [node for node, _ in self.calls]
@@ -197,3 +218,69 @@ def test_the_trace_records_the_whole_run(fake_client):
         "supervisor", "critic",
         "supervisor",
     ]
+
+
+# --------------------------------------------------------------------------
+# Cost accounting
+# --------------------------------------------------------------------------
+
+
+def test_usage_accumulates_across_every_node(fake_client):
+    client = fake_client()
+    result = app.invoke(initial_state("why is the sky blue?"))
+
+    usage = result["usage"]
+    assert usage["calls"] == len(client.nodes_called()) == 4
+    assert usage["input_tokens"] == 4000
+    assert usage["output_tokens"] == 400
+    assert usage["web_search_requests"] == 2  # researcher only
+    assert usage["cost_usd"] > 0
+    assert usage["pricing_unknown"] is False
+
+
+def test_a_revision_costs_more_than_a_clean_run(fake_client):
+    """Two extra model calls, two extra calls' worth of spend -- the thing
+    the budget guardrail exists to bound."""
+    fake_client(["APPROVED"])
+    clean = app.invoke(initial_state("why?"))["usage"]["cost_usd"]
+
+    fake_client(["REVISE: fix it", "APPROVED"])
+    revised = app.invoke(initial_state("why?"))["usage"]["cost_usd"]
+
+    assert revised > clean
+
+
+def test_the_budget_guardrail_stops_a_run_mid_flight(fake_client, monkeypatch):
+    """A budget small enough to blow on the first call: the run stops with a
+    named reason rather than continuing to spend."""
+    monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "0.000001")
+    client = fake_client()
+
+    result = app.invoke(initial_state("why?"))
+
+    assert result["forced_stop_reason"] == "budget_exceeded"
+    assert result["approved"] is False
+    assert len(client.nodes_called()) < 4  # stopped before finishing the pipeline
+
+
+def test_a_generous_budget_never_fires(fake_client, monkeypatch):
+    monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "100")
+    fake_client()
+    assert app.invoke(initial_state("why?"))["forced_stop_reason"] == ""
+
+
+def test_a_followup_is_costed_separately_from_its_research_run(fake_client):
+    fake_client(["APPROVED", "APPROVED"])
+    first = app.invoke(initial_state("why?"))
+
+    answer = app.invoke(followup_state(first, "and?"))
+
+    assert answer["usage"]["calls"] == 2  # responder + critic only
+    assert answer["usage"]["cost_usd"] < first["usage"]["cost_usd"]
+
+
+def test_every_run_carries_a_distinct_run_id(fake_client):
+    fake_client(["APPROVED"] * 4)
+    first = app.invoke(initial_state("why?"))
+    second = app.invoke(initial_state("why again?"))
+    assert first["run_id"] != second["run_id"]

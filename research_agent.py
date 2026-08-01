@@ -23,17 +23,23 @@ Requires: ANTHROPIC_API_KEY and VOYAGE_API_KEY in your environment
 
 from __future__ import annotations
 
+import time
+import uuid
 from typing import Literal, TypedDict
 
 import anthropic
 from langgraph.graph import END, StateGraph
 
+import usage as usage_accounting
+from observability import get_logger, span
 from retry import retry_node
 from vector_memory import MemoryStore, get_memory_store
 
 MODEL = "claude-sonnet-5"
 MAX_ITERATIONS = 8
 MAX_REVISIONS = 2
+
+log = get_logger()
 
 # Both clients are built on first use, not at import. Constructing them at
 # module scope would mean you cannot import this module -- or unit-test the
@@ -68,7 +74,48 @@ def _text(response) -> str:
     return "".join(block.text for block in response.content if block.type == "text")
 
 
+def call_model(state: "AgentState", node: str, **kwargs):
+    """Every model call in this system goes through here.
+
+    One choke point for the three things you need per call in production:
+    what it cost, how long it took, and a span to hang it off. Nodes that
+    called the client directly would each have to remember all three.
+
+    Usage is folded into `state["usage"]` before the response is returned, so
+    the supervisor sees the true running cost on its very next hop.
+    """
+    started = time.perf_counter()
+    with span(
+        f"node.{node}", run_id=state.get("run_id", ""), node=node, model=MODEL,
+        mode=state.get("mode", ""),
+    ):
+        response = client().messages.create(model=MODEL, **kwargs)
+
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    call = usage_accounting.CallUsage.from_response(response)
+    cost = usage_accounting.record(state["usage"], call, MODEL)
+
+    log.info(
+        "model call",
+        extra={
+            "event": "model_call",
+            "run_id": state.get("run_id", ""),
+            "node": node,
+            "model": MODEL,
+            "duration_ms": round(elapsed_ms, 1),
+            "input_tokens": call.input_tokens,
+            "output_tokens": call.output_tokens,
+            "cache_read_tokens": call.cache_read_input_tokens,
+            "web_searches": call.web_search_requests,
+            "cost_usd": round(cost, 6),
+            "run_cost_usd": round(state["usage"]["cost_usd"], 6),
+        },
+    )
+    return response
+
+
 class AgentState(TypedDict):
+    run_id: str  # identifies this run in logs, spans, and the metrics table
     task: str  # the research question, or the follow-up question in followup mode
     mode: str  # "research" | "followup"
     topic_type: str  # "technical" | "contested" | "sparse" | "general"
@@ -83,12 +130,14 @@ class AgentState(TypedDict):
     forced_stop_reason: str
     next_step: str
     iteration: int
+    usage: dict  # running token and cost totals for this run
     trace: list
 
 
 def initial_state(task: str) -> AgentState:
     """A clean research run. Only the memory store persists across runs."""
     return {
+        "run_id": uuid.uuid4().hex,
         "task": task,
         "mode": "research",
         "topic_type": "",
@@ -103,6 +152,7 @@ def initial_state(task: str) -> AgentState:
         "forced_stop_reason": "",
         "next_step": "",
         "iteration": 0,
+        "usage": usage_accounting.new_usage(),
         "trace": [],
     }
 
@@ -157,8 +207,9 @@ CRITIC_RUBRIC = {
 
 @retry_node("classifier")
 def classifier_node(state: AgentState) -> AgentState:
-    response = client().messages.create(
-        model=MODEL,
+    response = call_model(
+        state,
+        "classifier",
         max_tokens=20,
         thinking={"type": "disabled"},  # one-word label; no room (or need) for thinking
         output_config={"effort": "medium"},
@@ -191,8 +242,9 @@ def researcher_node(state: AgentState) -> AgentState:
         if recalled else ""
     )
 
-    response = client().messages.create(
-        model=MODEL,
+    response = call_model(
+        state,
+        "researcher",
         max_tokens=4000,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
@@ -225,8 +277,9 @@ def writer_node(state: AgentState) -> AgentState:
         f"\n\nPrevious critic feedback to address:\n{state['critic_feedback']}"
         if is_revision else ""
     )
-    response = client().messages.create(
-        model=MODEL,
+    response = call_model(
+        state,
+        "writer",
         max_tokens=4000,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
@@ -275,8 +328,9 @@ def responder_node(state: AgentState) -> AgentState:
         f"\n\nPrevious critic feedback to address:\n{state['critic_feedback']}"
         if is_revision else ""
     )
-    response = client().messages.create(
-        model=MODEL,
+    response = call_model(
+        state,
+        "responder",
         max_tokens=2000,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
@@ -310,8 +364,9 @@ def responder_node(state: AgentState) -> AgentState:
 @retry_node("critic")
 def critic_node(state: AgentState) -> AgentState:
     subject = "answer" if state["mode"] == "followup" else "draft report"
-    response = client().messages.create(
-        model=MODEL,
+    response = call_model(
+        state,
+        "critic",
         max_tokens=2000,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
@@ -346,6 +401,7 @@ def supervisor_node(state: AgentState) -> AgentState:
     """
     state["iteration"] += 1
     author = "responder" if state["mode"] == "followup" else "writer"
+    budget = usage_accounting.max_run_cost_usd()
 
     if state["iteration"] > MAX_ITERATIONS:
         state["next_step"] = "done"
@@ -353,6 +409,13 @@ def supervisor_node(state: AgentState) -> AgentState:
     elif state["revision_count"] > MAX_REVISIONS:
         state["next_step"] = "done"
         state["forced_stop_reason"] = "max_revisions_exceeded"
+    elif budget > 0 and state["usage"]["cost_usd"] > budget:
+        # The iteration and revision caps bound how many calls a run makes;
+        # this bounds what they cost. Checked between nodes, because cost is
+        # only knowable after a call returns -- so a run can overshoot by at
+        # most one node, not by an unbounded amount.
+        state["next_step"] = "done"
+        state["forced_stop_reason"] = "budget_exceeded"
     elif state["mode"] == "followup" and not state["research_notes"]:
         # A follow-up with nothing to follow up on. Stopping beats silently
         # answering from the model's own knowledge, which is the one thing
@@ -373,6 +436,23 @@ def supervisor_node(state: AgentState) -> AgentState:
         state["next_step"] = "done"
 
     state["trace"].append({"node": "supervisor", "routed_to": state["next_step"]})
+
+    if state["next_step"] == "done":
+        log.info(
+            "run finished",
+            extra={
+                "event": "run_finished",
+                "run_id": state.get("run_id", ""),
+                "mode": state["mode"],
+                "topic_type": state["topic_type"],
+                "approved": bool(state["approved"]),
+                "forced_stop_reason": state["forced_stop_reason"],
+                "iterations": state["iteration"],
+                "revisions": state["revision_count"],
+                "model_calls": state["usage"]["calls"],
+                "cost_usd": round(state["usage"]["cost_usd"], 6),
+            },
+        )
     return state
 
 

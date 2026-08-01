@@ -265,3 +265,85 @@ def test_every_reachable_next_step_has_an_edge():
     assert reachable <= edges
     # And the interesting ones are all actually reachable, not just legal.
     assert {"classifier", "researcher", "writer", "responder", "critic", "__end__"} <= reachable
+
+
+# --------------------------------------------------------------------------
+# Budget guardrail
+# --------------------------------------------------------------------------
+
+
+def spent(amount: float, **overrides):
+    s = state(**overrides)
+    s["usage"]["cost_usd"] = amount
+    return s
+
+
+def test_exceeding_the_budget_ends_the_run(monkeypatch):
+    """The iteration and revision caps bound how many calls a run makes;
+    this bounds what they cost."""
+    monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "0.50")
+    result = supervisor_node(spent(0.51, topic_type="technical", research_notes="n"))
+
+    assert result["next_step"] == "done"
+    assert result["forced_stop_reason"] == "budget_exceeded"
+
+
+def test_spending_up_to_the_budget_keeps_going(monkeypatch):
+    monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "0.50")
+    assert supervisor_node(
+        spent(0.50, topic_type="technical", research_notes="n")
+    )["next_step"] == "writer"
+
+
+def test_a_zero_budget_disables_the_cap(monkeypatch):
+    """An explicit opt-out, distinct from "spend nothing" -- which would make
+    every run stop before its first node."""
+    monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "0")
+    assert supervisor_node(
+        spent(99.0, topic_type="technical", research_notes="n")
+    )["next_step"] == "writer"
+
+
+def test_the_budget_stops_a_followup_too(monkeypatch):
+    monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "0.10")
+    s = spent(0.20, mode="followup", topic_type="technical", research_notes="n")
+    assert supervisor_node(s)["forced_stop_reason"] == "budget_exceeded"
+
+
+def test_the_iteration_cap_still_outranks_the_budget(monkeypatch):
+    monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "0.10")
+    result = supervisor_node(spent(99.0, iteration=MAX_ITERATIONS))
+    assert result["forced_stop_reason"] == "max_iterations_exceeded"
+
+
+def test_an_unpriced_model_does_not_silently_disable_the_budget(monkeypatch):
+    """cost_usd stays 0 when pricing is unknown, so the cap cannot fire --
+    `pricing_unknown` is the flag that says the number is a floor, not a total."""
+    monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "0.10")
+    s = state(topic_type="technical", research_notes="n")
+    s["usage"]["pricing_unknown"] = True
+
+    assert supervisor_node(s)["next_step"] == "writer"
+    assert s["usage"]["pricing_unknown"] is True
+
+
+def test_a_fresh_run_starts_with_a_run_id_and_empty_usage():
+    s = state()
+    assert s["run_id"]
+    assert s["usage"]["cost_usd"] == 0.0
+    assert s["usage"]["calls"] == 0
+
+
+def test_each_run_gets_its_own_run_id():
+    assert initial_state("a")["run_id"] != initial_state("b")["run_id"]
+
+
+def test_a_followup_is_a_new_run_with_its_own_id_and_budget():
+    """Follow-ups are separately budgeted: a long conversation shouldn't
+    inherit the spend of the research run it started from."""
+    prior = state(research_notes="notes", draft="report")
+    prior["usage"]["cost_usd"] = 0.90
+
+    s = followup_state(prior, "and?")
+    assert s["run_id"] != prior["run_id"]
+    assert s["usage"]["cost_usd"] == 0.0

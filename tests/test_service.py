@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 import research_agent
 import service
+from metrics import MetricsStore
 from sessions import SessionStore
 from vector_memory import InMemoryStore
 
@@ -31,6 +32,7 @@ def make_client(tmp_path, monkeypatch):
     # dependency override can redirect it. Without this, running the suite
     # drops a stray sessions.db next to the source.
     monkeypatch.setenv("SESSION_DB_PATH", str(tmp_path / "lifespan.db"))
+    monkeypatch.setenv("METRICS_DB_PATH", str(tmp_path / "lifespan-metrics.db"))
 
     def build(critic_verdicts=("APPROVED",) * 8):
         fake = FakeClient(critic_verdicts)
@@ -38,19 +40,22 @@ def make_client(tmp_path, monkeypatch):
         research_agent.set_memory(InMemoryStore(embedder=FakeEmbedder()))
 
         store = SessionStore(str(tmp_path / "sessions.db"))
+        metrics = MetricsStore(str(tmp_path / "metrics.db"))
         service.app.dependency_overrides[service.get_sessions] = lambda: store
+        service.app.dependency_overrides[service.get_metrics] = lambda: metrics
 
         client = TestClient(service.app)
-        created.append((client, store))
+        created.append((client, store, metrics))
         return client, fake
 
     yield build
 
     service.app.dependency_overrides.clear()
     research_agent.set_memory(None)
-    for client, store in created:
+    for client, store, metrics in created:
         client.close()
         store.close()
+        metrics.close()
 
 
 def sse_events(response) -> list[tuple[str, dict]]:
@@ -398,3 +403,129 @@ def test_a_failed_run_opens_no_session(make_client, monkeypatch):
     client.post("/research", json={"question": "why?"})
 
     assert client.get("/sessions").json()["sessions"] == []
+
+
+# --------------------------------------------------------------------------
+# Cost reporting and metrics
+# --------------------------------------------------------------------------
+
+
+def test_a_run_reports_what_it_cost(make_client):
+    client, _ = make_client()
+    body = client.post("/research", json={"question": "why?"}).json()
+
+    assert body["usage"]["calls"] == 4
+    assert body["usage"]["web_search_requests"] == 2
+    assert body["cost_usd"] > 0
+    assert body["usage"]["pricing_unknown"] is False
+
+
+def test_pricing_endpoint_reports_todays_rates(make_client):
+    """Sonnet 5's introductory pricing ends 2026-08-31, so the same run costs
+    50% more the next day. A cost dashboard that steps without explanation is
+    a support ticket."""
+    client, _ = make_client()
+    body = client.get("/pricing").json()
+
+    assert body["model"] == research_agent.MODEL
+    assert body["usd_per_mtok"]["input"] in (2.0, 3.0)
+    assert body["web_search_usd_per_request"] == 0.01
+    assert body["max_run_cost_usd"] > 0
+
+
+def test_metrics_start_empty(make_client):
+    client, _ = make_client()
+    summary = client.get("/metrics").json()
+
+    assert summary["runs"]["total"] == 0
+    assert summary["quality"]["approval_rate"] is None
+
+
+def test_a_completed_run_lands_in_metrics(make_client):
+    client, _ = make_client()
+    client.post("/research", json={"question": "why?"})
+
+    summary = client.get("/metrics").json()
+    assert summary["runs"]["total"] == 1
+    assert summary["runs"]["completed"] == 1
+    assert summary["runs"]["research"] == 1
+    assert summary["quality"]["approval_rate"] == 1.0
+    assert summary["cost"]["total_usd"] > 0
+    assert summary["cost"]["model_calls"] == 4
+    assert summary["latency_ms"]["p50"] > 0
+
+
+def test_follow_ups_are_counted_separately_from_research_runs(make_client):
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    client.post(f"/sessions/{session_id}/ask", json={"question": "and?"})
+
+    runs = client.get("/metrics").json()["runs"]
+    assert (runs["research"], runs["followup"], runs["total"]) == (1, 1, 2)
+
+
+def test_a_failed_run_is_counted_even_though_it_opens_no_session(make_client, monkeypatch):
+    """Counting only successes would make an upstream outage look like a
+    quiet day."""
+    client, _ = make_client()
+    monkeypatch.setattr(
+        research_agent.app, "invoke", _raise(api_error(anthropic.RateLimitError, 429))
+    )
+
+    client.post("/research", json={"question": "why?"})
+
+    summary = client.get("/metrics").json()
+    assert summary["runs"]["failed"] == 1
+    assert summary["runs"]["failure_rate"] == 1.0
+    assert summary["reliability"]["errors"] == {"RateLimitError": 1}
+    assert client.get("/sessions").json()["sessions"] == []
+
+
+def test_a_failed_stream_is_counted_too(make_client, monkeypatch):
+    client, _ = make_client()
+    monkeypatch.setattr(
+        research_agent.app,
+        "stream",
+        lambda state: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    client.post("/research/stream", json={"question": "why?"})
+
+    summary = client.get("/metrics").json()
+    assert summary["runs"]["failed"] == 1
+    assert summary["reliability"]["errors"] == {"RuntimeError": 1}
+
+
+def test_a_guardrail_firing_shows_up_in_metrics(make_client):
+    client, _ = make_client(["REVISE: nope"] * 20)
+    client.post("/research", json={"question": "why?"})
+
+    quality = client.get("/metrics").json()["quality"]
+    assert quality["forced_stops"] == 1
+    assert sum(quality["forced_stop_reasons"].values()) == 1
+    assert quality["approval_rate"] == 0.0
+
+
+def test_a_streamed_run_is_recorded_like_a_blocking_one(make_client):
+    client, _ = make_client()
+    client.post("/research/stream", json={"question": "why?"})
+
+    assert client.get("/metrics").json()["runs"]["completed"] == 1
+
+
+def test_health_reports_how_many_runs_have_been_recorded(make_client):
+    client, _ = make_client()
+    client.post("/research", json={"question": "why?"})
+    assert client.get("/health").json()["runs_recorded"] == 1
+
+
+def test_an_unexpected_error_is_not_dressed_up_as_an_upstream_problem(make_client, monkeypatch):
+    """A bug in our own code should surface as a 500, not a 502 blaming
+    Anthropic for something we did."""
+    client, _ = make_client()
+    monkeypatch.setattr(research_agent.app, "invoke", _raise(ValueError("our bug")))
+
+    with pytest.raises(ValueError):
+        client.post("/research", json={"question": "why?"})
+
+    assert client.get("/metrics").json()["reliability"]["errors"] == {"ValueError": 1}

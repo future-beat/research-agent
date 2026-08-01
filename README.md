@@ -25,11 +25,11 @@ Voyage embeddings, cosine retrieval with a relevance floor, persisted across run
 **✅ Phase 3 — Conversation, pluggability, resilience, tests**
 Follow-up turns over the previous run's notes, reusing the critic loop. `MemoryStore`/`Embedder` seams with JSON, in-memory, and Chroma backends. Per-node retry with jittered backoff that honours `retry-after`. 95 tests running with no keys and no network.
 
-**✅ Phase 4 — Service surface** *(this phase)*
-FastAPI over the same graph. Blocking and server-sent-event variants of every run. Sessions persisted to SQLite so follow-ups survive a restart or a different worker. Upstream failures mapped to honest status codes; `/health` that doesn't page you when a third party is down. 141 tests.
+**✅ Phase 4 — Service surface**
+FastAPI over the same graph. Blocking and server-sent-event variants of every run. Sessions persisted to SQLite so follow-ups survive a restart or a different worker. Upstream failures mapped to honest status codes; `/health` that doesn't page you when a third party is down.
 
-**⬜ Phase 5 — Observability & cost control**
-Structured JSON logs keyed by session, per-run token and cost accounting, a hard budget that aborts a runaway run, `/metrics`, and OpenTelemetry spans per run, node, and model call.
+**✅ Phase 5 — Observability & cost control** *(this phase)*
+Per-run token and cost accounting against a date-aware price table, a spend cap that becomes another row in the routing table, structured JSON logs keyed by `run_id`, optional OpenTelemetry spans, and `/metrics` over a runs table that counts failures as well as successes. 220 tests.
 
 **⬜ Phase 6 — Evaluation harness**
 A golden set of research questions. Deterministic grading of routing, guardrails, and grounding-refusal behaviour, plus an LLM-as-judge check that reports actually follow from their notes. JSON report artifact and a threshold exit code so CI can fail on a regression.
@@ -105,6 +105,7 @@ Every worker returns to the supervisor, which re-reads state and picks the next 
 | Supervisor sees | Routes to |
 |---|---|
 | iteration or revision cap exceeded | END *(sets `forced_stop_reason`)* |
+| run cost over budget | END *(sets `budget_exceeded`)* |
 | follow-up with no prior notes | END *(sets `no_prior_research`)* |
 | `topic_type` unset | classifier |
 | no research notes | researcher |
@@ -156,6 +157,14 @@ The parts worth reading the code for.
 **Nothing is constructed at import time.** Both API clients are built on first use. Eager construction would make the modules unimportable without a full set of keys — which would mean the routing table, the one genuinely deterministic part of the system, could not be tested at all. The whole suite runs with no keys and no network.
 
 **Sessions store completed runs, not mid-run checkpoints.** A follow-up arrives as a separate request, likely on a different worker, possibly after a redeploy, so the final state of every run goes to SQLite. Deliberately *not* LangGraph's checkpointer: that solves resuming a half-finished graph, a different feature with a different failure model, and adopting it here would buy resumability nobody asked for at the price of a schema coupled to LangGraph internals. A crash mid-run loses that run and the caller retries — which is the honest behaviour when the alternative is resuming into a half-researched report.
+
+**The spend cap is a routing rule, not a wrapper.** The iteration and revision caps bound how many model calls a run makes; they say nothing about what those calls cost, and a capped run can still be an expensive one. Because every node folds its usage into `state["usage"]` before returning, the supervisor can read the running cost on its next hop — so the budget became one more row in the same table, with the same `forced_stop_reason` machinery, rather than a separate mechanism bolted around the graph. It is checked *between* nodes because cost is only knowable after a call returns, which means a run can overshoot by at most one node rather than by an unbounded amount.
+
+**Prices are effective-dated, because one of them expires this month.** Claude Sonnet 5 is on introductory pricing of $2/$10 per MTok through 2026-08-31 and moves to $3/$15 on September 1. A single hardcoded rate would keep reporting confident numbers that are a third too low from that morning on — the worst kind of wrong, because nothing fails. `price_for()` resolves the rate for a date, a test pins both windows, and `/pricing` exposes what accounting is using today so a step in the cost graph has a visible cause. Cache-rate constants are asserted to be the documented 1.25× and 0.1× of base input rather than trusted as typed-in numbers.
+
+**An unpriced model is reported, not costed at zero.** If `MODEL` is changed to something with no row in the price table, tokens are still counted but `cost_usd` becomes a floor and `pricing_unknown` goes true. Silently costing those calls at zero would quietly disable the budget guardrail — a cost control that fails open without saying so is worse than none.
+
+**Failed runs are in the metrics denominator.** A run that died opens no session, but it still burned tokens and still happened. Recording only successes would make an upstream outage look like a quiet day and would flatter every rate on the dashboard. Rates whose denominator is zero return `null` rather than `0.0`, because "no runs yet" and "nothing was approved" are different facts and a dashboard shouldn't conflate them. Latency percentiles cover completed runs only — time-to-failure is not time-to-report, and mixing them makes an outage look like a speed-up.
 
 **A stream that fails has to say so in-band.** By the time a node dies, the `200` and the headers are long gone. So `_stream` catches everything and emits a terminal `error` event: exactly one terminal event per stream, never both, never neither. Without it a mid-run failure is indistinguishable from a truncated connection, and the client's only options are to guess or to hang.
 
@@ -246,6 +255,8 @@ Interactive API docs at `/docs`, schema at `/openapi.json`.
 | `GET` | `/sessions/{id}/trace` | Node-by-node trace of the last run |
 | `DELETE` | `/sessions/{id}` | Delete a session |
 | `GET` | `/memory` | Note count and live backend |
+| `GET` | `/metrics` | Volume, approval rate, guardrail firings, cost, latency |
+| `GET` | `/pricing` | The rates cost accounting is using today |
 
 ```bash
 curl -sN localhost:8000/research/stream \
@@ -277,6 +288,10 @@ curl -s localhost:8000/sessions/3f2a…/ask \
 
 A run takes tens of seconds, so the blocking endpoints suit a job queue and the streaming ones suit anything with a human waiting — the same reason the REPL streams.
 
+**Observability.** Every model call and every finished run emits one JSON log line keyed by `run_id`, carrying node, duration, tokens, and cost — set `LOG_FORMAT=text` for a readable terminal. `/metrics` aggregates over a runs table that records failures alongside successes. OpenTelemetry spans are emitted per node when `opentelemetry-api` is installed; without it, `span()` is a no-op and nothing else changes.
+
+**Cost.** Each response carries `cost_usd` and a `usage` breakdown. A run that exceeds `AGENT_MAX_RUN_COST_USD` stops with `forced_stop_reason: "budget_exceeded"` — the answer you get back is whatever was finished, honestly labelled, rather than a surprise invoice.
+
 **Status codes.** Transient upstream failures are already retried with backoff inside each node, so what reaches the caller has either failed persistently or outlived its budget. `429` means back off, `502` means upstream is unwell, `422` means the request was bad and nothing billable ran. `/health` deliberately never calls Claude or Voyage: a health check that fails when a third party does will get a perfectly healthy container killed.
 
 ---
@@ -288,7 +303,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-141 tests, ~1s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
+220 tests, ~1.5s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
 
 | File | Covers |
 |---|---|
@@ -297,7 +312,10 @@ pytest
 | `tests/test_retry.py` | Which errors are retryable, backoff and jitter arithmetic, `retry-after`, budget exhaustion |
 | `tests/test_memory_stores.py` | Both brute-force backends against one shared contract, persistence, the similarity floor, backend selection |
 | `tests/test_sessions.py` | Session round-trips through real SQLite, turn accumulation, survival across a reopen, concurrent writes |
-| `tests/test_service.py` | Every endpoint, SSE framing and in-band error events, follow-ups across a restart, upstream failure → status code |
+| `tests/test_service.py` | Every endpoint, SSE framing and in-band error events, follow-ups across a restart, upstream failure → status code, cost reporting |
+| `tests/test_usage.py` | Both Sonnet 5 price windows, cache-rate multipliers, usage extraction, per-run accumulation |
+| `tests/test_metrics.py` | Aggregation, rate denominators, percentile edges, concurrent writes |
+| `tests/test_observability.py` | JSON log shape, handler idempotence, the tracing no-op |
 
 ---
 
@@ -324,6 +342,10 @@ Set by environment variable:
 | `AGENT_MAX_ATTEMPTS` | Attempts per node, including the first | `4` |
 | `AGENT_RETRY_BASE_DELAY` | Seconds before the first retry | `1.0` |
 | `AGENT_RETRY_MAX_DELAY` | Ceiling on any single backoff sleep | `30.0` |
+| `AGENT_MAX_RUN_COST_USD` | Per-run spend cap; `0` disables it | `1.00` |
+| `METRICS_DB_PATH` | Runs table location | same file as sessions |
+| `LOG_FORMAT` / `LOG_LEVEL` | `json` or `text`; log level | `json` / `INFO` |
+| `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is present | `true` |
 
 Switching backends does **not** migrate existing notes — each store owns its own data. `VECTOR_STORE=chroma` additionally needs `pip install chromadb`.
 
@@ -337,6 +359,9 @@ Research strategies and critic rubrics live in the `RESEARCH_STRATEGY` and `CRIT
 research_agent.py       the graph: nodes, supervisor, routing, compile
 vector_memory.py        Embedder + MemoryStore seams and the three backends
 retry.py                retryable-error classification, backoff, node decorator
+usage.py                effective-dated price table, cost accounting, spend cap
+observability.py        JSON logging and the optional OpenTelemetry seam
+metrics.py              runs table and the /metrics aggregation
 sessions.py             SQLite-backed conversation sessions
 service.py              FastAPI surface: blocking + SSE, sessions, ops
 chat.py                 terminal REPL with streamed progress
@@ -362,8 +387,9 @@ Known, and deliberate for the scope:
 - **The store grows without bound.** No eviction, no deduplication, no summarization.
 - **REPL conversations are still per-process.** `/ask` threads in `chat.py` live in a local variable and vanish on exit. The HTTP service persists them; the REPL doesn't.
 - **Retries assume nodes are safe to re-run.** They are today — each node overwrites its own fields — but a node that appended to state instead of replacing it would double-write on retry.
-- **No auth, no rate limiting, no per-caller quotas.** Every request can start a run that costs real money. Put this behind a gateway, or wait for the budget guardrail in Phase 5.
-- **A run is unbounded in cost.** Iteration and revision caps bound the *number* of model calls, not the tokens they spend. That's Phase 5.
+- **No auth, no rate limiting, no per-caller quotas.** The budget caps what a *single* run can spend; nothing caps how many runs a caller can start. Put this behind a gateway before exposing it.
+- **The spend cap is per run, not per hour or per tenant.** A thousand runs at $0.99 each is a thousand dollars and no guardrail fires.
+- **Cost is computed from list prices.** Enterprise discounts, batch pricing, and the `inference_geo` multiplier are not modelled, so `/metrics` is an estimate that tracks the shape of the bill, not the bill itself.
 - **Sessions grow without bound and belong to nobody.** No expiry, no ownership, no pagination beyond a 50-row cap on listing. Anyone who can reach the service can read any session.
 - **Single-writer SQLite.** One container is fine. Horizontal scaling wants Postgres for sessions and Chroma for notes — both already behind interfaces, so it's a swap rather than a rewrite.
 
