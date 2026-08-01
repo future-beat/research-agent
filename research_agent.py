@@ -1,40 +1,81 @@
 """
 Research-and-Report Agent System
 
-Architecture (supervisor pattern, extended with a critic + persisted memory
-+ topic-type classification for generalizing across any subject):
+A supervisor pattern with a critic, persisted vector memory, topic-type
+classification, and two run modes sharing one graph.
 
-    supervisor -> classifier (runs once) -> supervisor
-               -> researcher (recalls + stores via VectorMemory) -> supervisor
-               -> writer -> supervisor
-                                  |
-                              critic checks draft
-                                  |
-                 approved? -> END : back to writer (capped by MAX_REVISIONS)
+    research mode (a new question):
+        supervisor -> classifier (once) -> supervisor
+                   -> researcher (recalls + stores via the memory store)
+                   -> writer -> critic -> approved? END : writer (capped)
 
-Requires: pip install langgraph anthropic voyageai
+    followup mode (a question about the run you just got):
+        supervisor -> responder -> critic -> approved? END : responder (capped)
+
+Follow-ups skip classification and search entirely: the grounding source is
+the previous run's research notes, already on disk. The critic loop is reused
+untouched, so an answer to a follow-up is fact-checked exactly as hard as the
+report it's about.
+
+Requires: pip install langgraph anthropic voyageai numpy
 Requires: ANTHROPIC_API_KEY and VOYAGE_API_KEY in your environment
 """
 
-from typing import TypedDict, Literal
+from __future__ import annotations
+
+from typing import Literal, TypedDict
+
 import anthropic
+from langgraph.graph import END, StateGraph
 
-client = anthropic.Anthropic()
+from retry import retry_node
+from vector_memory import MemoryStore, get_memory_store
 
-from langgraph.graph import StateGraph, END
-from vector_memory import VectorMemory
-
-memory = VectorMemory()
-
+MODEL = "claude-sonnet-5"
 MAX_ITERATIONS = 8
 MAX_REVISIONS = 2
 
+# Both clients are built on first use, not at import. Constructing them at
+# module scope would mean you cannot import this module -- or unit-test the
+# routing table -- without a full set of API keys.
+_client: anthropic.Anthropic | None = None
+_memory: MemoryStore | None = None
+
+
+def client() -> anthropic.Anthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic()
+    return _client
+
+
+def memory() -> MemoryStore:
+    """The configured memory backend (see VECTOR_STORE in vector_memory.py)."""
+    global _memory
+    if _memory is None:
+        _memory = get_memory_store()
+    return _memory
+
+
+def set_memory(store: MemoryStore | None) -> None:
+    """Swap the backend at runtime. Tests use this; so would a service that
+    wants one store per tenant."""
+    global _memory
+    _memory = store
+
+
+def _text(response) -> str:
+    return "".join(block.text for block in response.content if block.type == "text")
+
 
 class AgentState(TypedDict):
-    task: str
+    task: str  # the research question, or the follow-up question in followup mode
+    mode: str  # "research" | "followup"
     topic_type: str  # "technical" | "contested" | "sparse" | "general"
     research_notes: str
-    draft: str
+    source_report: str  # followup mode: the report being asked about
+    conversation: list  # followup mode: earlier {question, answer} turns
+    draft: str  # the report, or the follow-up answer -- whatever the critic checks
     critic_feedback: str
     approved: bool
     reviewed: bool
@@ -43,6 +84,53 @@ class AgentState(TypedDict):
     next_step: str
     iteration: int
     trace: list
+
+
+def initial_state(task: str) -> AgentState:
+    """A clean research run. Only the memory store persists across runs."""
+    return {
+        "task": task,
+        "mode": "research",
+        "topic_type": "",
+        "research_notes": "",
+        "source_report": "",
+        "conversation": [],
+        "draft": "",
+        "critic_feedback": "",
+        "approved": False,
+        "reviewed": False,
+        "revision_count": 0,
+        "forced_stop_reason": "",
+        "next_step": "",
+        "iteration": 0,
+        "trace": [],
+    }
+
+
+def followup_state(previous: AgentState, question: str) -> AgentState:
+    """A follow-up turn grounded in `previous`.
+
+    Accepts either a research run or an earlier follow-up, so chaining is just
+    followup_state(last_state, q) every turn. Notes and the source report carry
+    forward unchanged; each answered turn is appended to the conversation.
+    """
+    was_followup = previous.get("mode") == "followup"
+
+    conversation = list(previous.get("conversation") or [])
+    if was_followup and previous.get("draft"):
+        conversation.append({"question": previous["task"], "answer": previous["draft"]})
+
+    state = initial_state(question)
+    state.update(
+        {
+            "mode": "followup",
+            "topic_type": previous.get("topic_type") or "general",
+            "research_notes": previous.get("research_notes", ""),
+            "source_report": previous["source_report"] if was_followup else previous.get("draft", ""),
+            "conversation": conversation,
+        }
+    )
+    return state
 
 
 RESEARCH_STRATEGY = {
@@ -67,9 +155,10 @@ CRITIC_RUBRIC = {
 }
 
 
+@retry_node("classifier")
 def classifier_node(state: AgentState) -> AgentState:
-    response = client.messages.create(
-        model="claude-sonnet-5",
+    response = client().messages.create(
+        model=MODEL,
         max_tokens=20,
         thinking={"type": "disabled"},  # one-word label; no room (or need) for thinking
         output_config={"effort": "medium"},
@@ -87,21 +176,23 @@ def classifier_node(state: AgentState) -> AgentState:
             ),
         }],
     )
-    label = "".join(b.text for b in response.content if b.type == "text").strip().lower()
+    label = _text(response).strip().lower()
     state["topic_type"] = label if label in RESEARCH_STRATEGY else "general"
     state["trace"].append({"node": "classifier", "topic_type": state["topic_type"]})
     return state
 
 
+@retry_node("researcher")
 def researcher_node(state: AgentState) -> AgentState:
-    recalled = memory.query(state["task"], top_k=3)
+    store = memory()
+    recalled = store.query(state["task"], top_k=3)
     recalled_block = (
-        f"Relevant notes from previous research sessions:\n" + "\n".join(recalled) + "\n\n"
+        "Relevant notes from previous research sessions:\n" + "\n".join(recalled) + "\n\n"
         if recalled else ""
     )
 
-    response = client.messages.create(
-        model="claude-sonnet-5",
+    response = client().messages.create(
+        model=MODEL,
         max_tokens=4000,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
@@ -117,9 +208,9 @@ def researcher_node(state: AgentState) -> AgentState:
             ),
         }],
     )
-    notes = "".join(b.text for b in response.content if b.type == "text")
+    notes = _text(response)
     state["research_notes"] = notes
-    memory.add(f"[{state['task']}] {notes}")
+    store.add(f"[{state['task']}] {notes}")
     state["trace"].append({
         "node": "researcher", "notes_length": len(notes),
         "recalled_from_memory": len(recalled),
@@ -127,14 +218,15 @@ def researcher_node(state: AgentState) -> AgentState:
     return state
 
 
+@retry_node("writer")
 def writer_node(state: AgentState) -> AgentState:
     is_revision = bool(state["critic_feedback"])
     feedback_block = (
         f"\n\nPrevious critic feedback to address:\n{state['critic_feedback']}"
         if is_revision else ""
     )
-    response = client.messages.create(
-        model="claude-sonnet-5",
+    response = client().messages.create(
+        model=MODEL,
         max_tokens=4000,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
@@ -148,7 +240,7 @@ def writer_node(state: AgentState) -> AgentState:
             ),
         }],
     )
-    draft = "".join(b.text for b in response.content if b.type == "text")
+    draft = _text(response)
     state["draft"] = draft
     state["reviewed"] = False
     if is_revision:
@@ -160,9 +252,31 @@ def writer_node(state: AgentState) -> AgentState:
     return state
 
 
-def critic_node(state: AgentState) -> AgentState:
-    response = client.messages.create(
-        model="claude-sonnet-5",
+def _conversation_block(state: AgentState) -> str:
+    if not state["conversation"]:
+        return ""
+    turns = "\n\n".join(
+        f"Q: {turn['question']}\nA: {turn['answer']}" for turn in state["conversation"]
+    )
+    return f"\n\nEarlier follow-up questions in this conversation:\n{turns}"
+
+
+@retry_node("responder")
+def responder_node(state: AgentState) -> AgentState:
+    """Answer a follow-up question from the previous run's notes and report.
+
+    Structurally this is the writer's twin -- it writes into state["draft"] so
+    the critic can grade it with the same rubric -- but it never searches. If
+    the notes don't cover the question, saying so is the correct answer; that
+    honesty is what the critic is there to enforce.
+    """
+    is_revision = bool(state["critic_feedback"])
+    feedback_block = (
+        f"\n\nPrevious critic feedback to address:\n{state['critic_feedback']}"
+        if is_revision else ""
+    )
+    response = client().messages.create(
+        model=MODEL,
         max_tokens=2000,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
@@ -170,15 +284,50 @@ def critic_node(state: AgentState) -> AgentState:
             "role": "user",
             "content": (
                 f"Research notes:\n{state['research_notes']}\n\n"
-                f"Draft report:\n{state['draft']}\n\n"
-                f"Does the draft contain any claim NOT supported by the research notes? "
+                f"Report previously given to the user:\n{state['source_report']}"
+                f"{_conversation_block(state)}\n\n"
+                f"The user is now asking a follow-up question: {state['task']}\n\n"
+                f"Answer it directly and concisely, using only the research notes "
+                f"and the report above. Do not introduce facts from your own "
+                f"knowledge. If the notes do not cover what was asked, say plainly "
+                f"that the research didn't cover it rather than guessing."
+                f"{feedback_block}"
+            ),
+        }],
+    )
+    answer = _text(response)
+    state["draft"] = answer
+    state["reviewed"] = False
+    if is_revision:
+        state["revision_count"] += 1
+    state["trace"].append({
+        "node": "responder", "answer_length": len(answer),
+        "revision_count": state["revision_count"],
+    })
+    return state
+
+
+@retry_node("critic")
+def critic_node(state: AgentState) -> AgentState:
+    subject = "answer" if state["mode"] == "followup" else "draft report"
+    response = client().messages.create(
+        model=MODEL,
+        max_tokens=2000,
+        thinking={"type": "adaptive"},
+        output_config={"effort": "medium"},
+        messages=[{
+            "role": "user",
+            "content": (
+                f"Research notes:\n{state['research_notes']}\n\n"
+                f"{subject.capitalize()}:\n{state['draft']}\n\n"
+                f"Does the {subject} contain any claim NOT supported by the research notes? "
                 f"{CRITIC_RUBRIC[state['topic_type']]} "
                 f"Respond with exactly 'APPROVED' if it's fully grounded, "
                 f"otherwise respond with 'REVISE: ' followed by specific feedback."
             ),
         }],
     )
-    verdict = "".join(b.text for b in response.content if b.type == "text").strip()
+    verdict = _text(response).strip()
 
     state["approved"] = verdict.startswith("APPROVED")
     state["critic_feedback"] = "" if state["approved"] else verdict
@@ -188,7 +337,15 @@ def critic_node(state: AgentState) -> AgentState:
 
 
 def supervisor_node(state: AgentState) -> AgentState:
+    """The routing table. Plain Python over state -- no model call decides what
+    runs next, which is what makes the control flow deterministic and testable.
+
+    The only thing `mode` changes is which node produces the text: the writer
+    (from web research) or the responder (from notes already gathered). The
+    caps, the critic hop, and the revision loop are identical either way.
+    """
     state["iteration"] += 1
+    author = "responder" if state["mode"] == "followup" else "writer"
 
     if state["iteration"] > MAX_ITERATIONS:
         state["next_step"] = "done"
@@ -196,16 +353,22 @@ def supervisor_node(state: AgentState) -> AgentState:
     elif state["revision_count"] > MAX_REVISIONS:
         state["next_step"] = "done"
         state["forced_stop_reason"] = "max_revisions_exceeded"
+    elif state["mode"] == "followup" and not state["research_notes"]:
+        # A follow-up with nothing to follow up on. Stopping beats silently
+        # answering from the model's own knowledge, which is the one thing
+        # this whole pipeline exists to prevent.
+        state["next_step"] = "done"
+        state["forced_stop_reason"] = "no_prior_research"
     elif not state["topic_type"]:
         state["next_step"] = "classifier"
     elif not state["research_notes"]:
         state["next_step"] = "researcher"
     elif not state["draft"]:
-        state["next_step"] = "writer"
+        state["next_step"] = author
     elif not state["reviewed"]:
         state["next_step"] = "critic"
     elif not state["approved"]:
-        state["next_step"] = "writer"
+        state["next_step"] = author
     else:
         state["next_step"] = "done"
 
@@ -213,48 +376,48 @@ def supervisor_node(state: AgentState) -> AgentState:
     return state
 
 
-def route(state: AgentState) -> Literal["classifier", "researcher", "writer", "critic", "__end__"]:
+def route(
+    state: AgentState,
+) -> Literal["classifier", "researcher", "writer", "responder", "critic", "__end__"]:
     return state["next_step"] if state["next_step"] != "done" else "__end__"
 
 
-graph = StateGraph(AgentState)
-graph.add_node("supervisor", supervisor_node)
-graph.add_node("classifier", classifier_node)
-graph.add_node("researcher", researcher_node)
-graph.add_node("writer", writer_node)
-graph.add_node("critic", critic_node)
+def build_graph():
+    graph = StateGraph(AgentState)
+    graph.add_node("supervisor", supervisor_node)
+    graph.add_node("classifier", classifier_node)
+    graph.add_node("researcher", researcher_node)
+    graph.add_node("writer", writer_node)
+    graph.add_node("responder", responder_node)
+    graph.add_node("critic", critic_node)
 
-graph.set_entry_point("supervisor")
-graph.add_edge("classifier", "supervisor")
-graph.add_edge("researcher", "supervisor")
-graph.add_edge("writer", "supervisor")
-graph.add_edge("critic", "supervisor")
+    graph.set_entry_point("supervisor")
+    for worker in ("classifier", "researcher", "writer", "responder", "critic"):
+        graph.add_edge(worker, "supervisor")
 
-graph.add_conditional_edges(
-    "supervisor",
-    route,
-    {"classifier": "classifier", "researcher": "researcher", "writer": "writer",
-     "critic": "critic", "__end__": END},
-)
+    graph.add_conditional_edges(
+        "supervisor",
+        route,
+        {
+            "classifier": "classifier",
+            "researcher": "researcher",
+            "writer": "writer",
+            "responder": "responder",
+            "critic": "critic",
+            "__end__": END,
+        },
+    )
+    return graph.compile()
 
-app = graph.compile()
+
+app = build_graph()
 
 
 if __name__ == "__main__":
-    result = app.invoke({
-        "task": "What are the most notable recent developments in agentic AI frameworks and agent design patterns?",
-        "topic_type": "",
-        "research_notes": "",
-        "draft": "",
-        "critic_feedback": "",
-        "approved": False,
-        "reviewed": False,
-        "revision_count": 0,
-        "forced_stop_reason": "",
-        "next_step": "",
-        "iteration": 0,
-        "trace": [],
-    })
+    result = app.invoke(initial_state(
+        "What are the most notable recent developments in agentic AI "
+        "frameworks and agent design patterns?"
+    ))
 
     print("=== FINAL REPORT ===\n")
     print(result["draft"])
