@@ -1,0 +1,104 @@
+name: Deploy
+
+# Deploys only what CI has already gone green on.
+#
+# The trigger is `workflow_run`, not `push`, and that distinction is the whole
+# point: a push-triggered deploy races CI and can ship a commit whose tests are
+# still running -- or have already failed. This waits for the CI run to finish
+# and deploys only on success.
+#
+# Requires a deploy token in the repo's secrets:
+#
+#   fly tokens create deploy -a research-agent
+#   gh secret set FLY_API_TOKEN        # paste the token
+#
+# NOTE: if Fly's GitHub App also has auto-deploy enabled for this repo, both
+# will fire on every push and you get two deploys of the same commit. Pick one.
+# Turn Fly's off at: dashboard -> research-agent -> Deployments -> Settings.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  # Manual redeploy without pushing a commit, e.g. after rotating a secret.
+  workflow_dispatch:
+
+# One deploy at a time. Without this, two quick pushes race and the older
+# image can land last.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: fly deploy
+    runs-on: ubuntu-latest
+
+    # Only when CI actually passed. workflow_run fires on failure too.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    # Gives you a place to require a manual approver later
+    # (Settings -> Environments -> production -> required reviewers)
+    # without touching this file.
+    environment:
+      name: production
+      url: https://research-agent.fly.dev
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Deploy the exact commit CI tested, not whatever main points at
+          # now. Those differ the moment a second push lands while this run
+          # is queued, and defaulting to HEAD would silently ship untested code.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Fail early if the deploy token is missing
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            echo "::error::FLY_API_TOKEN is not set. Create one with"
+            echo "::error::  fly tokens create deploy -a research-agent"
+            echo "::error::then add it with: gh secret set FLY_API_TOKEN"
+            exit 1
+          fi
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --app research-agent
+
+      # A green deploy that serves 500s is not a green deploy. /health is
+      # liveness only, so it stays 200 even when a dependency is down --
+      # check the body, not just the status code.
+      - name: Verify the deployment
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 20); do
+            if body=$(curl -fsS --max-time 20 https://research-agent.fly.dev/health); then
+              echo "$body"
+              python3 - "$body" <<'PY'
+          import json, sys
+          d = json.loads(sys.argv[1])
+          problems = []
+          if d.get("dependencies") != "ok":
+              problems.append(f"unreachable stores: {d.get('unreachable')}")
+          missing = [k for k, v in d.get("credentials", {}).items() if not v]
+          if missing:
+              problems.append(f"missing credentials: {missing}")
+          if problems:
+              print("::error::deployed but not serving: " + "; ".join(problems))
+              sys.exit(1)
+          print("deployment healthy")
+          PY
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::/health never responded after the deploy"
+          exit 1
