@@ -454,42 +454,30 @@ fly deploy
 
 **Credentials never reach an image layer.** `.env` is in `.dockerignore`; compose passes the keys through from the environment; Fly uses `fly secrets`. `/health` reports whether each key is *present*, never its value — the clients are lazy, so a container with no keys starts up perfectly healthy and then fails every real request, and you want to learn that from the deploy rather than from the first user.
 
-### CI and deploys
+### CI
 
 ```
-CI      lint · tests · evals          ruff, tests, 12 offline eval cases
-        image build · smoke test      docker build, boot the container, probe it
-Deploy  fly deploy                    only after CI goes green on main
+lint · tests · evals            ruff, tests, 12 offline eval cases
+image build · smoke test        docker build, boot the container, probe it
 ```
 
-`main` is protected: both CI checks must pass before a pull request can merge.
-That single setting is what would have stopped the config PR that pointed the
-deploy at the Postgres cluster.
+Every gate runs with `ANTHROPIC_API_KEY=""`. A CI suite that needs a live key
+breaks on forks, on key rotation, and during someone else's outage — and bills
+you for every push. The offline eval step doubles as a guard on the lazy-client
+decision: if a client ever becomes eager again, that step is what fails.
 
-Deploys are triggered by `workflow_run`, not `push`. A push-triggered deploy
-races CI and can ship a commit whose tests are still running — or have already
-failed. The deploy job checks out `workflow_run.head_sha`, the exact commit CI
-tested, rather than whatever `main` points at by the time it runs; those differ
-the moment a second push lands while the first is queued.
+The smoke test boots the built image and probes `/health`, `/metrics`,
+`/pricing`, and `/openapi.json`, then waits for Docker's own `HEALTHCHECK` to
+report `healthy`. A Dockerfile that builds but whose entrypoint crashes on
+startup passes a build-only check and fails in production instead.
 
-It finishes by reading `/health` and failing the job if `dependencies` isn't
-`ok` or a credential is missing. `/health` is liveness, so it returns 200 even
-when a store is unreachable — checking only the status code would call a
-deploy green while it served errors.
+`main` is protected: both checks must pass before a pull request can merge, and
+force pushes and branch deletion are blocked. That's the setting that would have
+stopped the config PR which pointed the deploy at the Postgres cluster.
 
-Needs a deploy token:
-
-```bash
-fly tokens create deploy -a research-agent
-gh secret set FLY_API_TOKEN
-```
-
-**Pick one deploy mechanism.** If Fly's GitHub App also has auto-deploy on,
-both fire on every push and you get two deploys of the same commit.
-
-Every gate runs with `ANTHROPIC_API_KEY=""`. A CI suite that needs a live key breaks on forks, on key rotation, and during someone else's outage — and bills you for every push. The offline eval step doubles as a guard on the lazy-client decision: if a client ever becomes eager again, that step is what fails.
-
-The smoke test boots the built image and probes `/health`, `/metrics`, `/pricing`, and `/openapi.json`, then waits for Docker's own `HEALTHCHECK` to report `healthy`. A Dockerfile that builds but whose entrypoint crashes on startup passes a build-only check and fails in production instead.
+Deploys are handled by Fly's GitHub integration, which deploys pushes to `main`.
+Note that this is **not** gated on CI — a direct push that fails tests still
+deploys, since branch protection only gates pull requests.
 
 ---
 
