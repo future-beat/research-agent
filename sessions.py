@@ -240,7 +240,7 @@ class PostgresSessionStore(SessionStore):
     def __init__(self, dsn: str | None = None, database: db.Database | None = None):
         self.db = database or db.Database(dsn)
         self.path = _describe_dsn(self.db.dsn)
-        self.db.executescript(POSTGRES_SCHEMA)
+        self.db.ensure_schema(POSTGRES_SCHEMA)
 
     # -- writes ------------------------------------------------------------
 

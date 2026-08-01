@@ -38,7 +38,7 @@ A twelve-case golden set graded by deterministic checks over finished runs, plus
 Dependencies split so a worker image doesn't ship a web server. Two-stage Dockerfile on a non-root user with a healthcheck, compose file, and a Fly config with a mounted volume. GitHub Actions runs ruff, tests, the offline evals, and a container smoke test — all with no API keys.
 
 **✅ Phase 8 — Stateless: Postgres and pgvector** *(this phase)*
-Sessions, metrics, and notes all get Postgres backends behind the interfaces that were built for exactly this. Setting `DATABASE_URL` is the entire switch. Notes move to pgvector with an HNSW index, replacing the O(n) scan. One contract suite runs against every backend so "swappable" is tested rather than asserted, with a real Postgres in CI. Plus a migration script, because a deployment that already has data shouldn't have to choose between scaling and remembering. 345 tests.
+Sessions, metrics, and notes all get Postgres backends behind the interfaces that were built for exactly this. Setting `DATABASE_URL` is the entire switch. Notes move to pgvector with an HNSW index, replacing the O(n) scan. One contract suite runs against every backend so "swappable" is tested rather than asserted, with a real Postgres in CI. Plus a migration script, because a deployment that already has data shouldn't have to choose between scaling and remembering. 351 tests.
 
 ---
 
@@ -185,6 +185,8 @@ The parts worth reading the code for.
 
 **The evals found a real bug on their first run.** `MAX_ITERATIONS` was 8 and `MAX_REVISIONS` 2, which made the revision cap **unreachable in research mode** — reaching `revision_count > 2` needs supervisor turn 10, so the iteration backstop always fired first. A run where the critic kept rejecting reported `max_iterations_exceeded`, which reads like an internal fault, instead of `max_revisions_exceeded`, which is the truth: the draft never got grounded. Both caps "worked"; they were just the wrong way round. `MAX_ITERATIONS` is now derived from `MAX_REVISIONS` so the backstop stays above the cap, and a test pins the relationship. No unit test caught this, because each cap was correct in isolation — it took running whole scenarios and asserting on *which* guardrail fired.
 
+**Nothing a dependency does should stop the process starting.** The Postgres stores register their schema instead of executing it in `__init__`, and apply it on first use. Running DDL at construction meant an unreachable database stopped the service from *booting*, which made the degraded-dependency reporting in `/health` unreachable by definition. It's worse against a provider that pauses idle instances: the app couldn't boot, so it never connected, so nothing ever woke the database — a deadlock no restart could break. Now it comes up degraded and heals itself the moment the database answers.
+
 **A stream that fails has to say so in-band.** By the time a node dies, the `200` and the headers are long gone. So `_stream` catches everything and emits a terminal `error` event: exactly one terminal event per stream, never both, never neither. Without it a mid-run failure is indistinguishable from a truncated connection, and the client's only options are to guess or to hang.
 
 **Inference settings are tuned per node, not globally.** The classifier emits one word from a fixed set, so it runs with thinking disabled under a 20-token ceiling — no budget spent deliberating a four-way label. The researcher, writer, and critic do genuine reasoning and run with adaptive thinking, letting the model scale its own depth per task. Everything runs at `effort: "medium"`.
@@ -274,7 +276,8 @@ Interactive API docs at `/docs`, schema at `/openapi.json`.
 
 | Method | Path | Does |
 |---|---|---|
-| `GET` | `/health` | Liveness, memory backend, session count |
+| `GET` | `/health` | **Liveness** — always 200 while the process runs; reports unreachable dependencies |
+| `GET` | `/ready` | **Readiness** — 503 when a store can't be reached |
 | `POST` | `/research` | Full pipeline; returns the finished report and opens a session |
 | `POST` | `/research/stream` | Same run, streamed as SSE |
 | `POST` | `/sessions/{id}/ask` | Follow-up answered from that session's notes |
@@ -317,6 +320,8 @@ curl -s localhost:8000/sessions/3f2a…/ask \
 
 A run takes tens of seconds, so the blocking endpoints suit a job queue and the streaming ones suit anything with a human waiting — the same reason the REPL streams.
 
+**Liveness is not readiness.** `/health` returns 200 whenever the process is running, and reports unreachable dependencies in the body rather than failing. `/ready` returns 503 when a store can't be reached. The distinction is load-bearing: a failing health check makes Fly restart the machine, and **a restart does not fix a database that is down** — it just turns one broken dependency into a restart loop and takes down the endpoints that still worked. Point a load balancer at `/ready`; point a restart-triggering probe at `/health`, never the reverse.
+
 **Observability.** Every model call and every finished run emits one JSON log line keyed by `run_id`, carrying node, duration, tokens, and cost — set `LOG_FORMAT=text` for a readable terminal. `/metrics` aggregates over a runs table that records failures alongside successes. OpenTelemetry spans are emitted per node when `opentelemetry-api` is installed; without it, `span()` is a no-op and nothing else changes.
 
 **Cost.** Each response carries `cost_usd` and a `usage` breakdown. A run that exceeds `AGENT_MAX_RUN_COST_USD` stops with `forced_stop_reason: "budget_exceeded"` — the answer you get back is whatever was finished, honestly labelled, rather than a surprise invoice.
@@ -332,7 +337,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-345 tests, ~2s, no API keys and no network. The 27 Postgres tests skip locally unless `DATABASE_URL` is set, and run for real in CI against a `pgvector/pgvector` service container — with a guard test that **fails** rather than skips if CI's database is missing, so the build can't go green over an untested backend. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
+351 tests, ~2s, no API keys and no network. The 27 Postgres tests skip locally unless `DATABASE_URL` is set, and run for real in CI against a `pgvector/pgvector` service container — with a guard test that **fails** rather than skips if CI's database is missing, so the build can't go green over an untested backend. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
 
 | File | Covers |
 |---|---|
@@ -484,6 +489,7 @@ Set by environment variable:
 | `DATABASE_URL` | Postgres DSN. **Setting it moves all three stores.** | *(unset)* |
 | `SESSION_BACKEND` / `METRICS_BACKEND` | `sqlite` or `postgres` | follows `DATABASE_URL` |
 | `PGVECTOR_TABLE` / `VECTOR_DIMENSIONS` | pgvector table and column width | `research_notes` / `1024` |
+| `PG_CONNECT_TIMEOUT` | Seconds before a connection attempt gives up | `3` |
 | `METRICS_DB_PATH` | Runs table location | same file as sessions |
 | `LOG_FORMAT` / `LOG_LEVEL` | `json` or `text`; log level | `json` / `INFO` |
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is present | `true` |

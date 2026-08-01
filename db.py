@@ -17,13 +17,27 @@ psycopg is imported lazily: a deployment on SQLite and a JSON store should not
 need a Postgres driver installed to start up.
 
     DATABASE_URL=postgresql://user:pass@host:5432/dbname
+    PG_CONNECT_TIMEOUT=3        seconds before a connection attempt gives up
+
+The connect timeout matters more than it looks. /health probes the database,
+and a provider that has paused an idle instance will accept the TCP connection
+and then say nothing -- without a bound, the health check hangs until Fly's own
+timeout fires and the machine gets restarted for a fault a restart cannot fix.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
 from contextlib import contextmanager
+
+
+def connect_timeout() -> int:
+    try:
+        return max(1, int(os.environ.get("PG_CONNECT_TIMEOUT", "3")))
+    except ValueError:
+        return 3
 
 
 def database_url() -> str:
@@ -54,6 +68,8 @@ class Database:
         self.dsn = dsn or database_url()
         self._lock = threading.RLock()
         self._conn = None
+        self._schema_sql: str | None = None
+        self._schema_applied = False
 
     # -- connection ------------------------------------------------------
 
@@ -62,7 +78,7 @@ class Database:
         # autocommit: every store here does single-statement writes, and an
         # implicit transaction left open by an idle connection holds locks
         # and pins vacuum for as long as the process lives.
-        return psycopg.connect(self.dsn, autocommit=True)
+        return psycopg.connect(self.dsn, autocommit=True, connect_timeout=connect_timeout())
 
     def _connection(self):
         if self._conn is None or self._conn.closed:
@@ -95,19 +111,49 @@ class Database:
                 with conn.cursor(row_factory=row_factory) as cur:
                     yield cur
 
+    # -- schema ----------------------------------------------------------
+
+    def ensure_schema(self, sql: str) -> None:
+        """Register a schema block and try to apply it now.
+
+        Deliberately does not raise if the database is unreachable. Running
+        DDL from a store's constructor meant an unavailable Postgres stopped
+        the *process from starting*, so a health endpoint that reports
+        degraded dependencies never got the chance to report anything. Worse
+        with a provider that pauses idle instances: the app could not boot, so
+        it never connected, so nothing ever woke the database.
+
+        The block is retried on first use instead, which lets the service come
+        up degraded and heal itself the moment the database answers.
+        """
+        self._schema_sql = sql
+        with contextlib.suppress(Exception):  # deferred to first use on purpose
+            self._apply_schema()
+
+    def _apply_schema(self) -> None:
+        if self._schema_applied or self._schema_sql is None:
+            return
+        # psycopg sends a multi-statement block as one command, which is what
+        # we want: schema setup is all-or-nothing.
+        with self.cursor() as cur:
+            cur.execute(self._schema_sql)
+        self._schema_applied = True
+
+    @property
+    def schema_applied(self) -> bool:
+        return self._schema_applied
+
+    # -- statements ------------------------------------------------------
+
     def execute(self, sql: str, params=None) -> None:
+        self._apply_schema()
         with self.cursor() as cur:
             cur.execute(sql, params)
-
-    def executescript(self, sql: str) -> None:
-        """Run a multi-statement schema block. psycopg sends it as one
-        command, which is what we want -- schema setup is all-or-nothing."""
-        with self.cursor() as cur:
-            cur.execute(sql)
 
     def fetchone(self, sql: str, params=None):
         from psycopg.rows import dict_row
 
+        self._apply_schema()
         with self.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, params)
             return cur.fetchone()
@@ -115,6 +161,7 @@ class Database:
     def fetchall(self, sql: str, params=None) -> list:
         from psycopg.rows import dict_row
 
+        self._apply_schema()
         with self.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, params)
             return cur.fetchall()

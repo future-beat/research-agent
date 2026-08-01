@@ -450,3 +450,59 @@ def test_postgres_really_ran_when_ci_said_it_would():
         store.count()
     finally:
         store.close()
+
+
+# --------------------------------------------------------------------------
+# Booting when the database is not there
+# --------------------------------------------------------------------------
+
+UNREACHABLE_DSN = "postgresql://agent:sup3rsecret@10.255.255.1:5432/agent"
+
+
+@pytest.fixture
+def fast_timeout(monkeypatch):
+    monkeypatch.setenv("PG_CONNECT_TIMEOUT", "1")
+
+
+@pytest.mark.parametrize("factory", [
+    lambda: PostgresSessionStore(dsn=UNREACHABLE_DSN),
+    lambda: PostgresMetricsStore(dsn=UNREACHABLE_DSN),
+])
+def test_a_store_constructs_even_when_postgres_is_unreachable(factory, fast_timeout):
+    """Schema DDL used to run in __init__, so an unavailable database stopped
+    the *process from starting* -- and a health endpoint that reports degraded
+    dependencies is worthless if the process never boots.
+
+    Worse with a provider that pauses idle instances: the app could not start,
+    so it never connected, so nothing ever woke the database. A deadlock that
+    a restart could not break.
+    """
+    store = factory()
+    try:
+        assert store.db.schema_applied is False  # deferred, not skipped
+    finally:
+        store.close()
+
+
+def test_a_deferred_schema_is_retried_on_first_use(fast_timeout):
+    """Deferring must not mean forgetting: the block has to be applied the
+    moment the database becomes reachable, or the service comes up degraded
+    and stays that way."""
+    store = PostgresSessionStore(dsn=UNREACHABLE_DSN)
+    try:
+        assert store.db._schema_sql is not None
+        with pytest.raises(Exception, match="(?i)connect"):
+            store.count()  # still down: surfaces, rather than pretending
+        assert store.db.schema_applied is False
+    finally:
+        store.close()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_the_schema_lands_on_first_use_against_a_real_server():
+    store = PostgresSessionStore()
+    try:
+        assert store.db.schema_applied is True  # applied eagerly when reachable
+        store.count()
+    finally:
+        store.close()

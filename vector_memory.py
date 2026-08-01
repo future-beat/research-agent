@@ -343,7 +343,7 @@ class PgVectorMemoryStore(MemoryStore):
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
-        self.db.executescript(
+        self.db.ensure_schema(
             f"""
             CREATE EXTENSION IF NOT EXISTS vector;
             CREATE TABLE IF NOT EXISTS {self.table} (

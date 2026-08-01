@@ -10,7 +10,7 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'research-agent-rippling-waterfall-9963'
+app = 'research-agent'
 primary_region = 'lhr'
 
 [build]
@@ -45,9 +45,17 @@ primary_region = 'lhr'
     hard_limit = 16
     soft_limit = 8
 
+  # /health is the LIVENESS probe: it reports unreachable dependencies in the
+  # body and still returns 200, because restarting a machine does not fix a
+  # database that is down. Never point this at /ready -- that returns 503 when
+  # a store is unreachable, which here would mean a restart loop.
+  #
+  # The timeout allows for three store probes each bounded by
+  # PG_CONNECT_TIMEOUT (3s), so a fully unreachable database still answers
+  # inside the window instead of timing the check out.
   [[http_service.checks]]
     interval = '30s'
-    timeout = '5s'
+    timeout = '15s'
     grace_period = '20s'
     method = 'GET'
     path = '/health'
@@ -62,10 +70,9 @@ primary_region = 'lhr'
 # --- Going stateless (Phase 8) ------------------------------------------
 #
 #   fly postgres create --name research-agent-db
-#   fly postgres attach research-agent-db -a research-agent-rippling-waterfall-9963
-#   fly deploy -a research-agent-rippling-waterfall-9963
-#   fly ssh console -a research-agent-rippling-waterfall-9963 \
-#       -C "python /app/migrate_to_postgres.py --dry-run"
+#   fly postgres attach <db-app> -a research-agent
+#   fly deploy -a research-agent
+#   fly ssh console -a research-agent -C "python /app/migrate_to_postgres.py --dry-run"
 #
 # Always pass -a explicitly. `fly postgres attach` sets DATABASE_URL as a
 # secret on the AGENT app; the database app is managed by Fly and is never a

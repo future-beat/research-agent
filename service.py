@@ -23,13 +23,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import anthropic
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -290,6 +291,7 @@ def index() -> dict:
         "openapi": "/openapi.json",
         "endpoints": {
             "health": "GET /health",
+            "ready": "GET /ready",
             "research": "POST /research",
             "research_stream": "POST /research/stream",
             "ask": "POST /sessions/{session_id}/ask",
@@ -304,36 +306,107 @@ def index() -> dict:
     }
 
 
+# Credentials inside a URL, e.g. postgresql://user:secret@host/db
+_URL_CREDENTIALS = re.compile(r"(?P<scheme>[a-zA-Z][\w+.-]*://)[^/@\s]*:[^/@\s]*@")
+
+
+def _redact(text: str) -> str:
+    """Strip URL credentials from an error message.
+
+    Connection errors echo back the parameters they were given, and /health
+    is typically the one endpoint left unauthenticated. A DSN password in a
+    health response is a credential leak to anyone who can curl the service.
+    """
+    return _URL_CREDENTIALS.sub(r"\g<scheme>***@", text)
+
+
+def _probe(fn) -> dict:
+    """Report whether a dependency answered, without letting it raise.
+
+    The whole point of splitting liveness from readiness: a store that cannot
+    be reached is information to put in the response body, not a reason to
+    fail the probe that decides whether to restart the process.
+    """
+    try:
+        return {"reachable": True, **fn()}
+    except Exception as exc:  # noqa: BLE001 - a probe must never raise
+        message = str(exc).splitlines()[0] if str(exc) else ""
+        return {
+            "reachable": False,
+            "error": type(exc).__name__,
+            "detail": _redact(message)[:160],
+        }
+
+
+def _dependencies(store: SessionStore, metrics: MetricsStore) -> dict:
+    """Each store's identity always, its counts only if it answers."""
+    memory = research_agent.memory()
+    return {
+        "sessions": {"backend": type(store).__name__, "location": store.path,
+                     **_probe(lambda: {"count": store.count()})},
+        "metrics": {"backend": type(metrics).__name__, "location": metrics.path,
+                    **_probe(lambda: {"runs_recorded": metrics.count()})},
+        "memory": {"backend": type(memory).__name__,
+                   **_probe(lambda: {"notes": len(memory)})},
+    }
+
+
 @app.get("/health", tags=["ops"])
 def health(
     store: SessionStore = Depends(get_sessions),
     metrics: MetricsStore = Depends(get_metrics),
 ) -> dict:
-    """Liveness plus the two facts worth knowing at a glance: which memory
-    backend is live, and whether sessions are actually persisting.
+    """Liveness. Returns 200 whenever this process is running.
 
-    Deliberately does not call Claude or Voyage -- a health check that fails
-    when a third party is down will get a healthy container killed.
+    It reports what it can reach without failing on what it can't, and that
+    distinction is the entire design. Fly restarts a machine whose health
+    check fails -- but a restart does not fix an unreachable database, a
+    paused free-tier instance, or a third party's outage. It just turns one
+    broken dependency into a restart loop, and takes down the endpoints that
+    were still working.
 
-    Credentials are reported as present/absent, never by value. The clients
-    are lazy, so a container with no keys starts up perfectly healthy and
-    then fails every actual request; without this you would find that out
-    from the first user rather than from the deploy.
+    Use /ready for the question "should traffic come here", which is the one
+    where an unreachable store genuinely means no.
+
+    Deliberately never calls Claude or Voyage. Credentials are reported as
+    present or absent, never by value: the clients are lazy, so a container
+    with no keys starts up perfectly healthy and then fails every real
+    request -- better to learn that from the deploy than from a user.
     """
-    memory = research_agent.memory()
+    dependencies = _dependencies(store, metrics)
+    degraded = [name for name, d in dependencies.items() if not d["reachable"]]
     return {
         "status": "ok",
-        "memory": {"backend": type(memory).__name__, "notes": len(memory)},
-        "sessions": {
-            "backend": type(store).__name__,
-            "count": store.count(),
-            "path": store.path,
-        },
-        "runs_recorded": metrics.count(),
+        "dependencies": "degraded" if degraded else "ok",
+        "unreachable": degraded,
+        **dependencies,
         "credentials": {
             "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "voyage": bool(os.environ.get("VOYAGE_API_KEY")),
         },
+    }
+
+
+@app.get("/ready", tags=["ops"])
+def ready(
+    response: Response,
+    store: SessionStore = Depends(get_sessions),
+    metrics: MetricsStore = Depends(get_metrics),
+) -> dict:
+    """Readiness: 200 when every store answers, 503 when one doesn't.
+
+    Point a load balancer here to drain a machine whose database is down.
+    Do *not* point a restart-triggering liveness check here -- that is
+    precisely the loop /health exists to avoid.
+    """
+    dependencies = _dependencies(store, metrics)
+    degraded = [name for name, d in dependencies.items() if not d["reachable"]]
+    if degraded:
+        response.status_code = 503
+    return {
+        "status": "degraded" if degraded else "ready",
+        "unreachable": degraded,
+        **dependencies,
     }
 
 

@@ -91,6 +91,7 @@ def test_health_reports_backends_without_calling_them(make_client):
     body = client.get("/health").json()
 
     assert body["status"] == "ok"
+    assert body["dependencies"] == "ok"
     assert body["memory"]["backend"] == "InMemoryStore"
     assert body["sessions"]["count"] == 0
     assert fake.calls == []
@@ -525,7 +526,7 @@ def test_a_streamed_run_is_recorded_like_a_blocking_one(make_client):
 def test_health_reports_how_many_runs_have_been_recorded(make_client):
     client, _ = make_client()
     client.post("/research", json={"question": "why?"})
-    assert client.get("/health").json()["runs_recorded"] == 1
+    assert client.get("/health").json()["metrics"]["runs_recorded"] == 1
 
 
 def test_an_unexpected_error_is_not_dressed_up_as_an_upstream_problem(make_client, monkeypatch):
@@ -588,3 +589,95 @@ def test_every_advertised_endpoint_actually_exists(make_client):
     for advertised in client.get("/").json()["endpoints"].values():
         method, path = advertised.split(" ", 1)
         assert (method, path) in served, advertised
+
+
+# --------------------------------------------------------------------------
+# Liveness vs readiness
+# --------------------------------------------------------------------------
+
+
+class _Unreachable:
+    """A store whose database has gone away."""
+
+    path = "postgres://db.example.com/agent"
+
+    def count(self):
+        raise ConnectionError("connection to server at 10.0.0.1 failed: timeout expired")
+
+
+def test_health_stays_200_when_a_store_is_unreachable(make_client, monkeypatch):
+    """The bug this fixes: /health touched the database, so a paused
+    free-tier Postgres made the check fail, which made Fly restart the
+    machine, which did not reach the database either. A restart loop over a
+    fault a restart cannot fix."""
+    client, _ = make_client()
+    service.app.dependency_overrides[service.get_sessions] = _Unreachable
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"                    # the process is alive
+    assert body["dependencies"] == "degraded"        # and says what isn't
+    assert body["unreachable"] == ["sessions"]
+    assert body["sessions"]["reachable"] is False
+    assert body["sessions"]["error"] == "ConnectionError"
+
+
+def test_health_still_identifies_a_store_it_cannot_reach(make_client):
+    """Backend and location come from the object, not the database, so they
+    survive exactly the outage you most want them during."""
+    client, _ = make_client()
+    service.app.dependency_overrides[service.get_sessions] = _Unreachable
+
+    sessions = client.get("/health").json()["sessions"]
+    assert sessions["backend"] == "_Unreachable"
+    assert sessions["location"] == "postgres://db.example.com/agent"
+
+
+def test_ready_is_503_when_a_store_is_unreachable(make_client):
+    """Readiness is where an unreachable store genuinely means "no traffic"."""
+    client, _ = make_client()
+    service.app.dependency_overrides[service.get_sessions] = _Unreachable
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "degraded"
+
+
+def test_ready_is_200_when_everything_answers(make_client):
+    client, _ = make_client()
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["unreachable"] == []
+    assert all(body[d]["reachable"] for d in ("sessions", "metrics", "memory"))
+
+
+def test_health_reports_all_three_stores(make_client):
+    client, _ = make_client()
+    body = client.get("/health").json()
+    for dependency in ("sessions", "metrics", "memory"):
+        assert body[dependency]["reachable"] is True
+
+
+def test_a_probe_failure_does_not_leak_the_dsn(make_client):
+    """psycopg echoes connection parameters back in some errors, and the DSN
+    carries a password."""
+    class LeakyStore(_Unreachable):
+        def count(self):
+            raise ConnectionError(
+                "connection failed: postgresql://user:sup3rsecret@host/db\nmore detail"
+            )
+
+    client, _ = make_client()
+    service.app.dependency_overrides[service.get_sessions] = LeakyStore
+
+    detail = client.get("/health").json()["sessions"]["detail"]
+    assert "sup3rsecret" not in detail
+    assert "***@host/db" in detail          # redacted, not merely truncated
+    assert "more detail" not in detail      # only the first line
+    assert len(detail) <= 160
