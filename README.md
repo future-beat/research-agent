@@ -6,7 +6,36 @@ Then ask it follow-ups. Follow-ups answer from the notes behind the report you j
 
 It remembers. Research notes are embedded with Voyage AI and stored behind a swappable backend, so later runs recall earlier ones and build on them instead of starting cold.
 
-**Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage AI embeddings · pytest
+It runs as a service or as a terminal REPL, over the same graph.
+
+**Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage AI embeddings · FastAPI · SQLite · pytest
+
+---
+
+## Roadmap
+
+Built in phases, each one shippable on its own.
+
+**✅ Phase 1 — Core agent loop**
+Supervisor pattern on LangGraph: classifier, researcher, writer, critic. Routing is deterministic Python over state, not a model call. Bounded revision and iteration caps, with `forced_stop_reason` surfaced so an unapproved draft can never pass as an approved one. Per-node inference tuning and a full execution trace.
+
+**✅ Phase 2 — Persistent memory**
+Voyage embeddings, cosine retrieval with a relevance floor, persisted across runs. Topic-type classification that drives both the researcher's strategy and the critic's rubric. Terminal REPL with streamed progress.
+
+**✅ Phase 3 — Conversation, pluggability, resilience, tests**
+Follow-up turns over the previous run's notes, reusing the critic loop. `MemoryStore`/`Embedder` seams with JSON, in-memory, and Chroma backends. Per-node retry with jittered backoff that honours `retry-after`. 95 tests running with no keys and no network.
+
+**✅ Phase 4 — Service surface** *(this phase)*
+FastAPI over the same graph. Blocking and server-sent-event variants of every run. Sessions persisted to SQLite so follow-ups survive a restart or a different worker. Upstream failures mapped to honest status codes; `/health` that doesn't page you when a third party is down. 141 tests.
+
+**⬜ Phase 5 — Observability & cost control**
+Structured JSON logs keyed by session, per-run token and cost accounting, a hard budget that aborts a runaway run, `/metrics`, and OpenTelemetry spans per run, node, and model call.
+
+**⬜ Phase 6 — Evaluation harness**
+A golden set of research questions. Deterministic grading of routing, guardrails, and grounding-refusal behaviour, plus an LLM-as-judge check that reports actually follow from their notes. JSON report artifact and a threshold exit code so CI can fail on a regression.
+
+**⬜ Phase 7 — Ship it**
+Dockerfile with a healthcheck, compose file for local runs, GitHub Actions running lint, tests, and a container smoke test on every push, and a deploy config with a mounted volume for the memory and session stores.
 
 ---
 
@@ -126,6 +155,13 @@ The parts worth reading the code for.
 
 **Nothing is constructed at import time.** Both API clients are built on first use. Eager construction would make the modules unimportable without a full set of keys — which would mean the routing table, the one genuinely deterministic part of the system, could not be tested at all. The whole suite runs with no keys and no network.
 
+**Sessions store completed runs, not mid-run checkpoints.** A follow-up arrives as a separate request, likely on a different worker, possibly after a redeploy, so the final state of every run goes to SQLite. Deliberately *not* LangGraph's checkpointer: that solves resuming a half-finished graph, a different feature with a different failure model, and adopting it here would buy resumability nobody asked for at the price of a schema coupled to LangGraph internals. A crash mid-run loses that run and the caller retries — which is the honest behaviour when the alternative is resuming into a half-researched report.
+
+**A stream that fails has to say so in-band.** By the time a node dies, the `200` and the headers are long gone. So `_stream` catches everything and emits a terminal `error` event: exactly one terminal event per stream, never both, never neither. Without it a mid-run failure is indistinguishable from a truncated connection, and the client's only options are to guess or to hang.
+
+**Inference settings are tuned per node, not globally.** The classifier emits one word from a fixed set, so it runs with thinking disabled under a 20-token ceiling — no budget spent deliberating a four-way label. The researcher, writer, and critic do genuine reasoning and run with adaptive thinking, letting the model scale its own depth per task. Everything runs at `effort: "medium"`.
+
+**Every run is traceable.** Each node appends to `state["trace"]`, giving a full record of routing decisions, recall counts, draft lengths, and critic verdicts. Inspect it with `/trace` in the REPL.
 
 ---
 
@@ -190,6 +226,61 @@ Runs the single hardcoded task at the bottom of the file and prints the report p
 
 ---
 
+## HTTP service
+
+```bash
+uvicorn service:app --host 0.0.0.0 --port 8000
+```
+
+Interactive API docs at `/docs`, schema at `/openapi.json`.
+
+| Method | Path | Does |
+|---|---|---|
+| `GET` | `/health` | Liveness, memory backend, session count |
+| `POST` | `/research` | Full pipeline; returns the finished report and opens a session |
+| `POST` | `/research/stream` | Same run, streamed as SSE |
+| `POST` | `/sessions/{id}/ask` | Follow-up answered from that session's notes |
+| `POST` | `/sessions/{id}/ask/stream` | Same, streamed |
+| `GET` | `/sessions` | Recent sessions (summaries only) |
+| `GET` | `/sessions/{id}` | Latest answer and the full follow-up thread |
+| `GET` | `/sessions/{id}/trace` | Node-by-node trace of the last run |
+| `DELETE` | `/sessions/{id}` | Delete a session |
+| `GET` | `/memory` | Note count and live backend |
+
+```bash
+curl -sN localhost:8000/research/stream \
+  -H 'content-type: application/json' \
+  -d '{"question":"What are the current approaches to LLM agent memory?"}'
+```
+
+```
+event: node
+data: {"node": "classifier", "topic_type": "technical"}
+
+event: node
+data: {"node": "researcher", "recalled_from_memory": 2}
+
+event: node
+data: {"node": "critic", "approved": true}
+
+event: result
+data: {"session_id": "3f2a…", "answer": "# Current Approaches…", "approved": true, …}
+```
+
+Then follow up on that `session_id`:
+
+```bash
+curl -s localhost:8000/sessions/3f2a…/ask \
+  -H 'content-type: application/json' \
+  -d '{"question":"Which of those handles multi-session recall?"}'
+```
+
+A run takes tens of seconds, so the blocking endpoints suit a job queue and the streaming ones suit anything with a human waiting — the same reason the REPL streams.
+
+**Status codes.** Transient upstream failures are already retried with backoff inside each node, so what reaches the caller has either failed persistently or outlived its budget. `429` means back off, `502` means upstream is unwell, `422` means the request was bad and nothing billable ran. `/health` deliberately never calls Claude or Voyage: a health check that fails when a third party does will get a perfectly healthy container killed.
+
+---
+
 ## Tests
 
 ```bash
@@ -197,7 +288,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-95 tests, ~0.5s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage, so what's under test is this system's own logic:
+141 tests, ~1s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
 
 | File | Covers |
 |---|---|
@@ -205,6 +296,8 @@ pytest
 | `tests/test_graph_smoke.py` | Full runs through the compiled graph — revision loops, the follow-up path, recall, guardrails |
 | `tests/test_retry.py` | Which errors are retryable, backoff and jitter arithmetic, `retry-after`, budget exhaustion |
 | `tests/test_memory_stores.py` | Both brute-force backends against one shared contract, persistence, the similarity floor, backend selection |
+| `tests/test_sessions.py` | Session round-trips through real SQLite, turn accumulation, survival across a reopen, concurrent writes |
+| `tests/test_service.py` | Every endpoint, SSE framing and in-band error events, follow-ups across a restart, upstream failure → status code |
 
 ---
 
@@ -227,6 +320,7 @@ Set by environment variable:
 | `VECTOR_STORE_PATH` | JSON store location | next to `vector_memory.py` |
 | `CHROMA_PATH` / `CHROMA_COLLECTION` | Chroma location and collection | `chroma_store` / `research_notes` |
 | `VOYAGE_EMBEDDING_MODEL` | Embedding model | `voyage-3.5` |
+| `SESSION_DB_PATH` | SQLite session database | `sessions.db` beside the code |
 | `AGENT_MAX_ATTEMPTS` | Attempts per node, including the first | `4` |
 | `AGENT_RETRY_BASE_DELAY` | Seconds before the first retry | `1.0` |
 | `AGENT_RETRY_MAX_DELAY` | Ceiling on any single backoff sleep | `30.0` |
@@ -243,6 +337,8 @@ Research strategies and critic rubrics live in the `RESEARCH_STRATEGY` and `CRIT
 research_agent.py       the graph: nodes, supervisor, routing, compile
 vector_memory.py        Embedder + MemoryStore seams and the three backends
 retry.py                retryable-error classification, backoff, node decorator
+sessions.py             SQLite-backed conversation sessions
+service.py              FastAPI surface: blocking + SSE, sessions, ops
 chat.py                 terminal REPL with streamed progress
 tests/                  pytest suite (no keys, no network)
 requirements.txt        pinned dependencies
@@ -250,7 +346,9 @@ requirements-dev.txt    + pytest
 .env.example            key template
 ```
 
-The default JSON store is written next to `vector_memory.py`, not to the working directory, so the same store is used no matter where you launch from.
+Both stores default to paths beside the code, not the working directory, so the same data is used no matter where you launch from. In a container, point `SESSION_DB_PATH` and `VECTOR_STORE_PATH` at a mounted volume.
+
+`service.py` is deliberately thin: it validates input, picks a state constructor, runs the graph, and persists the result. No routing logic lives there — any that did would mean the supervisor is no longer the single place deciding what runs next.
 
 ---
 
@@ -262,10 +360,12 @@ Known, and deliberate for the scope:
 - **The default backend still scans the whole store.** `JSONMemoryStore.query()` scores every note — O(n) per call, and it rewrites the entire file on every add. Correct at hundreds of notes, the wrong shape at thousands. That's what `VECTOR_STORE=chroma` is for; the JSON store stays the default because it needs no extra dependency.
 - **The critic shares the writer's model.** Independent enough to catch ungrounded claims, but not a genuinely independent evaluator.
 - **The store grows without bound.** No eviction, no deduplication, no summarization.
-- **Conversation state is per-process.** `/ask` threads live in the REPL's memory and vanish on exit. Durable multi-turn sessions would want a real session store rather than a local variable.
+- **REPL conversations are still per-process.** `/ask` threads in `chat.py` live in a local variable and vanish on exit. The HTTP service persists them; the REPL doesn't.
 - **Retries assume nodes are safe to re-run.** They are today — each node overwrites its own fields — but a node that appended to state instead of replacing it would double-write on retry.
-
-Natural next steps: an HTTP surface over `initial_state` / `followup_state` with durable sessions, per-run cost accounting, an evaluation harness, and containerized deployment.
+- **No auth, no rate limiting, no per-caller quotas.** Every request can start a run that costs real money. Put this behind a gateway, or wait for the budget guardrail in Phase 5.
+- **A run is unbounded in cost.** Iteration and revision caps bound the *number* of model calls, not the tokens they spend. That's Phase 5.
+- **Sessions grow without bound and belong to nobody.** No expiry, no ownership, no pagination beyond a 50-row cap on listing. Anyone who can reach the service can read any session.
+- **Single-writer SQLite.** One container is fine. Horizontal scaling wants Postgres for sessions and Chroma for notes — both already behind interfaces, so it's a swap rather than a rewrite.
 
 ---
 

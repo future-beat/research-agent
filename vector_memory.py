@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from abc import ABC, abstractmethod
 from typing import Protocol, Sequence
 
@@ -136,11 +137,19 @@ class _BruteForceStore(MemoryStore):
     def __init__(self, embedder: Embedder | None = None):
         self.embedder = embedder or VoyageEmbedder()
         self.entries: list[dict] = []
+        # The service runs graph nodes in a thread pool, so two researchers can
+        # be adding notes while a third reads. The lock covers the list and the
+        # file together -- without it, a save could serialize a half-appended
+        # list, or a query could scan entries mid-mutation.
+        self._lock = threading.RLock()
 
     def add(self, text: str) -> None:
+        # Embedding is a network call; deliberately outside the lock so a slow
+        # Voyage response doesn't block every concurrent reader.
         embedding = self.embedder.embed_documents([text])[0]
-        self.entries.append({"text": text, "embedding": list(embedding)})
-        self._persist()
+        with self._lock:
+            self.entries.append({"text": text, "embedding": list(embedding)})
+            self._persist()
 
     def query(
         self,
@@ -148,19 +157,22 @@ class _BruteForceStore(MemoryStore):
         top_k: int = DEFAULT_TOP_K,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
     ) -> list[str]:
-        if not self.entries:
-            return []
+        with self._lock:
+            if not self.entries:
+                return []
+            snapshot = list(self.entries)
 
         query_vec = np.array(self.embedder.embed_query(query_text))
         scored = [
             (_cosine(query_vec, np.array(entry["embedding"])), entry["text"])
-            for entry in self.entries
+            for entry in snapshot
         ]
         scored.sort(reverse=True, key=lambda pair: pair[0])
         return [text for sim, text in scored[:top_k] if sim >= min_similarity]
 
     def __len__(self) -> int:
-        return len(self.entries)
+        with self._lock:
+            return len(self.entries)
 
     def _persist(self) -> None:
         """No-op unless the subclass is durable."""
@@ -194,6 +206,7 @@ class JSONMemoryStore(_BruteForceStore):
 
     def _persist(self) -> None:
         # Write-then-rename so an interrupted save can't truncate the store.
+        # Called under the store lock.
         tmp = f"{self.path}.tmp"
         with open(tmp, "w") as f:
             json.dump(self.entries, f)

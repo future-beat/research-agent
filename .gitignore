@@ -20,3 +20,8 @@ chroma_store/
 
 # pytest
 .pytest_cache/
+
+# Session database (contains full reports and research notes)
+*.db
+*.db-wal
+*.db-shm
