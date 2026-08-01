@@ -152,8 +152,16 @@ def test_in_memory_store_persists_nothing(tmp_path, embedder, monkeypatch):
 # --------------------------------------------------------------------------
 
 
-def test_factory_defaults_to_json(monkeypatch, embedder):
+def test_factory_defaults_to_json_with_no_configuration(monkeypatch, embedder):
+    """JSON is the default only when nothing is configured at all.
+
+    DATABASE_URL has to be cleared too: since Phase 8 the default follows it,
+    so leaving it set here asserted the wrong contract and failed the moment
+    CI grew a Postgres service. The DATABASE_URL-driven default is covered in
+    tests/test_store_contract.py.
+    """
     monkeypatch.delenv("VECTOR_STORE", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     assert isinstance(get_memory_store(embedder=embedder), JSONMemoryStore)
 
 

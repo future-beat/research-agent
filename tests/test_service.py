@@ -32,6 +32,11 @@ def make_client(tmp_path, monkeypatch):
     # drops a stray sessions.db next to the source.
     monkeypatch.setenv("SESSION_DB_PATH", str(tmp_path / "lifespan.db"))
     monkeypatch.setenv("METRICS_DB_PATH", str(tmp_path / "lifespan-metrics.db"))
+    # The lifespan calls the backend factories, which follow DATABASE_URL.
+    # Pinning them keeps these tests about the API rather than about whichever
+    # database the surrounding environment happens to expose.
+    monkeypatch.setenv("SESSION_BACKEND", "sqlite")
+    monkeypatch.setenv("METRICS_BACKEND", "sqlite")
 
     def build(critic_verdicts=("APPROVED",) * 8):
         fake = FakeClient(critic_verdicts)

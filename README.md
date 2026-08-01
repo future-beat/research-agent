@@ -38,7 +38,7 @@ A twelve-case golden set graded by deterministic checks over finished runs, plus
 Dependencies split so a worker image doesn't ship a web server. Two-stage Dockerfile on a non-root user with a healthcheck, compose file, and a Fly config with a mounted volume. GitHub Actions runs ruff, tests, the offline evals, and a container smoke test — all with no API keys.
 
 **✅ Phase 8 — Stateless: Postgres and pgvector** *(this phase)*
-Sessions, metrics, and notes all get Postgres backends behind the interfaces that were built for exactly this. Setting `DATABASE_URL` is the entire switch. Notes move to pgvector with an HNSW index, replacing the O(n) scan. One contract suite runs against every backend so "swappable" is tested rather than asserted, with a real Postgres in CI. Plus a migration script, because a deployment that already has data shouldn't have to choose between scaling and remembering. 337 tests.
+Sessions, metrics, and notes all get Postgres backends behind the interfaces that were built for exactly this. Setting `DATABASE_URL` is the entire switch. Notes move to pgvector with an HNSW index, replacing the O(n) scan. One contract suite runs against every backend so "swappable" is tested rather than asserted, with a real Postgres in CI. Plus a migration script, because a deployment that already has data shouldn't have to choose between scaling and remembering. 345 tests.
 
 ---
 
@@ -332,7 +332,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-337 tests, ~2s, no API keys and no network. The 27 Postgres tests skip locally unless `DATABASE_URL` is set, and run for real in CI against a `pgvector/pgvector` service container — with a guard test that **fails** rather than skips if CI's database is missing, so the build can't go green over an untested backend. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
+345 tests, ~2s, no API keys and no network. The 27 Postgres tests skip locally unless `DATABASE_URL` is set, and run for real in CI against a `pgvector/pgvector` service container — with a guard test that **fails** rather than skips if CI's database is missing, so the build can't go green over an untested backend. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
 
 | File | Covers |
 |---|---|
@@ -347,6 +347,7 @@ pytest
 | `tests/test_observability.py` | JSON log shape, handler idempotence, the tracing no-op |
 | `tests/test_evals.py` | Dataset coverage, every grader's failure path, judge parsing, threshold and exit-code behaviour |
 | `tests/test_store_contract.py` | One suite run against **every** backend — SQLite/Postgres sessions and metrics, JSON/in-memory/pgvector notes |
+| `tests/test_deploy_config.py` | fly.toml sanity: not aimed at the database app, ports match the Dockerfile, store paths inside the mounted volume |
 
 ---
 
@@ -405,13 +406,22 @@ The image runs as a non-root user, installs `requirements-service.txt` only, and
 One volume on one machine is fine for a demo, but it means downtime during host maintenance and up to 24h of data loss between snapshots. Moving the state to Postgres removes both, and it's one variable:
 
 ```bash
-fly postgres create --name research-agent-db
-fly postgres attach research-agent-db      # sets DATABASE_URL for you
-fly deploy
+APP=research-agent-rippling-waterfall-9963   # the AGENT app, not the database
 
-fly ssh console -C "python /app/migrate_to_postgres.py --dry-run"
-fly ssh console -C "python /app/migrate_to_postgres.py"
+fly postgres create --name research-agent-db
+fly postgres attach research-agent-db -a "$APP"   # sets DATABASE_URL on the agent
+fly deploy -a "$APP"
+
+fly ssh console -a "$APP" -C "python /app/migrate_to_postgres.py --dry-run"
+fly ssh console -a "$APP" -C "python /app/migrate_to_postgres.py"
 ```
+
+**Always pass `-a` explicitly.** `fly postgres create` makes a *separate*,
+Fly-managed app; you attach to it, you never deploy into it. Fly's GitHub
+integration has been observed rewriting `app` in `fly.toml` to the database's
+name, at which point `fly deploy` tries to push the agent image onto the
+Postgres cluster — `tests/test_deploy_config.py` now fails the build if that
+happens again.
 
 Then delete the `[[mounts]]` block from `fly.toml` and `fly scale count 2`. Sessions, metrics, and notes all follow `DATABASE_URL`, so there's no second flag to forget.
 
