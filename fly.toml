@@ -1,20 +1,4 @@
-# fly.toml configuration for the RESEARCH AGENT app.
-#
-# Edited by hand. Do NOT merge Fly's "New files from Fly.io Launch" pull
-# requests into it -- they regenerate this file from the web UI's defaults and
-# have twice broken the deploy:
-#
-#   * once by pointing `app` at the Postgres cluster, so `fly deploy` tried to
-#     push the agent image onto the database (a volume-name clash stopped it);
-#   * once by setting internal_port to 8080 while the container listens on
-#     8000 -- which merges without a conflict, because it touches a line this
-#     file hasn't changed since the branch point.
-#
-# tests/test_deploy_config.py now fails the build on both. Take any value you
-# want from such a PR by hand; don't merge the file.
-#
-# primary_region is pinned to the volume: changing it means destroying
-# agent_data and losing whatever is in it.
+# fly.toml app configuration file generated for research-agent on 2026-08-01T16:51:42Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -33,8 +17,6 @@ primary_region = 'syd'
   SESSION_DB_PATH = '/data/sessions.db'
   VECTOR_STORE_PATH = '/data/agent_memory_store.json'
 
-# Needed only while the stores are on local disk. Once DATABASE_URL is set,
-# all three move to Postgres, the machine holds no state, and this can go.
 [[mounts]]
   source = 'agent_data'
   destination = '/data'
@@ -42,9 +24,6 @@ primary_region = 'syd'
 [http_service]
   internal_port = 8000
   force_https = true
-  # One machine while the stores are on a per-machine volume: a second would
-  # hold its own database, so a follow-up could land on a machine that has
-  # never heard of the session. Safe to raise once DATABASE_URL is set.
   auto_stop_machines = 'suspend'
   auto_start_machines = true
   min_machines_running = 1
@@ -54,14 +33,6 @@ primary_region = 'syd'
     hard_limit = 16
     soft_limit = 8
 
-  # /health is the LIVENESS probe: it reports unreachable dependencies in the
-  # body and still returns 200, because restarting a machine does not fix a
-  # database that is down. Never point this at /ready -- that returns 503 when
-  # a store is unreachable, which here would mean a restart loop.
-  #
-  # The timeout allows for three store probes each bounded by
-  # PG_CONNECT_TIMEOUT (3s), so a fully unreachable database still answers
-  # inside the window instead of timing the check out.
   [[http_service.checks]]
     interval = '30s'
     timeout = '15s'
@@ -75,16 +46,3 @@ primary_region = 'syd'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 1024
-
-# --- Going stateless (Phase 8) ------------------------------------------
-#
-#   fly postgres create --name research-agent-db
-#   fly postgres attach <db-app> -a research-agent
-#   fly deploy -a research-agent
-#   fly ssh console -a research-agent -C "python /app/migrate_to_postgres.py --dry-run"
-#
-# Always pass -a explicitly. `fly postgres attach` sets DATABASE_URL as a
-# secret on the AGENT app; the database app is managed by Fly and is never a
-# deploy target.
-#
-# Then remove the [[mounts]] block above and: fly scale count 2
