@@ -1,17 +1,26 @@
 # fly.toml configuration for the RESEARCH AGENT app.
 #
-# This must never name the Postgres app. `fly postgres create` makes a
-# separate, Fly-managed app that you attach to -- you do not deploy into
-# it. Fly's GitHub integration once rewrote this line to 'research-agent-db',
-# which made `fly deploy` try to push the agent image onto the database;
-# only a volume-name clash (agent_data vs pg_data) stopped it.
-# tests/test_deploy_config.py guards this now.
+# Edited by hand. Do NOT merge Fly's "New files from Fly.io Launch" pull
+# requests into it -- they regenerate this file from the web UI's defaults and
+# have twice broken the deploy:
+#
+#   * once by pointing `app` at the Postgres cluster, so `fly deploy` tried to
+#     push the agent image onto the database (a volume-name clash stopped it);
+#   * once by setting internal_port to 8080 while the container listens on
+#     8000 -- which merges without a conflict, because it touches a line this
+#     file hasn't changed since the branch point.
+#
+# tests/test_deploy_config.py now fails the build on both. Take any value you
+# want from such a PR by hand; don't merge the file.
+#
+# primary_region is pinned to the volume: changing it means destroying
+# agent_data and losing whatever is in it.
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
 app = 'research-agent'
-primary_region = 'lhr'
+primary_region = 'syd'
 
 [build]
   dockerfile = 'Dockerfile'

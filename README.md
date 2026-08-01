@@ -422,11 +422,16 @@ fly ssh console -a "$APP" -C "python /app/migrate_to_postgres.py"
 ```
 
 **Always pass `-a` explicitly.** `fly postgres create` makes a *separate*,
-Fly-managed app; you attach to it, you never deploy into it. Fly's GitHub
-integration has been observed rewriting `app` in `fly.toml` to the database's
-name, at which point `fly deploy` tries to push the agent image onto the
-Postgres cluster — `tests/test_deploy_config.py` now fails the build if that
-happens again.
+Fly-managed app; you attach to it, you never deploy into it.
+
+**Don't merge Fly's "New files from Fly.io Launch" pull requests.** They
+regenerate `fly.toml` from the web UI's defaults, and have twice broken this
+deploy: once by pointing `app` at the Postgres cluster, and once by setting
+`internal_port` to `8080` while the container listens on `8000`. The second is
+the nastier one — it changes a line `fly.toml` hasn't touched since the branch
+point, so it merges with **no conflict shown** and only surfaces as every
+request failing. Copy any value you want out of such a PR by hand and close
+it. `tests/test_deploy_config.py` fails the build on both cases.
 
 Then delete the `[[mounts]]` block from `fly.toml` and `fly scale count 2`. Sessions, metrics, and notes all follow `DATABASE_URL`, so there's no second flag to forget.
 
