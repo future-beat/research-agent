@@ -1,0 +1,37 @@
+# Keep the build context small and the image free of anything that isn't
+# the running service.
+
+# Secrets -- never, under any circumstances, in an image layer
+.env
+
+# Local data: the container gets a fresh /data volume
+*.db
+*.db-wal
+*.db-shm
+agent_memory_store.json
+*_memory_store.json
+chroma_store/
+evals-report.json
+
+# CI's job, not the image's
+tests/
+evals/
+pytest.ini
+requirements-dev.txt
+.ruff_cache/
+.pytest_cache/
+
+# Local tooling and history
+.venv/
+.git/
+.github/
+.claude/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Docs don't change behaviour and would bust the layer cache on every edit
+README.md
+LICENSE
+docker-compose.yml
+fly.toml

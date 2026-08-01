@@ -81,7 +81,7 @@ def _text(response) -> str:
     return "".join(block.text for block in response.content if block.type == "text")
 
 
-def call_model(state: "AgentState", node: str, **kwargs):
+def call_model(state: AgentState, node: str, **kwargs):
     """Every model call in this system goes through here.
 
     One choke point for the three things you need per call in production:
@@ -183,7 +183,9 @@ def followup_state(previous: AgentState, question: str) -> AgentState:
             "mode": "followup",
             "topic_type": previous.get("topic_type") or "general",
             "research_notes": previous.get("research_notes", ""),
-            "source_report": previous["source_report"] if was_followup else previous.get("draft", ""),
+            "source_report": (
+                previous["source_report"] if was_followup else previous.get("draft", "")
+            ),
             "conversation": conversation,
         }
     )

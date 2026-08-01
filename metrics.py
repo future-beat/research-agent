@@ -85,7 +85,7 @@ class RunRecord:
     @classmethod
     def from_state(
         cls, state: dict, *, session_id: str = "", duration_ms: float = 0.0
-    ) -> "RunRecord":
+    ) -> RunRecord:
         usage = state.get("usage") or {}
         trace = state.get("trace") or []
         return cls(

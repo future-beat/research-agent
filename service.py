@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 import research_agent
 import usage as usage_accounting
-from metrics import COMPLETED, FAILED, MetricsStore, RunRecord
+from metrics import FAILED, MetricsStore, RunRecord
 from observability import get_logger
 from research_agent import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
 from sessions import SESSION_DB_PATH, Session, SessionStore
@@ -83,7 +83,7 @@ class RunResponse(BaseModel):
     trace: list[dict[str, Any]]
 
     @classmethod
-    def build(cls, session_id: str, state: dict) -> "RunResponse":
+    def build(cls, session_id: str, state: dict) -> RunResponse:
         run_usage = state.get("usage") or usage_accounting.new_usage()
         return cls(
             session_id=session_id,
@@ -273,6 +273,11 @@ def health(
 
     Deliberately does not call Claude or Voyage -- a health check that fails
     when a third party is down will get a healthy container killed.
+
+    Credentials are reported as present/absent, never by value. The clients
+    are lazy, so a container with no keys starts up perfectly healthy and
+    then fails every actual request; without this you would find that out
+    from the first user rather than from the deploy.
     """
     memory = research_agent.memory()
     return {
@@ -280,6 +285,10 @@ def health(
         "memory": {"backend": type(memory).__name__, "notes": len(memory)},
         "sessions": {"count": store.count(), "path": store.path},
         "runs_recorded": metrics.count(),
+        "credentials": {
+            "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
+            "voyage": bool(os.environ.get("VOYAGE_API_KEY")),
+        },
     }
 
 

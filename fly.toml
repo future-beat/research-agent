@@ -1,0 +1,63 @@
+# Fly.io deployment.
+#
+#   fly launch --no-deploy --copy-config      # claims the app name
+#   fly volumes create agent_data --size 1    # sessions, metrics, vector store
+#   fly secrets set ANTHROPIC_API_KEY=... VOYAGE_API_KEY=...
+#   fly deploy
+#
+# Secrets are set with `fly secrets`, never written here -- this file is
+# committed. Nothing in it is confidential.
+#
+# Adjust `app` and `primary_region` before deploying; both are yours, not mine.
+
+app = "research-agent"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # The volume mount. Every default path in the image already points here.
+  SESSION_DB_PATH = "/data/sessions.db"
+  METRICS_DB_PATH = "/data/metrics.db"
+  VECTOR_STORE_PATH = "/data/agent_memory_store.json"
+  LOG_FORMAT = "json"
+  LOG_LEVEL = "INFO"
+  AGENT_MAX_RUN_COST_USD = "1.00"
+
+[[mounts]]
+  source = "agent_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+
+  # SQLite with a single writer and a mounted volume does not scale
+  # horizontally: two machines would each hold their own database on their
+  # own volume, so a follow-up could land on the machine that has never
+  # heard of the session. One machine until sessions move to Postgres.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    # A research run occupies a worker for tens of seconds. Queueing beyond
+    # this is better than accepting work the machine cannot start on.
+    soft_limit = 8
+    hard_limit = 16
+
+# A run can legitimately take minutes. The default proxy timeout would cut a
+# blocking /research request off mid-report; the SSE endpoints keep the
+# connection busy and are less exposed to this.
+[[http_service.checks]]
+  grace_period = "20s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

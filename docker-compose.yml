@@ -1,0 +1,32 @@
+# Local container run:
+#
+#   cp .env.example .env    # add your two keys
+#   docker compose up --build
+#   curl localhost:8000/health
+#
+# Compose reads .env automatically. The keys are passed through from the
+# environment rather than baked in, so nothing secret reaches an image layer.
+
+services:
+  agent:
+    build: .
+    image: research-agent:local
+    ports:
+      - "8000:8000"
+    environment:
+      # `:?` fails the run with a clear message instead of starting a
+      # container that looks healthy and 500s on the first request.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:?set VOYAGE_API_KEY in .env}
+      AGENT_MAX_RUN_COST_USD: ${AGENT_MAX_RUN_COST_USD:-1.00}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      VECTOR_STORE: ${VECTOR_STORE:-json}
+    volumes:
+      # Sessions, metrics, and the vector store. Without this, every
+      # follow-up thread and every stored note dies with the container.
+      - agent-data:/data
+    restart: unless-stopped
+
+volumes:
+  agent-data:

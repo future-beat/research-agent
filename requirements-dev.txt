@@ -1,7 +1,13 @@
-# Test-only dependencies. Install alongside requirements.txt:
-#   pip install -r requirements.txt -r requirements-dev.txt
--r requirements.txt
+# Test and lint dependencies. Includes the service deps because the suite
+# exercises the real FastAPI app:
+#   pip install -r requirements-dev.txt
+-r requirements-service.txt
 pytest==9.1.1
+ruff==0.15.4
 
 # Optional: only needed for VECTOR_STORE=chroma.
 # chromadb==1.4.1
+
+# Optional: enables the OpenTelemetry spans in observability.py.
+# Without it, span() is a no-op and everything else behaves identically.
+# opentelemetry-api==1.31.1

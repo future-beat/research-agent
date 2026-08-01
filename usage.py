@@ -110,7 +110,7 @@ class CallUsage:
     web_fetch_requests: int = 0
 
     @classmethod
-    def from_response(cls, response) -> "CallUsage":
+    def from_response(cls, response) -> CallUsage:
         usage = getattr(response, "usage", None)
         if usage is None:
             return cls()
@@ -156,7 +156,7 @@ TOKEN_FIELDS = (
 
 
 def new_usage() -> dict:
-    totals = {field: 0 for field in TOKEN_FIELDS}
+    totals = dict.fromkeys(TOKEN_FIELDS, 0)
     totals["calls"] = 0
     totals["cost_usd"] = 0.0
     # True once a call is made against a model with no price on file: its

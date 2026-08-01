@@ -1,0 +1,5 @@
+# HTTP service: everything the agent needs, plus the web server.
+# This is what the container installs.
+-r requirements.txt
+fastapi==0.141.1
+uvicorn[standard]==0.52.0

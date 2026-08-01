@@ -20,7 +20,7 @@ drafts, and the graders themselves. Measuring the model needs `--live`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # Node names the scripted client can be asked to produce output for.
 CLASSIFIER, RESEARCHER, WRITER, RESPONDER, CRITIC = (

@@ -30,7 +30,6 @@ from evals.dataset import APPROVED, Case, Followup
 from research_agent import followup_state, initial_state
 from vector_memory import InMemoryStore
 
-
 # --------------------------------------------------------------------------
 # Offline scripting
 # --------------------------------------------------------------------------

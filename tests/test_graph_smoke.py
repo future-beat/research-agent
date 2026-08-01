@@ -7,12 +7,11 @@ the fields the supervisor reads, and a run terminates.
 """
 
 import pytest
+from test_memory_stores import FakeEmbedder
 
 import research_agent
 from research_agent import app, followup_state, initial_state
 from vector_memory import InMemoryStore
-
-from test_memory_stores import FakeEmbedder
 
 
 class Block:

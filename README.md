@@ -31,11 +31,11 @@ FastAPI over the same graph. Blocking and server-sent-event variants of every ru
 **✅ Phase 5 — Observability & cost control**
 Per-run token and cost accounting against a date-aware price table, a spend cap that becomes another row in the routing table, structured JSON logs keyed by `run_id`, optional OpenTelemetry spans, and `/metrics` over a runs table that counts failures as well as successes.
 
-**✅ Phase 6 — Evaluation harness** *(this phase)*
-A twelve-case golden set graded by deterministic checks over finished runs, plus LLM-as-judge grounding checks on a stronger model than the pipeline. Runs free and offline in CI, or live against the real API. JSON report artifact and a threshold exit code. It found a real bug on its first run — see below. 269 tests.
+**✅ Phase 6 — Evaluation harness**
+A twelve-case golden set graded by deterministic checks over finished runs, plus LLM-as-judge grounding checks on a stronger model than the pipeline. Runs free and offline in CI, or live against the real API. JSON report artifact and a threshold exit code. It found a real bug on its first run — see below.
 
-**⬜ Phase 7 — Ship it**
-Dockerfile with a healthcheck, compose file for local runs, GitHub Actions running lint, tests, and a container smoke test on every push, and a deploy config with a mounted volume for the memory and session stores.
+**✅ Phase 7 — Ship it** *(this phase)*
+Dependencies split so a worker image doesn't ship a web server. Two-stage Dockerfile on a non-root user with a healthcheck, compose file, and a Fly config with a mounted volume. GitHub Actions runs ruff, 271 tests, the offline evals, and a container smoke test — all with no API keys. The deploy itself is yours to run.
 
 ---
 
@@ -166,6 +166,8 @@ The parts worth reading the code for.
 
 **Failed runs are in the metrics denominator.** A run that died opens no session, but it still burned tokens and still happened. Recording only successes would make an upstream outage look like a quiet day and would flatter every rate on the dashboard. Rates whose denominator is zero return `null` rather than `0.0`, because "no runs yet" and "nothing was approved" are different facts and a dashboard shouldn't conflate them. Latency percentiles cover completed runs only — time-to-failure is not time-to-report, and mixing them makes an outage look like a speed-up.
 
+**The image ships what it runs, and nothing else.** `requirements.txt` is the agent alone; the web server lives in `requirements-service.txt`, so a worker or batch job that imports the graph doesn't drag in FastAPI and uvicorn. The image installs the service file, not the dev one, and `.dockerignore` keeps `tests/` and `evals/` out — the eval dataset contains scripted model output, which has no business inside a production image.
+
 **Offline evals grade the pipeline; only `--live` grades the model.** The suite drives the real compiled graph either way, but offline it replaces the API with a scripted client whose output is authored in the dataset. That makes it free, deterministic, and safe to run on every push — and it means it cannot say anything about answer quality, because the answers are ours. What it *can* check is everything around the model: routing, both guardrails, follow-up isolation, and the invariant that an unapproved draft is never returned as if approved. The CLI prints that caveat under every offline run, because a green suite that quietly implies "the model is good" is worse than no suite.
 
 **The judge runs on a different, stronger model than the pipeline.** The in-graph critic shares the writer's model — good enough to catch ungrounded claims, not an independent evaluator, and the README has said so since Phase 1. A judge on that same model would inherit exactly the blind spots it exists to find, so it runs on Opus 5 against Sonnet 5, and returns a structured verdict rather than a text convention: a scoring harness that mis-parses a verdict reports a confident wrong number, which is worse than crashing.
@@ -188,10 +190,20 @@ cd research-agent
 
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-service.txt
 
 cp .env.example .env               # then add your two keys
 ```
+
+Dependencies come in three files, so you install what you're actually running:
+
+| File | Gets you | Contains |
+|---|---|---|
+| `requirements.txt` | the graph, the REPL, the evals | LangGraph, Anthropic, Voyage, numpy |
+| `requirements-service.txt` | the above plus the HTTP service | + FastAPI, uvicorn |
+| `requirements-dev.txt` | the above plus the test suite | + pytest, ruff |
+
+The core file deliberately excludes the web server: a worker image or a batch job that imports the graph shouldn't ship FastAPI.
 
 You need two separate API keys:
 
@@ -309,7 +321,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-269 tests, ~1.5s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
+271 tests, ~1.7s, no API keys and no network. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
 
 | File | Covers |
 |---|---|
@@ -364,6 +376,44 @@ Exits non-zero below `--min-pass-rate`, so CI fails on a regression without anyo
 
 ---
 
+## Deployment
+
+```bash
+cp .env.example .env               # add your two keys
+docker compose up --build
+curl localhost:8000/health
+```
+
+The image runs as a non-root user, installs `requirements-service.txt` only, and excludes `tests/` and `evals/` — the eval dataset contains scripted model output that has no business inside a production image.
+
+**Mount a volume at `/data`.** Both SQLite databases and the vector store live there. Without it, every follow-up thread and every stored note dies with the container, and the memory feature quietly becomes a no-op.
+
+**Deploying to Fly.io:**
+
+```bash
+fly launch --no-deploy --copy-config
+fly volumes create agent_data --size 1
+fly secrets set ANTHROPIC_API_KEY=... VOYAGE_API_KEY=...
+fly deploy
+```
+
+`fly.toml` pins `min_machines_running = 1` on purpose. SQLite with a single writer and a per-machine volume does not scale horizontally: a second machine would hold its own database, so a follow-up could land on a machine that has never heard of the session. Scaling out means moving sessions to Postgres and notes to Chroma first — both already sit behind interfaces, so it's a swap rather than a rewrite.
+
+**Credentials never reach an image layer.** `.env` is in `.dockerignore`; compose passes the keys through from the environment; Fly uses `fly secrets`. `/health` reports whether each key is *present*, never its value — the clients are lazy, so a container with no keys starts up perfectly healthy and then fails every real request, and you want to learn that from the deploy rather than from the first user.
+
+### CI
+
+```
+lint · tests · evals            ruff, 271 tests, 12 offline eval cases
+image build · smoke test        docker build, boot the container, probe it
+```
+
+Every gate runs with `ANTHROPIC_API_KEY=""`. A CI suite that needs a live key breaks on forks, on key rotation, and during someone else's outage — and bills you for every push. The offline eval step doubles as a guard on the lazy-client decision: if a client ever becomes eager again, that step is what fails.
+
+The smoke test boots the built image and probes `/health`, `/metrics`, `/pricing`, and `/openapi.json`, then waits for Docker's own `HEALTHCHECK` to report `healthy`. A Dockerfile that builds but whose entrypoint crashes on startup passes a build-only check and fails in production instead.
+
+---
+
 ## Configuration
 
 | Knob | Where | Default |
@@ -412,8 +462,14 @@ service.py              FastAPI surface: blocking + SSE, sessions, ops
 chat.py                 terminal REPL with streamed progress
 evals/                  golden dataset, graders, runner, CLI
 tests/                  pytest suite (no keys, no network)
-requirements.txt        pinned dependencies
-requirements-dev.txt    + pytest
+Dockerfile              two-stage image, non-root, healthchecked
+docker-compose.yml      local run with a mounted volume
+fly.toml                deploy config
+.github/workflows/      CI: lint, tests, evals, container smoke test
+requirements.txt        core agent
+requirements-service.txt  + FastAPI and uvicorn
+requirements-dev.txt    + pytest and ruff
+ruff.toml               lint config
 .env.example            key template
 ```
 
@@ -439,7 +495,9 @@ Known, and deliberate for the scope:
 - **The judge is one model's opinion.** `judge_grounding` is a stronger, independent check than the in-graph critic, not ground truth. Twelve cases is a smoke test, not a benchmark.
 - **Cost is computed from list prices.** Enterprise discounts, batch pricing, and the `inference_geo` multiplier are not modelled, so `/metrics` is an estimate that tracks the shape of the bill, not the bill itself.
 - **Sessions grow without bound and belong to nobody.** No expiry, no ownership, no pagination beyond a 50-row cap on listing. Anyone who can reach the service can read any session.
-- **Single-writer SQLite.** One container is fine. Horizontal scaling wants Postgres for sessions and Chroma for notes — both already behind interfaces, so it's a swap rather than a rewrite.
+- **Single-writer SQLite, so one machine.** `fly.toml` pins `min_machines_running = 1` for that reason: a second machine gets its own volume and its own database, and a follow-up routed to it would 404 on a session that exists. Horizontal scaling wants Postgres for sessions and Chroma for notes — both already behind interfaces, so it's a swap rather than a rewrite.
+- **The container image is unbuilt.** Docker isn't installed on the machine this was written on, so the Dockerfile, compose file, and CI smoke test are written but have never been run. The first `docker compose up --build` may need a fix.
+- **Nothing is deployed.** `fly.toml` needs your own `app` name and region, and the deploy step is deliberately left to you — it spends money on your account.
 
 ---
 

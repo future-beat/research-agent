@@ -12,15 +12,14 @@ import anthropic
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from test_graph_smoke import FakeClient
+from test_memory_stores import FakeEmbedder
 
 import research_agent
 import service
 from metrics import MetricsStore
 from sessions import SessionStore
 from vector_memory import InMemoryStore
-
-from test_graph_smoke import FakeClient
-from test_memory_stores import FakeEmbedder
 
 
 @pytest.fixture
@@ -156,7 +155,9 @@ def test_revision_count_is_reported(make_client):
     assert body["approved"] is True
 
 
-@pytest.mark.parametrize("payload", [{}, {"question": ""}, {"question": "   "}, {"question": "x" * 3000}])
+@pytest.mark.parametrize(
+    "payload", [{}, {"question": ""}, {"question": "   "}, {"question": "x" * 3000}]
+)
 def test_bad_questions_are_rejected(make_client, payload):
     client, fake = make_client()
     assert client.post("/research", json=payload).status_code == 422
@@ -170,7 +171,9 @@ def test_bad_questions_are_rejected(make_client, payload):
 
 def test_ask_answers_from_the_session_without_searching_again(make_client):
     client, fake = make_client()
-    session_id = client.post("/research", json={"question": "why is the sky blue?"}).json()["session_id"]
+    session_id = client.post(
+        "/research", json={"question": "why is the sky blue?"}
+    ).json()["session_id"]
     fake.calls.clear()
 
     body = client.post(f"/sessions/{session_id}/ask", json={"question": "what causes it?"}).json()
@@ -292,7 +295,8 @@ def test_streamed_run_is_persisted_like_a_blocking_one(make_client):
     response = client.post("/research/stream", json={"question": "why?"})
 
     session_id = sse_events(response)[-1][1]["session_id"]
-    assert client.get(f"/sessions/{session_id}").json()["latest_answer"] == "REPORT: the sky is blue."
+    detail = client.get(f"/sessions/{session_id}").json()
+    assert detail["latest_answer"] == "REPORT: the sky is blue."
 
 
 def test_stream_carries_node_detail(make_client):
@@ -529,3 +533,25 @@ def test_an_unexpected_error_is_not_dressed_up_as_an_upstream_problem(make_clien
         client.post("/research", json={"question": "why?"})
 
     assert client.get("/metrics").json()["reliability"]["errors"] == {"ValueError": 1}
+
+
+def test_health_reports_credential_presence_never_values(make_client, monkeypatch):
+    """The clients are lazy, so a container with no keys starts up perfectly
+    healthy and then fails every real request. Better to learn that from the
+    deploy than from the first user."""
+    client, _ = make_client()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret-value")
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+
+    body = client.get("/health").json()
+
+    assert body["credentials"] == {"anthropic": True, "voyage": False}
+    assert "secret-value" not in json.dumps(body)
+
+
+def test_health_treats_an_empty_key_as_absent(make_client, monkeypatch):
+    """An empty env var is a misconfigured deploy, not a configured one."""
+    client, _ = make_client()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+    assert client.get("/health").json()["credentials"]["anthropic"] is False

@@ -79,7 +79,9 @@ def test_unrelated_exceptions_are_not_retryable():
 
 
 def test_backoff_grows_exponentially():
-    delays = [compute_delay(n, base_delay=1.0, max_delay=100.0, rng=lambda: 1.0) for n in (1, 2, 3, 4)]
+    delays = [
+        compute_delay(n, base_delay=1.0, max_delay=100.0, rng=lambda: 1.0) for n in (1, 2, 3, 4)
+    ]
     assert delays == [1.0, 2.0, 4.0, 8.0]
 
 

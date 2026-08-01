@@ -30,7 +30,8 @@ import json
 import os
 import threading
 from abc import ABC, abstractmethod
-from typing import Protocol, Sequence
+from collections.abc import Sequence
+from typing import Protocol
 
 import numpy as np
 
@@ -40,7 +41,9 @@ EMBEDDING_MODEL = os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-3.5")
 # is the same one no matter where you launch from. A relative default would
 # silently create a second, empty store when run from elsewhere.
 _MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
-STORE_PATH = os.environ.get("VECTOR_STORE_PATH", os.path.join(_MODULE_DIR, "agent_memory_store.json"))
+STORE_PATH = os.environ.get(
+    "VECTOR_STORE_PATH", os.path.join(_MODULE_DIR, "agent_memory_store.json")
+)
 CHROMA_PATH = os.environ.get("CHROMA_PATH", os.path.join(_MODULE_DIR, "chroma_store"))
 CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION", "research_notes")
 
@@ -200,7 +203,7 @@ class JSONMemoryStore(_BruteForceStore):
 
     def _load(self) -> list[dict]:
         if os.path.exists(self.path):
-            with open(self.path, "r") as f:
+            with open(self.path) as f:
                 return json.load(f)
         return []
 
@@ -274,7 +277,10 @@ class ChromaMemoryStore(MemoryStore):
         # Chroma reports cosine *distance* (1 - similarity) in a cosine space.
         return [
             doc
-            for doc, dist in zip(documents, distances)
+            # strict=True: these come from one query and must be the same
+            # length. A mismatch means the filter below is comparing a document
+            # against another document's distance, which is worse than raising.
+            for doc, dist in zip(documents, distances, strict=True)
             if (1.0 - dist) >= min_similarity
         ]
 
@@ -296,7 +302,9 @@ BACKENDS = {
 }
 
 
-def get_memory_store(backend: str | None = None, *, embedder: Embedder | None = None) -> MemoryStore:
+def get_memory_store(
+    backend: str | None = None, *, embedder: Embedder | None = None
+) -> MemoryStore:
     """Build the configured store. `backend` defaults to $VECTOR_STORE, then json."""
     name = (backend or os.environ.get("VECTOR_STORE") or "json").strip().lower()
     try:

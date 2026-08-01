@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from evals.dataset import Case, Followup
 
@@ -152,7 +152,9 @@ def grade_notes_stored(case: Case, state: dict) -> Grade:
     """Recall across runs is the feature; a researcher that stops writing
     notes fails silently and only shows up as worse answers weeks later."""
     name = "notes_stored"
-    researched = [e for e in state["trace"] if e.get("node") == "researcher" and "notes_length" in e]
+    researched = [
+        e for e in state["trace"] if e.get("node") == "researcher" and "notes_length" in e
+    ]
     if not case.expect_notes_stored:
         return _ok(name, "not expected for this case")
     if researched and researched[-1]["notes_length"] > 0:
