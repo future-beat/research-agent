@@ -416,7 +416,7 @@ class PgVectorMemoryStore(MemoryStore):
         return self.db.fetchone(f"SELECT COUNT(*) AS n FROM {self.table}")["n"]
 
     def describe(self) -> str:
-        from sessions import _describe_dsn
+        from research_agent.sessions import _describe_dsn
 
         return f"{len(self)} note(s) in pgvector table {self.table} at {_describe_dsn(self.db.dsn)}"
 

@@ -28,8 +28,9 @@ __pycache__/
 *.py[cod]
 .DS_Store
 
-# Docs don't change behaviour and would bust the layer cache on every edit
-README.md
-LICENSE
+# README.md and LICENSE are NOT excluded: pyproject declares
+# `readme = "README.md"` and `license = { file = "LICENSE" }`, so the build
+# fails without them. They sit in the dependency layer, which a source edit
+# doesn't invalidate anyway.
 docker-compose.yml
 fly.toml
