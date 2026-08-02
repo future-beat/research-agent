@@ -108,3 +108,21 @@ def test_secrets_are_excluded_from_the_build_context():
     the image, and rotating it is the only remedy."""
     ignored = (ROOT / ".dockerignore").read_text().splitlines()
     assert ".env" in [line.strip() for line in ignored]
+
+
+def test_the_demo_page_is_copied_into_the_image():
+    """The page is served from disk at runtime. If the Dockerfile only copies
+    *.py, the deployed root URL 500s on a missing file -- and the tests all
+    pass, because they read it from the source tree."""
+    dockerfile = Path("Dockerfile").read_text()
+    assert "static/" in dockerfile
+
+    dockerignore = Path(".dockerignore").read_text()
+    for line in dockerignore.splitlines():
+        assert line.strip().rstrip("/") != "static", "static/ excluded from build context"
+
+
+def test_the_demo_page_exists_where_the_service_looks_for_it():
+    import service
+
+    assert Path(service.DEMO_PAGE).is_file()

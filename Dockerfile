@@ -48,6 +48,8 @@ WORKDIR /app
 # they belong in CI, and shipping them would put the eval dataset's scripted
 # model output inside the production image.
 COPY --chown=agent:agent *.py ./
+# The demo page. One self-contained file, so this is the whole frontend.
+COPY --chown=agent:agent static/ ./static/
 
 # Both SQLite databases and the vector store live here. Mount a volume at
 # /data or every run's memory dies with the container.

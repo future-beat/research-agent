@@ -37,8 +37,11 @@ A twelve-case golden set graded by deterministic checks over finished runs, plus
 **✅ Phase 7 — Ship it**
 Dependencies split so a worker image doesn't ship a web server. Two-stage Dockerfile on a non-root user with a healthcheck, compose file, and a Fly config with a mounted volume. GitHub Actions runs ruff, tests, the offline evals, and a container smoke test — all with no API keys.
 
-**✅ Phase 8 — Stateless: Postgres and pgvector** *(this phase)*
+**✅ Phase 8 — Stateless: Postgres and pgvector**
 Sessions, metrics, and notes all get Postgres backends behind the interfaces that were built for exactly this. Setting `DATABASE_URL` is the entire switch. Notes move to pgvector with an HNSW index, replacing the O(n) scan. One contract suite runs against every backend so "swappable" is tested rather than asserted, with a real Postgres in CI. Plus a migration script, because a deployment that already has data shouldn't have to choose between scaling and remembering. 351 tests.
+
+**✅ Phase 9 — Demo & guardrails** *(this phase)*
+A self-contained page at `/` that streams the pipeline live — classify, search, draft, critic rejects, redraft, approve — with the cost and approval badge on the result and chained follow-ups. Plus the guardrails a public URL with live API keys needs: a rolling 24h spend cap read from the metrics table, a per-visitor rate limit, and an optional token. 364 tests.
 
 ---
 
@@ -276,6 +279,8 @@ Interactive API docs at `/docs`, schema at `/openapi.json`.
 
 | Method | Path | Does |
 |---|---|---|
+| `GET` | `/` | Demo page in a browser; the JSON index for anything else |
+| `GET` | `/demo` | Current guardrail settings and remaining budget |
 | `GET` | `/health` | **Liveness** — always 200 while the process runs; reports unreachable dependencies |
 | `GET` | `/ready` | **Readiness** — 503 when a store can't be reached |
 | `POST` | `/research` | Full pipeline; returns the finished report and opens a session |
@@ -322,6 +327,8 @@ A run takes tens of seconds, so the blocking endpoints suit a job queue and the 
 
 **Liveness is not readiness.** `/health` returns 200 whenever the process is running, and reports unreachable dependencies in the body rather than failing. `/ready` returns 503 when a store can't be reached. The distinction is load-bearing: a failing health check makes Fly restart the machine, and **a restart does not fix a database that is down** — it just turns one broken dependency into a restart loop and takes down the endpoints that still worked. Point a load balancer at `/ready`; point a restart-triggering probe at `/health`, never the reverse.
 
+**Guardrails.** The service is reachable by anyone with the URL and every run spends real money, so the endpoints that cost money are gated three ways: an optional `DEMO_TOKEN` header, a per-visitor rate limit, and a rolling 24-hour spend cap read from the metrics table. Read-only endpoints are never gated — they cost nothing, and they're how you diagnose a service that's refusing work. The per-run cap in the supervisor bounds one runaway run; these bound the bill.
+
 **Observability.** Every model call and every finished run emits one JSON log line keyed by `run_id`, carrying node, duration, tokens, and cost — set `LOG_FORMAT=text` for a readable terminal. `/metrics` aggregates over a runs table that records failures alongside successes. OpenTelemetry spans are emitted per node when `opentelemetry-api` is installed; without it, `span()` is a no-op and nothing else changes.
 
 **Cost.** Each response carries `cost_usd` and a `usage` breakdown. A run that exceeds `AGENT_MAX_RUN_COST_USD` stops with `forced_stop_reason: "budget_exceeded"` — the answer you get back is whatever was finished, honestly labelled, rather than a surprise invoice.
@@ -337,7 +344,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-351 tests, ~2s, no API keys and no network. The 27 Postgres tests skip locally unless `DATABASE_URL` is set, and run for real in CI against a `pgvector/pgvector` service container — with a guard test that **fails** rather than skips if CI's database is missing, so the build can't go green over an untested backend. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
+364 tests, ~2s, no API keys and no network. The 27 Postgres tests skip locally unless `DATABASE_URL` is set, and run for real in CI against a `pgvector/pgvector` service container — with a guard test that **fails** rather than skips if CI's database is missing, so the build can't go green over an untested backend. The Claude client is stubbed and a fake embedder replaces Voyage; SQLite and the FastAPI app are real, because persistence and routing are exactly what would be worth faking least:
 
 | File | Covers |
 |---|---|
@@ -351,6 +358,7 @@ pytest
 | `tests/test_metrics.py` | Aggregation, rate denominators, percentile edges, concurrent writes |
 | `tests/test_observability.py` | JSON log shape, handler idempotence, the tracing no-op |
 | `tests/test_evals.py` | Dataset coverage, every grader's failure path, judge parsing, threshold and exit-code behaviour |
+| `tests/test_limits.py` | Rate-limit window and sweep, spoofable-header handling, token, spend cap, enforcement order |
 | `tests/test_store_contract.py` | One suite run against **every** backend — SQLite/Postgres sessions and metrics, JSON/in-memory/pgvector notes |
 | `tests/test_deploy_config.py` | fly.toml sanity: not aimed at the database app, ports match the Dockerfile, store paths inside the mounted volume |
 
@@ -505,6 +513,10 @@ Set by environment variable:
 | `AGENT_RETRY_BASE_DELAY` | Seconds before the first retry | `1.0` |
 | `AGENT_RETRY_MAX_DELAY` | Ceiling on any single backoff sleep | `30.0` |
 | `AGENT_MAX_RUN_COST_USD` | Per-run spend cap; `0` disables it | `1.00` |
+| `DEMO_DAILY_USD_CAP` | Rolling 24h spend ceiling across all callers; `0` disables | `5.00` |
+| `DEMO_RATE_LIMIT_PER_HOUR` | Requests per visitor IP; `0` disables | `10` |
+| `DEMO_TOKEN` | When set, write endpoints need an `X-Demo-Token` header | *(unset)* |
+| `TRUST_FORWARDED_FOR` | Believe `X-Forwarded-For` for client IP | `false` |
 | `DATABASE_URL` | Postgres DSN. **Setting it moves all three stores.** | *(unset)* |
 | `SESSION_BACKEND` / `METRICS_BACKEND` | `sqlite` or `postgres` | follows `DATABASE_URL` |
 | `PGVECTOR_TABLE` / `VECTOR_DIMENSIONS` | pgvector table and column width | `research_notes` / `1024` |
@@ -525,6 +537,8 @@ Research strategies and critic rubrics live in the `RESEARCH_STRATEGY` and `CRIT
 research_agent.py       the graph: nodes, supervisor, routing, compile
 vector_memory.py        Embedder + MemoryStore seams and the three backends
 retry.py                retryable-error classification, backoff, node decorator
+limits.py               demo token, rate limit, and rolling spend cap
+static/index.html       the demo page — one self-contained file, no build step
 db.py                   reconnecting Postgres connection shared by the stores
 migrate_to_postgres.py  copies an existing SQLite/JSON deployment across
 usage.py                effective-dated price table, cost accounting, spend cap

@@ -31,9 +31,10 @@ from typing import Any
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+import limits
 import research_agent
 import usage as usage_accounting
 from metrics import FAILED, MetricsStore, RunRecord, get_metrics_store
@@ -45,6 +46,7 @@ log = get_logger()
 
 MAX_QUESTION_CHARS = 2000
 SESSION_LIST_LIMIT = 50
+DEMO_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
 
 
 # --------------------------------------------------------------------------
@@ -130,6 +132,16 @@ def get_metrics(request: Request) -> MetricsStore:
     return request.app.state.metrics
 
 
+def guard(request: Request, metrics: MetricsStore = Depends(get_metrics)) -> None:
+    """Applied to every endpoint that spends money, and to no others.
+
+    Read-only endpoints stay open on purpose: they cost nothing, and they are
+    how you diagnose a service that is refusing work. A demo that hides
+    /health when it hits its budget is a demo you cannot debug.
+    """
+    limits.enforce(request, metrics)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Backends are chosen here, once, from the environment -- the rest of the
@@ -154,7 +166,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Research agent",
-    version="0.6.0",
+    version="0.9.0",
     summary="Supervisor-routed research pipeline with fact-checked reports and follow-ups.",
     lifespan=lifespan,
 )
@@ -276,7 +288,19 @@ def _node_detail(node_name: str, state: dict) -> dict:
 
 
 @app.get("/", tags=["ops"])
-def index() -> dict:
+def index(request: Request):
+    """The demo page for a browser, the JSON index for anything else.
+
+    Content negotiation rather than two URLs: `curl /` keeps returning the
+    machine-readable index it always did, and a person who pastes the bare
+    URL gets something they can actually use.
+    """
+    if "text/html" in request.headers.get("accept", ""):
+        return FileResponse(DEMO_PAGE, media_type="text/html")
+    return _index_json()
+
+
+def _index_json() -> dict:
     """A front door.
 
     Without this, the first thing anyone sees after a successful deploy is
@@ -292,6 +316,7 @@ def index() -> dict:
         "endpoints": {
             "health": "GET /health",
             "ready": "GET /ready",
+            "demo": "GET /demo",
             "research": "POST /research",
             "research_stream": "POST /research/stream",
             "ask": "POST /sessions/{session_id}/ask",
@@ -349,6 +374,16 @@ def _dependencies(store: SessionStore, metrics: MetricsStore) -> dict:
         "memory": {"backend": type(memory).__name__,
                    **_probe(lambda: {"notes": len(memory)})},
     }
+
+
+@app.get("/demo", tags=["ops"])
+def demo_status(metrics: MetricsStore = Depends(get_metrics)) -> dict:
+    """What the demo page shows above the input box.
+
+    Publishing the remaining budget is deliberate: a visitor who gets refused
+    should be able to see it was a shared cap rather than a broken service.
+    """
+    return limits.status(metrics)
 
 
 @app.get("/health", tags=["ops"])
@@ -410,7 +445,7 @@ def ready(
     }
 
 
-@app.post("/research", response_model=RunResponse, tags=["research"])
+@app.post("/research", response_model=RunResponse, tags=["research"], dependencies=[Depends(guard)])
 def research(
     body: AskRequest,
     store: SessionStore = Depends(get_sessions),
@@ -424,7 +459,7 @@ def research(
     return RunResponse.build(session_id, state)
 
 
-@app.post("/research/stream", tags=["research"])
+@app.post("/research/stream", tags=["research"], dependencies=[Depends(guard)])
 def research_stream(
     body: AskRequest,
     store: SessionStore = Depends(get_sessions),
@@ -436,7 +471,12 @@ def research_stream(
     )
 
 
-@app.post("/sessions/{session_id}/ask", response_model=RunResponse, tags=["research"])
+@app.post(
+    "/sessions/{session_id}/ask",
+    response_model=RunResponse,
+    tags=["research"],
+    dependencies=[Depends(guard)],
+)
 def ask(
     session_id: str,
     body: AskRequest,
@@ -454,7 +494,7 @@ def ask(
     return RunResponse.build(session_id, state)
 
 
-@app.post("/sessions/{session_id}/ask/stream", tags=["research"])
+@app.post("/sessions/{session_id}/ask/stream", tags=["research"], dependencies=[Depends(guard)])
 def ask_stream(
     session_id: str,
     body: AskRequest,

@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
 from test_memory_stores import FakeEmbedder
 
+import limits
 import research_agent
 import service
 from metrics import SQLiteMetricsStore
@@ -32,6 +33,14 @@ def make_client(tmp_path, monkeypatch):
     # drops a stray sessions.db next to the source.
     monkeypatch.setenv("SESSION_DB_PATH", str(tmp_path / "lifespan.db"))
     monkeypatch.setenv("METRICS_DB_PATH", str(tmp_path / "lifespan-metrics.db"))
+
+    # The demo guardrails are off unless a test turns them on. Inheriting the
+    # production defaults would make every test's result depend on how many
+    # requests the tests before it happened to make.
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "0")
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0")
+    monkeypatch.delenv("DEMO_TOKEN", raising=False)
+    limits.reset_limiter()
     # The lifespan calls the backend factories, which follow DATABASE_URL.
     # Pinning them keeps these tests about the API rather than about whichever
     # database the surrounding environment happens to expose.
@@ -56,6 +65,7 @@ def make_client(tmp_path, monkeypatch):
 
     service.app.dependency_overrides.clear()
     research_agent.set_memory(None)
+    limits.reset_limiter()
     for client, store, metrics in created:
         client.close()
         store.close()
@@ -681,3 +691,127 @@ def test_a_probe_failure_does_not_leak_the_dsn(make_client):
     assert "***@host/db" in detail          # redacted, not merely truncated
     assert "more detail" not in detail      # only the first line
     assert len(detail) <= 160
+
+
+# --------------------------------------------------------------------------
+# Demo page and guardrails, through the real app
+# --------------------------------------------------------------------------
+
+
+def test_a_browser_gets_the_demo_page(make_client):
+    client, _ = make_client()
+
+    response = client.get("/", headers={"accept": "text/html,application/xhtml+xml"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "<title>Research agent</title>" in response.text
+
+
+def test_curl_still_gets_the_json_index(make_client):
+    """Content negotiation rather than a second URL: the machine-readable
+    index has to keep working exactly as it did."""
+    client, _ = make_client()
+
+    body = client.get("/", headers={"accept": "*/*"}).json()
+
+    assert body["docs"] == "/docs"
+    assert "research" in body["endpoints"]
+
+
+def test_the_demo_page_references_no_external_origin(make_client):
+    """One self-contained file: no CDN, no fonts, no analytics. A strict CSP
+    can then deny everything external, and the page still works offline."""
+    client, _ = make_client()
+    html = client.get("/", headers={"accept": "text/html"}).text
+
+    for marker in ("http://", "https://", "//cdn", "<script src", "<link rel=\"stylesheet\""):
+        assert marker not in html, marker
+
+
+def test_demo_endpoint_reports_the_limits(make_client, monkeypatch):
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "7")
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
+    limits.reset_limiter()
+
+    body = client.get("/demo").json()
+
+    assert body["rate_limit_per_hour"] == 7
+    assert body["daily_cap_usd"] == 5.00
+    assert body["budget_exhausted"] is False
+
+
+def test_the_rate_limit_refuses_a_flood(make_client, monkeypatch):
+    client, fake = make_client()
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "2")
+    limits.reset_limiter()
+
+    first = client.post("/research", json={"question": "one"})
+    second = client.post("/research", json={"question": "two"})
+    third = client.post("/research", json={"question": "three"})
+
+    assert (first.status_code, second.status_code) == (200, 200)
+    assert third.status_code == 429
+    assert "Retry-After" in third.headers
+    # The refused request cost nothing: two runs' worth of calls, not three.
+    assert fake.nodes_called().count("researcher") == 2
+
+
+def test_the_daily_cap_refuses_new_runs(make_client, monkeypatch):
+    """The per-run cap bounds one runaway run; this bounds the bill."""
+    client, fake = make_client()
+    client.post("/research", json={"question": "one"})  # records some spend
+    fake.calls.clear()
+
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0.0000001")
+    response = client.post("/research", json={"question": "two"})
+
+    assert response.status_code == 429
+    assert "daily budget" in response.json()["detail"]
+    assert fake.calls == []  # nothing billable ran
+
+
+def test_a_demo_token_gates_writes_but_not_reads(make_client, monkeypatch):
+    """Read-only endpoints stay open: they cost nothing, and they are how you
+    diagnose a service that is refusing work."""
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_TOKEN", "s3cret")
+
+    assert client.post("/research", json={"question": "why?"}).status_code == 401
+    assert client.get("/health").status_code == 200
+    assert client.get("/metrics").status_code == 200
+    assert client.get("/", headers={"accept": "text/html"}).status_code == 200
+
+    ok = client.post(
+        "/research", json={"question": "why?"}, headers={"x-demo-token": "s3cret"}
+    )
+    assert ok.status_code == 200
+
+
+def test_follow_ups_are_guarded_too(make_client, monkeypatch):
+    """A follow-up is cheaper than a research run, not free."""
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    monkeypatch.setenv("DEMO_TOKEN", "s3cret")
+    refused = client.post(f"/sessions/{session_id}/ask", json={"question": "and?"})
+    assert refused.status_code == 401
+
+
+def test_streaming_endpoints_are_guarded(make_client, monkeypatch):
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_TOKEN", "s3cret")
+
+    assert client.post("/research/stream", json={"question": "why?"}).status_code == 401
+
+
+def test_the_guard_runs_before_anything_is_spent(make_client, monkeypatch):
+    """A refusal must not open a session or record a run."""
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_TOKEN", "s3cret")
+
+    client.post("/research", json={"question": "why?"})
+
+    assert client.get("/sessions").json()["sessions"] == []
+    assert client.get("/metrics").json()["runs"]["total"] == 0

@@ -27,6 +27,11 @@ primary_region = 'syd'
 
 [env]
   AGENT_MAX_RUN_COST_USD = '1.00'
+  # Demo guardrails. The per-run cap above bounds one runaway run; these bound
+  # the bill for a URL anyone can reach. Set DEMO_TOKEN as a secret (not here)
+  # to close writes entirely.
+  DEMO_DAILY_USD_CAP = '5.00'
+  DEMO_RATE_LIMIT_PER_HOUR = '10'
   LOG_FORMAT = 'json'
   LOG_LEVEL = 'INFO'
   METRICS_DB_PATH = '/data/metrics.db'

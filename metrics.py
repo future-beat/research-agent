@@ -253,6 +253,16 @@ class MetricsStore(ABC):
     def count(self) -> int: ...
 
     @abstractmethod
+    def spend_since(self, since: float) -> float:
+        """Total cost_usd of runs recorded at or after `since` (unix time).
+
+        Read from the runs table rather than kept as a separate counter: a
+        counter drifts the moment a process restarts or a second machine
+        starts serving, and a spend cap that silently forgets what was spent
+        is worse than no cap at all.
+        """
+
+    @abstractmethod
     def close(self) -> None: ...
 
 
@@ -307,6 +317,14 @@ class SQLiteMetricsStore(MetricsStore):
         with self._lock:
             return self._conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
 
+    def spend_since(self, since: float) -> float:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM runs WHERE created_at >= ?",
+                (since,),
+            ).fetchone()
+        return float(row[0] or 0.0)
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()
@@ -357,6 +375,13 @@ class PostgresMetricsStore(MetricsStore):
 
     def count(self) -> int:
         return self.db.fetchone("SELECT COUNT(*) AS n FROM runs")["n"]
+
+    def spend_since(self, since: float) -> float:
+        row = self.db.fetchone(
+            "SELECT COALESCE(SUM(cost_usd), 0.0) AS spent FROM runs WHERE created_at >= %s",
+            (since,),
+        )
+        return float(row["spent"] or 0.0)
 
     def close(self) -> None:
         self.db.close()

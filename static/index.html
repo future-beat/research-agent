@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research agent</title>
+<!--
+  Deliberately one self-contained file: no build step, no CDN, no framework.
+  A strict CSP can then allow nothing external, and the whole demo is a
+  single COPY line in the Dockerfile.
+
+  It consumes the same /research/stream SSE endpoint as curl does. The point
+  of the demo is the pipeline being visible -- classify, search, draft,
+  critic rejects, redraft, approve -- because that sequence is what the
+  project is actually about, and a spinner hides exactly the interesting part.
+-->
+<style>
+  :root {
+    --bg: #fbfaf8; --fg: #1c1a17; --muted: #6b655c; --line: #e3ded5;
+    --card: #ffffff; --accent: #7c4a2d; --ok: #2f6b46; --warn: #8a5a12;
+    --err: #9b2c2c; --code: #f2efe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171614; --fg: #ece8e1; --muted: #9c948a; --line: #302d29;
+      --card: #201e1b; --accent: #d99873; --ok: #6dbf90; --warn: #d9a441;
+      --err: #e0736b; --code: #26241f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 ui-serif, Georgia, "Times New Roman", serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+  header { margin-bottom: 2rem; }
+  h1 { font-size: 1.6rem; margin: 0 0 .35rem; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: .95rem; margin: 0; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
+
+  form { display: flex; gap: .5rem; margin: 1.5rem 0 .5rem; }
+  input[type=text] {
+    flex: 1; padding: .7rem .85rem; border: 1px solid var(--line);
+    border-radius: .4rem; background: var(--card); color: var(--fg);
+    font: inherit; font-size: .95rem;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    padding: .7rem 1.15rem; border: 0; border-radius: .4rem;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600;
+    font-size: .95rem; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  .limits { color: var(--muted); font-size: .82rem; margin: 0 0 2rem; }
+
+  .stage {
+    display: flex; align-items: baseline; gap: .6rem; padding: .3rem 0;
+    color: var(--muted); font-size: .9rem;
+  }
+  .stage .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--muted); flex: none; }
+  .stage.done .dot { background: var(--ok); }
+  .stage.rejected .dot { background: var(--warn); }
+  .stage b { color: var(--fg); font-weight: 600; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: .55rem; padding: 1.4rem 1.5rem; margin-top: 1.5rem;
+  }
+  .badges { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+  .badge {
+    font-size: .78rem; padding: .2rem .55rem; border-radius: 1rem;
+    border: 1px solid var(--line); color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .badge.ok { color: var(--ok); border-color: currentColor; }
+  .badge.warn { color: var(--warn); border-color: currentColor; }
+  .report h1, .report h2, .report h3 { font-size: 1.15rem; margin: 1.4rem 0 .5rem; }
+  .report h1:first-child, .report h2:first-child { margin-top: 0; }
+  .report p { margin: .7rem 0; }
+  .report li { margin: .25rem 0; }
+  .report code { background: var(--code); padding: .1rem .3rem; border-radius: .25rem; font-size: .88em; }
+
+  .error {
+    border-color: var(--err); color: var(--err);
+  }
+  .error .title { font-weight: 700; margin-bottom: .3rem; }
+  footer { margin-top: 3rem; color: var(--muted); font-size: .82rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Research agent</h1>
+    <p class="sub">
+      Asks a question, searches the web, drafts a report, then fact-checks that
+      draft against its own research notes and revises until every claim is
+      grounded. Watch the critic push back.
+    </p>
+  </header>
+
+  <form id="ask">
+    <input type="text" id="q" autocomplete="off"
+           placeholder="What are the current approaches to LLM agent memory?" required>
+    <button type="submit" id="go">Research</button>
+  </form>
+  <p class="limits" id="limits"></p>
+
+  <div id="out"></div>
+
+  <footer>
+    <span class="mono">
+      <a href="/docs">/docs</a> ·
+      <a href="/metrics">/metrics</a> ·
+      <a href="/health">/health</a> ·
+      <a href="/pricing">/pricing</a>
+    </span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+const out = document.getElementById("out");
+const form = document.getElementById("ask");
+const input = document.getElementById("q");
+const go = document.getElementById("go");
+
+// The pipeline, in the order the supervisor routes through it. Follow-ups
+// only use the last two -- which is the point of follow-ups.
+const LABELS = {
+  classifier: "classifying the topic",
+  researcher: "searching the web",
+  writer: "drafting the report",
+  responder: "answering from the stored notes",
+  critic: "fact-checking against the notes",
+};
+
+let session = null;   // set once a research run completes
+let busy = false;
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+/* A deliberately small Markdown subset: headings, bold, inline code, bullets.
+   Everything is inserted as text and only these tags are constructed, so a
+   report can never inject markup -- the model's output is untrusted input. */
+function renderReport(md, into) {
+  let list = null;
+  for (const rawLine of md.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) { list = null; continue; }
+
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) {
+      list = null;
+      into.appendChild(inline(el("h" + heading[1].length), heading[2]));
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) {
+      if (!list) { list = el("ul"); into.appendChild(list); }
+      list.appendChild(inline(el("li"), bullet[1]));
+      continue;
+    }
+    list = null;
+    into.appendChild(inline(el("p"), line));
+  }
+}
+
+function inline(node, text) {
+  // Split on **bold** and `code`, appending text nodes for everything else.
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  for (const part of parts) {
+    if (!part) continue;
+    if (part.startsWith("**") && part.endsWith("**")) {
+      node.appendChild(el("strong", null, part.slice(2, -2)));
+    } else if (part.startsWith("`") && part.endsWith("`")) {
+      node.appendChild(el("code", null, part.slice(1, -1)));
+    } else {
+      node.appendChild(document.createTextNode(part));
+    }
+  }
+  return node;
+}
+
+function showError(title, detail) {
+  const card = el("div", "card error");
+  card.appendChild(el("div", "title", title));
+  if (detail) card.appendChild(el("div", null, detail));
+  out.appendChild(card);
+}
+
+function stage(node, detail) {
+  const row = el("div", "stage");
+  row.appendChild(el("span", "dot"));
+  const label = el("span");
+  label.appendChild(el("b", null, LABELS[node] || node));
+  if (detail) label.appendChild(document.createTextNode(" — " + detail));
+  row.appendChild(label);
+  return row;
+}
+
+function nodeDetail(node, payload) {
+  if (node === "classifier") return payload.topic_type;
+  if (node === "researcher") {
+    return payload.recalled_from_memory
+      ? `recalled ${payload.recalled_from_memory} note(s) from earlier runs` : null;
+  }
+  if (node === "critic") {
+    return payload.approved ? "approved" : "sent back for revision";
+  }
+  if ((node === "writer" || node === "responder") && payload.revision) {
+    return `revision ${payload.revision}`;
+  }
+  return null;
+}
+
+function result(payload, isFollowup) {
+  const card = el("div", "card");
+  const badges = el("div", "badges");
+
+  if (payload.approved) {
+    badges.appendChild(el("span", "badge ok", "critic approved"));
+  } else {
+    badges.appendChild(el("span", "badge warn",
+      "NOT approved — " + (payload.forced_stop_reason || "unknown")));
+  }
+  if (payload.topic_type && !isFollowup) {
+    badges.appendChild(el("span", "badge", payload.topic_type));
+  }
+  badges.appendChild(el("span", "badge",
+    "$" + Number(payload.cost_usd || 0).toFixed(4)));
+  badges.appendChild(el("span", "badge",
+    payload.revision_count + " revision(s)"));
+  badges.appendChild(el("span", "badge",
+    (payload.usage && payload.usage.calls || 0) + " model calls"));
+  card.appendChild(badges);
+
+  const body = el("div", "report");
+  renderReport(payload.answer || "(no answer produced)", body);
+  card.appendChild(body);
+  out.appendChild(card);
+
+  session = payload.session_id;
+  input.placeholder = "Follow up on that — answered from its notes, no new search";
+  input.value = "";
+}
+
+async function run(question) {
+  if (busy) return;
+  busy = true;
+  go.disabled = true;
+
+  const url = session
+    ? `/sessions/${encodeURIComponent(session)}/ask/stream`
+    : "/research/stream";
+  const isFollowup = Boolean(session);
+
+  out.appendChild(el("div", "stage", (isFollowup ? "Follow-up: " : "Question: ") + question));
+  const stages = el("div");
+  out.appendChild(stages);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+  } catch (err) {
+    showError("Could not reach the service", String(err));
+    busy = false; go.disabled = false;
+    return;
+  }
+
+  if (!response.ok) {
+    // The guardrails answer here: 429 for rate limit or exhausted budget,
+    // 401 when a demo token is required.
+    let detail = "";
+    try { detail = (await response.json()).detail || ""; } catch { /* non-JSON body */ }
+    showError(`Request refused (HTTP ${response.status})`, detail);
+    busy = false; go.disabled = false;
+    refreshLimits();
+    return;
+  }
+
+  // Parse the SSE stream by hand: EventSource cannot issue a POST.
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sawTerminal = false;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop();  // keep the trailing partial block
+
+    for (const block of blocks) {
+      let name = null, data = null;
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event: ")) name = line.slice(7).trim();
+        else if (line.startsWith("data: ")) {
+          try { data = JSON.parse(line.slice(6)); } catch { data = null; }
+        }
+      }
+      if (!name || !data) continue;
+
+      if (name === "node") {
+        const row = stage(data.node, nodeDetail(data.node, data));
+        row.classList.add(data.node === "critic" && !data.approved ? "rejected" : "done");
+        stages.appendChild(row);
+      } else if (name === "result") {
+        sawTerminal = true;
+        result(data, isFollowup);
+      } else if (name === "error") {
+        sawTerminal = true;
+        showError("The run failed: " + data.error, data.detail);
+      }
+    }
+  }
+
+  // Exactly one terminal event per stream is the server's contract. If none
+  // arrived the connection was cut, which is not the same as a failed run.
+  if (!sawTerminal) {
+    showError("The connection dropped mid-run",
+      "No result or error arrived. The run may still have completed and been billed.");
+  }
+
+  busy = false;
+  go.disabled = false;
+  refreshLimits();
+}
+
+async function refreshLimits() {
+  try {
+    const d = await (await fetch("/demo")).json();
+    const bits = [];
+    if (d.rate_limit_per_hour) bits.push(`${d.rate_limit_per_hour} requests/hour per visitor`);
+    if (d.daily_cap_usd) {
+      bits.push(`$${Number(d.spent_24h_usd).toFixed(2)} of $${Number(d.daily_cap_usd).toFixed(2)} spent in the last 24h`);
+    }
+    if (d.token_required) bits.push("a demo token is required");
+    document.getElementById("limits").textContent =
+      bits.length ? "Shared demo — " + bits.join(" · ") : "";
+  } catch { /* the page works without it */ }
+}
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const question = input.value.trim();
+  if (question) run(question);
+});
+
+refreshLimits();
+</script>
+</body>
+</html>
