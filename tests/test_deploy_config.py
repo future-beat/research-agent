@@ -63,7 +63,7 @@ def test_the_service_port_matches_the_container(fly, dockerfile):
 
 
 def test_the_healthcheck_path_is_served(fly):
-    import service
+    from research_agent import service
 
     paths = {route.path for route in service.app.routes}
     for check in fly.get("http_service", {}).get("checks", []):
@@ -110,19 +110,17 @@ def test_secrets_are_excluded_from_the_build_context():
     assert ".env" in [line.strip() for line in ignored]
 
 
-def test_the_demo_page_is_copied_into_the_image():
-    """The page is served from disk at runtime. If the Dockerfile only copies
-    *.py, the deployed root URL 500s on a missing file -- and the tests all
-    pass, because they read it from the source tree."""
-    dockerfile = Path("Dockerfile").read_text()
-    assert "static/" in dockerfile
-
-    dockerignore = Path(".dockerignore").read_text()
-    for line in dockerignore.splitlines():
-        assert line.strip().rstrip("/") != "static", "static/ excluded from build context"
+def test_the_demo_page_is_packaged_into_the_image():
+    """The page is served from disk at runtime, and it is not a .py file, so
+    nothing carries it into the wheel unless package-data says so. Without
+    this the deployed root URL 500s on a missing file -- while every test
+    passes, because they read it from the source tree."""
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    assert "[tool.setuptools.package-data]" in pyproject
+    assert "static/*.html" in pyproject
 
 
 def test_the_demo_page_exists_where_the_service_looks_for_it():
-    import service
+    from research_agent import service
 
     assert Path(service.DEMO_PAGE).is_file()

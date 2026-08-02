@@ -74,4 +74,4 @@ For what the system *is*, see the [README](../README.md).
 
 ## Packaging
 
-**The image ships what it runs, and nothing else.** `requirements.txt` is the agent alone; the web server lives in `requirements-service.txt`, so a worker or batch job that imports the graph doesn't drag in FastAPI and uvicorn. The image installs the service file, not the dev one, and `.dockerignore` keeps `tests/` and `evals/` out — the eval dataset contains scripted model output, which has no business inside a production image.
+**The image ships what it runs, and nothing else.** the base package is the agent alone; the web server lives in the `[service]` extra, so a worker or batch job that imports the graph doesn't drag in FastAPI and uvicorn. The image installs `[service]`, not `[dev]`, and `src/` layout keeps `tests/` and `evals/` outside the package entirely — the eval dataset contains scripted model output, which has no business inside a production image.

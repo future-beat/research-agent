@@ -15,12 +15,10 @@ from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
 from test_memory_stores import FakeEmbedder
 
-import limits
-import research_agent
-import service
-from metrics import SQLiteMetricsStore
-from sessions import SQLiteSessionStore
-from vector_memory import InMemoryStore
+from research_agent import graph, limits, service
+from research_agent.memory import InMemoryStore
+from research_agent.metrics import SQLiteMetricsStore
+from research_agent.sessions import SQLiteSessionStore
 
 
 @pytest.fixture
@@ -49,8 +47,8 @@ def make_client(tmp_path, monkeypatch):
 
     def build(critic_verdicts=("APPROVED",) * 8):
         fake = FakeClient(critic_verdicts)
-        monkeypatch.setattr(research_agent, "client", lambda: fake)
-        research_agent.set_memory(InMemoryStore(embedder=FakeEmbedder()))
+        monkeypatch.setattr(graph, "client", lambda: fake)
+        graph.set_memory(InMemoryStore(embedder=FakeEmbedder()))
 
         store = SQLiteSessionStore(str(tmp_path / "sessions.db"))
         metrics = SQLiteMetricsStore(str(tmp_path / "metrics.db"))
@@ -64,7 +62,7 @@ def make_client(tmp_path, monkeypatch):
     yield build
 
     service.app.dependency_overrides.clear()
-    research_agent.set_memory(None)
+    graph.set_memory(None)
     limits.reset_limiter()
     for client, store, metrics in created:
         client.close()
@@ -352,7 +350,7 @@ def test_stream_reports_a_mid_run_failure_as_an_error_event(make_client, monkeyp
             request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
         )
 
-    monkeypatch.setattr(research_agent.app, "stream", explode)
+    monkeypatch.setattr(graph.app, "stream", explode)
 
     response = client.post("/research/stream", json={"question": "why?"})
     events = sse_events(response)
@@ -364,7 +362,7 @@ def test_stream_reports_a_mid_run_failure_as_an_error_event(make_client, monkeyp
 def test_a_failed_stream_leaves_no_session_behind(make_client, monkeypatch):
     client, _ = make_client()
     monkeypatch.setattr(
-        research_agent.app,
+        graph.app,
         "stream",
         lambda state: (_ for _ in ()).throw(RuntimeError("boom")),
     )
@@ -409,7 +407,7 @@ def test_upstream_failures_map_to_useful_status_codes(make_client, monkeypatch, 
     caller needs to know whether to back off (429) or whether upstream is
     simply unwell (502)."""
     client, _ = make_client()
-    monkeypatch.setattr(research_agent.app, "invoke", _raise(exc))
+    monkeypatch.setattr(graph.app, "invoke", _raise(exc))
 
     assert client.post("/research", json={"question": "why?"}).status_code == expected
 
@@ -417,7 +415,7 @@ def test_upstream_failures_map_to_useful_status_codes(make_client, monkeypatch, 
 def test_a_failed_run_opens_no_session(make_client, monkeypatch):
     client, _ = make_client()
     monkeypatch.setattr(
-        research_agent.app, "invoke", _raise(api_error(anthropic.RateLimitError, 429))
+        graph.app, "invoke", _raise(api_error(anthropic.RateLimitError, 429))
     )
 
     client.post("/research", json={"question": "why?"})
@@ -447,7 +445,7 @@ def test_pricing_endpoint_reports_todays_rates(make_client):
     client, _ = make_client()
     body = client.get("/pricing").json()
 
-    assert body["model"] == research_agent.MODEL
+    assert body["model"] == graph.MODEL
     assert body["usd_per_mtok"]["input"] in (2.0, 3.0)
     assert body["web_search_usd_per_request"] == 0.01
     assert body["max_run_cost_usd"] > 0
@@ -489,7 +487,7 @@ def test_a_failed_run_is_counted_even_though_it_opens_no_session(make_client, mo
     quiet day."""
     client, _ = make_client()
     monkeypatch.setattr(
-        research_agent.app, "invoke", _raise(api_error(anthropic.RateLimitError, 429))
+        graph.app, "invoke", _raise(api_error(anthropic.RateLimitError, 429))
     )
 
     client.post("/research", json={"question": "why?"})
@@ -504,7 +502,7 @@ def test_a_failed_run_is_counted_even_though_it_opens_no_session(make_client, mo
 def test_a_failed_stream_is_counted_too(make_client, monkeypatch):
     client, _ = make_client()
     monkeypatch.setattr(
-        research_agent.app,
+        graph.app,
         "stream",
         lambda state: (_ for _ in ()).throw(RuntimeError("boom")),
     )
@@ -543,7 +541,7 @@ def test_an_unexpected_error_is_not_dressed_up_as_an_upstream_problem(make_clien
     """A bug in our own code should surface as a 500, not a 502 blaming
     Anthropic for something we did."""
     client, _ = make_client()
-    monkeypatch.setattr(research_agent.app, "invoke", _raise(ValueError("our bug")))
+    monkeypatch.setattr(graph.app, "invoke", _raise(ValueError("our bug")))
 
     with pytest.raises(ValueError):
         client.post("/research", json={"question": "why?"})

@@ -7,8 +7,8 @@ from datetime import date
 
 import pytest
 
-import usage as usage_accounting
-from usage import CallUsage, new_usage, price_for, record, total_tokens
+from research_agent import usage as usage_accounting
+from research_agent.usage import CallUsage, new_usage, price_for, record, total_tokens
 
 
 class FakeServerToolUse:

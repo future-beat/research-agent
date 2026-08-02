@@ -34,13 +34,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-import limits
-import research_agent
-import usage as usage_accounting
-from metrics import FAILED, MetricsStore, RunRecord, get_metrics_store
-from observability import get_logger
-from research_agent import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
-from sessions import Session, SessionStore, get_session_store
+from research_agent import graph, limits
+from research_agent import usage as usage_accounting
+from research_agent.graph import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
+from research_agent.metrics import FAILED, MetricsStore, RunRecord, get_metrics_store
+from research_agent.observability import get_logger
+from research_agent.sessions import Session, SessionStore, get_session_store
 
 log = get_logger()
 
@@ -154,7 +153,7 @@ async def lifespan(app: FastAPI):
             "event": "startup",
             "sessions_backend": type(app.state.sessions).__name__,
             "metrics_backend": type(app.state.metrics).__name__,
-            "memory_backend": type(research_agent.memory()).__name__,
+            "memory_backend": type(graph.memory()).__name__,
         },
     )
     try:
@@ -204,7 +203,7 @@ def _execute(state: dict, metrics: MetricsStore, on_complete) -> tuple[str, dict
     """Run the graph to completion, persist the result, and record the run."""
     started = time.perf_counter()
     try:
-        final_state = research_agent.app.invoke(state)
+        final_state = graph.app.invoke(state)
     except BaseException as exc:
         metrics.record(_failed_record(state, exc, started))
         log.warning(
@@ -240,7 +239,7 @@ def _stream(state: dict, metrics: MetricsStore, on_complete) -> Iterator[str]:
     final_state = None
     started = time.perf_counter()
     try:
-        for chunk in research_agent.app.stream(state):
+        for chunk in graph.app.stream(state):
             for node_name, node_state in chunk.items():
                 final_state = node_state
                 if node_name == "supervisor":
@@ -365,7 +364,7 @@ def _probe(fn) -> dict:
 
 def _dependencies(store: SessionStore, metrics: MetricsStore) -> dict:
     """Each store's identity always, its counts only if it answers."""
-    memory = research_agent.memory()
+    memory = graph.memory()
     return {
         "sessions": {"backend": type(store).__name__, "location": store.path,
                      **_probe(lambda: {"count": store.count()})},
@@ -545,7 +544,7 @@ def delete_session(session_id: str, store: SessionStore = Depends(get_sessions))
 
 @app.get("/memory", tags=["ops"])
 def memory_stats() -> dict:
-    store = research_agent.memory()
+    store = graph.memory()
     return {"backend": type(store).__name__, "notes": len(store), "detail": store.describe()}
 
 
@@ -567,7 +566,7 @@ def pricing() -> dict:
     2026-08-31, so the same run costs 50% more the following day. A cost
     dashboard that steps without explanation is a support ticket.
     """
-    model = research_agent.MODEL
+    model = graph.MODEL
     try:
         price = usage_accounting.price_for(model)
     except usage_accounting.UnknownModelPricing as exc:

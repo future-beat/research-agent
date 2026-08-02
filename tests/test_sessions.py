@@ -4,8 +4,8 @@ nothing."""
 
 import pytest
 
-from research_agent import followup_state, initial_state
-from sessions import SQLiteSessionStore
+from research_agent.graph import followup_state, initial_state
+from research_agent.sessions import SQLiteSessionStore
 
 
 @pytest.fixture

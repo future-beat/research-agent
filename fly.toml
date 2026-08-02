@@ -86,7 +86,7 @@ primary_region = 'syd'
 #   fly postgres create --name research-agent-db
 #   fly postgres attach <db-app> -a research-agent
 #   fly deploy -a research-agent
-#   fly ssh console -a research-agent -C "python /app/migrate_to_postgres.py --dry-run"
+#   fly ssh console -a research-agent -C "python -m research_agent.migrate --dry-run"
 #
 # Always pass -a explicitly. `fly postgres attach` sets DATABASE_URL as a
 # secret on the AGENT app; the database app is managed by Fly and is never a

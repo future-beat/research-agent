@@ -13,7 +13,7 @@ back. Two modes:
               model. This is the one that measures quality; it costs money
               and its results move between runs.
 
-Both modes drive the same `research_agent.app`, so an eval failure is a real
+Both modes drive the same `graph.app`, so an eval failure is a real
 failure of the shipped graph rather than of a parallel reimplementation.
 """
 
@@ -24,11 +24,11 @@ import os
 import time
 from dataclasses import dataclass, field
 
-import research_agent
 from evals import graders as G
 from evals.dataset import APPROVED, Case, Followup
-from research_agent import followup_state, initial_state
-from vector_memory import InMemoryStore
+from research_agent import graph
+from research_agent.graph import followup_state, initial_state
+from research_agent.memory import InMemoryStore
 
 # --------------------------------------------------------------------------
 # Offline scripting
@@ -240,16 +240,16 @@ def run_case(
     trains people to ignore a failing suite.
     """
     result = CaseResult(case_id=case.id, why=case.why)
-    previous_client = research_agent._client
-    previous_memory = research_agent._memory
+    previous_client = graph._client
+    previous_memory = graph._memory
 
     try:
-        research_agent._client = client_factory(case)
-        research_agent.set_memory(memory_factory())
+        graph._client = client_factory(case)
+        graph.set_memory(memory_factory())
 
         with _budget(case.budget_usd):
             started = time.perf_counter()
-            state = research_agent.app.invoke(initial_state(case.task))
+            state = graph.app.invoke(initial_state(case.task))
             elapsed = (time.perf_counter() - started) * 1000
 
             result.turns.append(
@@ -263,7 +263,7 @@ def run_case(
 
             for fu in case.followups:
                 started = time.perf_counter()
-                state = research_agent.app.invoke(followup_state(state, fu.question))
+                state = graph.app.invoke(followup_state(state, fu.question))
                 elapsed = (time.perf_counter() - started) * 1000
                 result.turns.append(
                     TurnResult(
@@ -277,8 +277,8 @@ def run_case(
     except Exception as exc:  # noqa: BLE001 - one bad case shouldn't end the suite
         result.error = f"{type(exc).__name__}: {exc}"
     finally:
-        research_agent._client = previous_client
-        research_agent.set_memory(previous_memory)
+        graph._client = previous_client
+        graph.set_memory(previous_memory)
 
     return result
 
@@ -339,7 +339,7 @@ def run_suite(
 
     return {
         "mode": mode,
-        "model": research_agent.MODEL,
+        "model": graph.MODEL,
         "judge_model": judge.model if judge else None,
         "judge_calls": judge.calls if judge else 0,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),

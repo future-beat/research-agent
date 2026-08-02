@@ -24,7 +24,8 @@ from evals.harness import (
     run_suite,
     summarise,
 )
-from research_agent import initial_state
+from research_agent import graph
+from research_agent.graph import initial_state
 
 
 def finished(**overrides) -> dict:
@@ -258,9 +259,8 @@ def test_judge_raises_on_an_unparseable_verdict():
 def test_the_judge_runs_on_a_different_model_than_the_pipeline():
     """A judge sharing the writer's model inherits the blind spots it exists
     to find -- the same limitation the in-graph critic already has."""
-    import research_agent
 
-    assert G.JUDGE_MODEL != research_agent.MODEL
+    assert G.JUDGE_MODEL != graph.MODEL
 
 
 def test_grounding_judge_is_given_the_notes_and_the_draft():
@@ -356,15 +356,14 @@ def test_a_case_that_raises_is_recorded_not_propagated():
 def test_run_case_restores_the_global_client_and_memory():
     """The harness swaps module globals; leaking them would poison every
     test that runs afterwards."""
-    import research_agent
 
-    before = (research_agent._client, research_agent._memory)
+    before = (graph._client, graph._memory)
     run_case(
         by_id("general-summary"),
         client_factory=offline_client_factory,
         memory_factory=offline_memory_factory,
     )
-    assert (research_agent._client, research_agent._memory) == before
+    assert (graph._client, graph._memory) == before
 
 
 def test_the_budget_override_is_scoped_to_its_case(monkeypatch):

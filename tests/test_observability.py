@@ -5,13 +5,13 @@ import logging
 
 import pytest
 
-import observability
-from observability import JSONFormatter, configure_logging, span
+from research_agent import observability
+from research_agent.observability import JSONFormatter, configure_logging, span
 
 
 def record(**extra) -> logging.LogRecord:
     rec = logging.LogRecord(
-        name="research_agent", level=logging.INFO, pathname="x.py", lineno=1,
+        name="graph", level=logging.INFO, pathname="x.py", lineno=1,
         msg="model call", args=(), exc_info=None,
     )
     rec.__dict__.update(extra)
@@ -22,7 +22,7 @@ def test_formatter_emits_one_json_object():
     payload = json.loads(JSONFormatter().format(record()))
     assert payload["message"] == "model call"
     assert payload["level"] == "INFO"
-    assert payload["logger"] == "research_agent"
+    assert payload["logger"] == "graph"
     assert "ts" in payload
 
 

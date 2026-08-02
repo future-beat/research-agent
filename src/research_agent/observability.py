@@ -25,7 +25,7 @@ import sys
 from contextlib import contextmanager
 from typing import Any
 
-LOGGER_NAME = "research_agent"
+LOGGER_NAME = "graph"
 
 # Everything a stdlib LogRecord carries by default. Anything else on the record
 # came from an `extra=` argument and is ours, so it belongs in the JSON output.

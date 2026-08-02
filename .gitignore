@@ -28,3 +28,8 @@ chroma_store/
 
 # Eval report artifacts
 evals-report.json
+
+# build artifacts from the src layout
+*.egg-info/
+build/
+dist/

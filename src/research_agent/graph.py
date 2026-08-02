@@ -30,10 +30,10 @@ from typing import Literal, TypedDict
 import anthropic
 from langgraph.graph import END, StateGraph
 
-import usage as usage_accounting
-from observability import get_logger, span
-from retry import retry_node
-from vector_memory import MemoryStore, get_memory_store
+from research_agent import usage as usage_accounting
+from research_agent.memory import MemoryStore, get_memory_store
+from research_agent.observability import get_logger, span
+from research_agent.retry import retry_node
 
 MODEL = "claude-sonnet-5"
 MAX_REVISIONS = 2

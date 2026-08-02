@@ -17,13 +17,19 @@ rather than merely written.
 import pytest
 from test_memory_stores import FakeEmbedder
 
-import db
-import metrics as metrics_module
-import sessions as sessions_module
-import vector_memory as vm
-from metrics import COMPLETED, FAILED, PostgresMetricsStore, RunRecord, SQLiteMetricsStore
-from sessions import PostgresSessionStore, SQLiteSessionStore, _describe_dsn
-from vector_memory import InMemoryStore, JSONMemoryStore, PgVectorMemoryStore
+from research_agent import db
+from research_agent import memory as vm
+from research_agent import metrics as metrics_module
+from research_agent import sessions as sessions_module
+from research_agent.memory import InMemoryStore, JSONMemoryStore, PgVectorMemoryStore
+from research_agent.metrics import (
+    COMPLETED,
+    FAILED,
+    PostgresMetricsStore,
+    RunRecord,
+    SQLiteMetricsStore,
+)
+from research_agent.sessions import PostgresSessionStore, SQLiteSessionStore, _describe_dsn
 
 HAS_POSTGRES = db.postgres_configured()
 BACKENDS = ["sqlite", "postgres"]

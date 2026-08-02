@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 #
 # Two stages so the runtime image carries no compiler and no build cache.
-# It installs requirements-service.txt, not requirements-dev.txt: the tests
-# and the eval suite are CI's job, not the shipped image's.
+# It installs the [service] extra, not [dev]: the tests and the eval suite
+# are CI's job, not the shipped image's.
 
 # --------------------------------------------------------------------------
 # Builder
@@ -21,9 +21,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copied on their own so a source-only change doesn't invalidate the layer
 # that took two minutes to build.
-COPY requirements.txt requirements-service.txt ./
+# Copied before the source so a code change doesn't invalidate the layer that
+# took two minutes to build.
+COPY pyproject.toml README.md LICENSE ./
+COPY src/ ./src/
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements-service.txt
+    && pip install --no-cache-dir '.[service]'
 
 # --------------------------------------------------------------------------
 # Runtime
@@ -47,9 +50,7 @@ WORKDIR /app
 # Application modules only. tests/ and evals/ are excluded by .dockerignore;
 # they belong in CI, and shipping them would put the eval dataset's scripted
 # model output inside the production image.
-COPY --chown=agent:agent *.py ./
 # The demo page. One self-contained file, so this is the whole frontend.
-COPY --chown=agent:agent static/ ./static/
 
 # Both SQLite databases and the vector store live here. Mount a volume at
 # /data or every run's memory dies with the container.
@@ -73,4 +74,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"
 
-CMD ["uvicorn", "service:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "research_agent.service:app", "--host", "0.0.0.0", "--port", "8000"]

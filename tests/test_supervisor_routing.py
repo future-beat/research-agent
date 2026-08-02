@@ -6,7 +6,7 @@ routing table row by row, in both modes, without touching the network.
 
 import pytest
 
-from research_agent import (
+from research_agent.graph import (
     MAX_ITERATIONS,
     MAX_REVISIONS,
     followup_state,
@@ -242,7 +242,7 @@ def test_route_translates_done_to_the_end_edge():
 def test_every_reachable_next_step_has_an_edge():
     """A routing decision the compiled graph has no edge for would blow up at
     runtime, mid-run, after paying for a web search. Catch it here instead."""
-    from research_agent import build_graph  # noqa: PLC0415 - keeps import cost local
+    from research_agent.graph import build_graph  # noqa: PLC0415 - keeps import cost local
 
     edges = set(build_graph().nodes) | {"__end__"}
 

@@ -37,7 +37,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-import db
+from research_agent import db
 
 _MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSION_DB_PATH = os.environ.get("SESSION_DB_PATH", os.path.join(_MODULE_DIR, "sessions.db"))

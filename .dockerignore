@@ -16,8 +16,6 @@ evals-report.json
 # CI's job, not the image's
 tests/
 evals/
-pytest.ini
-requirements-dev.txt
 .ruff_cache/
 .pytest_cache/
 

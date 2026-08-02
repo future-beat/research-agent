@@ -28,7 +28,7 @@ import sys
 
 import anthropic
 
-from research_agent import (
+from research_agent.graph import (
     MAX_REVISIONS,
     app,
     followup_state,

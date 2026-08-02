@@ -37,14 +37,14 @@ tests that run with no API keys.
 git clone https://github.com/future-beat/research-agent.git
 cd research-agent
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-service.txt
+pip install -e '.[dev]'       # or '.[service]' to run it without the tests
 cp .env.example .env          # add ANTHROPIC_API_KEY and VOYAGE_API_KEY
 ```
 
 Then either the terminal REPL:
 
 ```bash
-python chat.py
+research-agent            # or: python -m research_agent.chat
 ```
 
 ```
@@ -62,11 +62,12 @@ task> What are the current approaches to LLM agent memory?
 …or the service:
 
 ```bash
-uvicorn service:app --port 8000     # demo page at http://localhost:8000
+uvicorn research_agent.service:app --port 8000   # demo at localhost:8000
 ```
 
-Dependencies split three ways so you install what you run: `requirements.txt`
-is the agent alone, `-service` adds FastAPI, `-dev` adds pytest and ruff.
+Extras split so you install what you run: the base package is the agent
+alone, `[service]` adds FastAPI and the Postgres driver, `[dev]` adds pytest
+and ruff. A worker that imports the graph never pulls in a web server.
 
 ---
 
@@ -156,7 +157,6 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pip install -r requirements-dev.txt
 pytest                    # 364 tests, ~10s, no API keys, no network
 python -m evals           # 12 golden cases, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)

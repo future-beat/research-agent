@@ -6,8 +6,8 @@ Switching backends does not move data -- each store owns its own. If you have
 already been running on a volume, this carries the sessions, the run history,
 and the accumulated notes across, so the switch doesn't look like amnesia.
 
-    DATABASE_URL=postgresql://... python migrate_to_postgres.py --dry-run
-    DATABASE_URL=postgresql://... python migrate_to_postgres.py
+    DATABASE_URL=postgresql://... python -m research_agent.migrate --dry-run
+    DATABASE_URL=postgresql://... python -m research_agent.migrate
 
 Notes are copied with their *existing* embeddings rather than re-embedded:
 it's free, it's exact, and re-embedding would silently change recall
@@ -25,15 +25,15 @@ import json
 import os
 import sys
 
-import db
-from metrics import METRICS_DB_PATH, PostgresMetricsStore, SQLiteMetricsStore
-from sessions import SESSION_DB_PATH, PostgresSessionStore, SQLiteSessionStore
-from vector_memory import (
+from research_agent import db
+from research_agent.memory import (
     PGVECTOR_TABLE,
     STORE_PATH,
     VECTOR_DIMENSIONS,
     PgVectorMemoryStore,
 )
+from research_agent.metrics import METRICS_DB_PATH, PostgresMetricsStore, SQLiteMetricsStore
+from research_agent.sessions import SESSION_DB_PATH, PostgresSessionStore, SQLiteSessionStore
 
 
 def migrate_sessions(source_path: str, dry_run: bool) -> tuple[int, int]:

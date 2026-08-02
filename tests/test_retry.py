@@ -7,7 +7,7 @@ import anthropic
 import httpx
 import pytest
 
-from retry import call_with_retry, compute_delay, is_retryable, retry_node
+from research_agent.retry import call_with_retry, compute_delay, is_retryable, retry_node
 
 
 def status_error(code: int, headers: dict | None = None) -> anthropic.APIStatusError:

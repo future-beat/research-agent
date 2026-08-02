@@ -10,8 +10,8 @@ import time
 import pytest
 from fastapi import HTTPException
 
-import limits
-from limits import RateLimiter
+from research_agent import limits
+from research_agent.limits import RateLimiter
 
 
 class FakeRequest:

@@ -8,8 +8,9 @@ import json
 
 import pytest
 
-import vector_memory
-from vector_memory import (
+from research_agent import graph
+from research_agent import memory as vector_memory
+from research_agent.memory import (
     InMemoryStore,
     JSONMemoryStore,
     MemoryStore,
@@ -194,13 +195,12 @@ def test_every_backend_implements_the_contract():
 
 
 def test_the_graph_only_uses_the_abstract_interface():
-    """research_agent must never reach past add/query/len/describe -- that is
+    """graph must never reach past add/query/len/describe -- that is
     the entire premise of the store being swappable."""
     import inspect
 
-    import research_agent
 
-    source = inspect.getsource(research_agent)
+    source = inspect.getsource(graph)
     for leak in ("memory().entries", "memory().path", "_memory.entries"):
         assert leak not in source, f"{leak} bypasses the MemoryStore interface"
 

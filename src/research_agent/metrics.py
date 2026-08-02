@@ -26,8 +26,8 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 
-import db
-from sessions import SESSION_DB_PATH, _describe_dsn
+from research_agent import db
+from research_agent.sessions import SESSION_DB_PATH, _describe_dsn
 
 METRICS_DB_PATH = os.environ.get("METRICS_DB_PATH", SESSION_DB_PATH)
 

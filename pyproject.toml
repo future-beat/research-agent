@@ -1,0 +1,93 @@
+[project]
+name = "research-agent"
+version = "0.9.0"
+description = "Supervisor-routed research pipeline with a critic that fact-checks its own drafts"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+
+# The agent alone: the graph, memory, retries, cost accounting. Deliberately
+# no web server -- a worker or batch job that imports the graph shouldn't drag
+# in FastAPI and uvicorn. Install `.[service]` for the HTTP surface.
+dependencies = [
+    "langgraph==1.2.9",
+    "anthropic==0.120.0",
+    "voyageai==0.5.0",
+    "numpy==2.5.1",
+    "python-dotenv==1.2.2",
+]
+
+[project.optional-dependencies]
+service = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.0",
+    # Postgres-backed stores. Imported lazily, so a SQLite/JSON deployment
+    # never touches it -- but a deploy that provisions a database should not
+    # fail on a missing driver.
+    "psycopg[binary]==3.3.4",
+]
+dev = [
+    "research-agent[service]",
+    "pytest==9.1.1",
+    "ruff==0.16.1",
+]
+# Optional backends, not installed by default.
+chroma = ["chromadb==1.4.1"]
+otel = ["opentelemetry-api==1.31.1"]
+
+[project.scripts]
+research-agent = "research_agent.chat:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+research_agent = ["static/*.html"]
+
+# --------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests/ is on the path so test modules can import each other's fakes;
+# src/ so the package is importable without an editable install.
+pythonpath = [".", "src", "tests"]
+addopts = "-q"
+
+# --------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Deliberately not `ruff format`: several tables and dict literals here are
+# hand-aligned for readability, and a formatter would flatten them for no
+# behavioural gain. Lint catches bugs; formatting is a style argument.
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes -- undefined names, unused imports
+    "I",       # import sorting
+    "B",       # bugbear -- likely bugs
+    "UP",      # pyupgrade
+    "C4",      # comprehension simplifications
+    "SIM",     # simplifications
+]
+ignore = [
+    # `Depends(...)` in a parameter default is FastAPI's documented dependency
+    # injection idiom, not an accidental shared mutable default.
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The eval CLI sets LOG_LEVEL before importing the agent, because the logger
+# is configured at import time. The import order is the point.
+"evals/__main__.py" = ["E402"]
+# Tests reach into private helpers deliberately.
+"tests/*" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["research_agent", "evals"]

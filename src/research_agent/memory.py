@@ -11,7 +11,7 @@ point of this module:
                  (a real ANN-indexed vector DB).
 
 The graph only ever touches add() / query() / len() / describe(), so swapping
-the backend never reaches research_agent.py.
+the backend never reaches graph.py.
 
 Select a backend at runtime:
 
@@ -35,7 +35,7 @@ from typing import Protocol
 
 import numpy as np
 
-import db
+from research_agent import db
 
 EMBEDDING_MODEL = os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-3.5")
 

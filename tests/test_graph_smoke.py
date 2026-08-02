@@ -9,9 +9,9 @@ the fields the supervisor reads, and a run terminates.
 import pytest
 from test_memory_stores import FakeEmbedder
 
-import research_agent
-from research_agent import app, followup_state, initial_state
-from vector_memory import InMemoryStore
+from research_agent import graph
+from research_agent.graph import app, followup_state, initial_state
+from research_agent.memory import InMemoryStore
 
 
 class Block:
@@ -89,12 +89,12 @@ class FakeClient:
 def fake_client(monkeypatch):
     def install(critic_verdicts=("APPROVED",)):
         client = FakeClient(critic_verdicts)
-        monkeypatch.setattr(research_agent, "client", lambda: client)
-        research_agent.set_memory(InMemoryStore(embedder=FakeEmbedder()))
+        monkeypatch.setattr(graph, "client", lambda: client)
+        graph.set_memory(InMemoryStore(embedder=FakeEmbedder()))
         return client
 
     yield install
-    research_agent.set_memory(None)  # don't leak a store into other tests
+    graph.set_memory(None)  # don't leak a store into other tests
 
 
 def test_research_run_visits_every_node_and_ends_approved(fake_client):
@@ -132,14 +132,14 @@ def test_a_critic_that_never_approves_stops_at_the_revision_cap(fake_client):
 
     assert result["approved"] is False
     assert result["forced_stop_reason"] == "max_revisions_exceeded"
-    assert client.nodes_called().count("writer") <= research_agent.MAX_REVISIONS + 2
+    assert client.nodes_called().count("writer") <= graph.MAX_REVISIONS + 2
 
 
 def test_the_iteration_backstop_sits_above_the_revision_cap():
     """If the backstop fires first it isn't a backstop -- it's the cap, wearing
     a misleading name. Pin the relationship so tuning one can't silently
     smother the other."""
-    assert research_agent.MAX_ITERATIONS > 2 * (research_agent.MAX_REVISIONS + 2)
+    assert graph.MAX_ITERATIONS > 2 * (graph.MAX_REVISIONS + 2)
 
 
 def test_a_never_approving_followup_also_blames_the_revisions(fake_client):
@@ -205,7 +205,7 @@ def test_the_researcher_stores_what_it_finds(fake_client):
     fake_client()
     app.invoke(initial_state("why is the sky blue?"))
 
-    store = research_agent.memory()
+    store = graph.memory()
     assert len(store) == 1
 
 

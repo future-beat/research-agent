@@ -3,8 +3,8 @@ that make a dashboard lie."""
 
 import pytest
 
-from metrics import COMPLETED, FAILED, RunRecord, SQLiteMetricsStore, _percentile
-from research_agent import initial_state
+from research_agent.graph import initial_state
+from research_agent.metrics import COMPLETED, FAILED, RunRecord, SQLiteMetricsStore, _percentile
 
 
 @pytest.fixture

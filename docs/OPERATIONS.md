@@ -12,7 +12,7 @@ docker compose up --build
 curl localhost:8000/health
 ```
 
-The image runs as a non-root user, installs `requirements-service.txt` only,
+The image runs as a non-root user, installs the `[service]` extra only,
 and excludes `tests/` and `evals/` — the eval dataset contains scripted model
 output, which has no business inside a production image.
 
@@ -61,8 +61,8 @@ fly postgres create --name research-agent-db
 fly postgres attach research-agent-db -a research-agent   # sets DATABASE_URL
 fly deploy -a research-agent
 
-fly ssh console -a research-agent -C "python /app/migrate_to_postgres.py --dry-run"
-fly ssh console -a research-agent -C "python /app/migrate_to_postgres.py"
+fly ssh console -a research-agent -C "python -m research_agent.migrate --dry-run"
+fly ssh console -a research-agent -C "python -m research_agent.migrate"
 ```
 
 Then delete the `[[mounts]]` block from `fly.toml` and `fly scale count 2`.
@@ -110,9 +110,9 @@ Tunable in code:
 
 | Knob | Where | Default |
 |---|---|---|
-| `MAX_REVISIONS` | `research_agent.py` | `2` |
+| `MAX_REVISIONS` | `graph.py` | `2` |
 | `MAX_ITERATIONS` | derived from `MAX_REVISIONS` | `12` |
-| `MODEL` | `research_agent.py` | `claude-sonnet-5` |
+| `MODEL` | `graph.py` | `claude-sonnet-5` |
 | Effort / thinking | per-node `output_config` | `medium` / `adaptive` (`disabled` on the classifier) |
 | `min_similarity` | `MemoryStore.query()` | `0.3` |
 
@@ -140,7 +140,7 @@ Environment variables:
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is installed | `true` |
 
 Switching backends does **not** migrate existing data — each store owns its
-own. `VECTOR_STORE=chroma` additionally needs `pip install chromadb`.
+own. `VECTOR_STORE=chroma` additionally needs the `[chroma]` extra.
 
 Research strategies and critic rubrics live in the `RESEARCH_STRATEGY` and
 `CRITIC_RUBRIC` dicts; add a topic type by adding a key to both.
@@ -148,25 +148,34 @@ Research strategies and critic rubrics live in the `RESEARCH_STRATEGY` and
 ## Project layout
 
 ```
-research_agent.py       the graph: nodes, supervisor, routing, compile
-service.py              FastAPI surface: blocking + SSE, sessions, ops
-chat.py                 terminal REPL with streamed progress
-static/index.html       the demo page — one self-contained file, no build step
+src/research_agent/
+    graph.py            nodes, supervisor, routing, compile
+    service.py          FastAPI surface: blocking + SSE, sessions, ops
+    chat.py             terminal REPL with streamed progress
+    static/index.html   the demo page — one self-contained file, no build step
 
-vector_memory.py        Embedder + MemoryStore seams and four backends
-sessions.py             conversation sessions (SQLite / Postgres)
-metrics.py              runs table and the /metrics aggregation
-db.py                   reconnecting Postgres connection shared by the stores
-migrate_to_postgres.py  copies an existing SQLite/JSON deployment across
+    memory.py           Embedder + MemoryStore seams and four backends
+    sessions.py         conversation sessions (SQLite / Postgres)
+    metrics.py          runs table and the /metrics aggregation
+    db.py               reconnecting Postgres connection shared by the stores
 
-usage.py                effective-dated price table and cost accounting
-limits.py               demo token, rate limit, rolling spend cap
-retry.py                retryable-error classification, backoff, node decorator
-observability.py        JSON logging and the optional OpenTelemetry seam
+    usage.py            effective-dated price table and cost accounting
+    limits.py           demo token, rate limit, rolling spend cap
+    retry.py            retryable-error classification, backoff, node decorator
+    observability.py    JSON logging and the optional OpenTelemetry seam
 
 evals/                  golden dataset, graders, runner, CLI
 tests/                  pytest suite (no keys, no network)
+docs/                   this file and DESIGN.md
+pyproject.toml          dependencies, extras, pytest and ruff config
 ```
+
+`src/` layout: the package is only importable once installed
+(`pip install -e '.[dev]'`), so a passing test run can't be relying on a
+module that happens to sit in the working directory but would never reach
+the image. `evals/` and `tests/` stay outside it — they're dev-only, and
+keeping them out of the package is what keeps the eval dataset's scripted
+model output out of production.
 
 `service.py` is deliberately thin: it validates input, picks a state
 constructor, runs the graph, and persists the result. No routing logic lives

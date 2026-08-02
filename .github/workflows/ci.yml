@@ -49,10 +49,10 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: requirements*.txt
+          cache-dependency-path: pyproject.toml
 
       - name: Install
-        run: pip install -r requirements-dev.txt
+        run: pip install -e '.[dev]'
 
       - name: Lint
         run: ruff check .
