@@ -200,7 +200,7 @@ Known, and deliberate for the scope.
 - **Follow-ups can't reach for new information.** By design: a follow-up needing a fresh search gets "the research didn't cover that" rather than an answer.
 - **The critic shares the writer's model.** Independent enough to catch ungrounded claims, not a genuinely independent evaluator. The eval judge runs on a stronger model precisely because of this.
 - **Offline evals can't measure answer quality**, and twelve live cases are a smoke test, not a benchmark.
-- **Cost is computed from list prices** — no enterprise discounts or `inference_geo` multiplier, so `/metrics` tracks the shape of the bill, not the bill.
+- **Cost is computed from list prices** — no enterprise discounts or `inference_geo` multiplier, so `/metrics` tracks the shape of the bill, not the bill. List prices are also effective-dated rather than fixed: Claude Sonnet 5's introductory window runs through `2026-08-31` and the standard window applies from `2026-09-01`, so any rate quoted as permanent is wrong by some date. `/pricing` reports whichever window accounting is using today — read it there, not from a number in a document.
 - **Stores grow without bound.** No eviction, dedup, or summarisation for notes; no expiry or ownership for sessions.
 - **SQLite pins you to one machine.** `DATABASE_URL` lifts it; until then a second machine would hold its own database and 404 on sessions that exist.
 - **No connection pool.** One lock-guarded Postgres connection per machine — right when a run occupies a worker for tens of seconds, but a ceiling worth knowing before raising concurrency.
