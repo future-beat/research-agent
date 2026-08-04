@@ -135,7 +135,7 @@ Plans:
 - [x] 10-02-PLAN.md — ADR-0003, ADR-0004 and ADR-0005, completing the promoted five, plus ADR-0006 (the Phase 10.5 auth decisions)
 - [x] 10-03-PLAN.md — Kill the false GitHub-integration deploy claim; name `/pricing` as the live rate source in README
 - [x] 10-04-PLAN.md — `docs/DESIGN.md`: four backends, ISO-dated price windows, forward-links to all five ADRs
-- [ ] 10-05-PLAN.md — Run every gate, prove no `src/` change and an unchanged suite, re-verify SC-5 live (checkpoint)
+- [x] 10-05-PLAN.md — Run every gate, prove no `src/` change and an unchanged suite, re-verify SC-5 live (checkpoint)
 
 **Notes for discuss-phase:**
 - The ADR set is the gate for everything after it. Phases 13, 15, 16, and 17 each supersede or re-derive one of these records; if the record does not exist, the reversal is silent.
@@ -176,7 +176,7 @@ Plans:
 - [x] 10.5-02-PLAN.md — Regroup the four session routes behind it, rate-limit the DELETE, redact the SSE error, repair the suite
 - [x] 10.5-03-PLAN.md — Behavioural coverage: refusal, service, fail-closed, fallback, unmetered reads, and a demo that survives
 - [x] 10.5-04-PLAN.md — Recursive non-vacuous route-guard invariant, plus the DELETE's limiter pinned structurally
-- [ ] 10.5-05-PLAN.md — Truth up the docs, then the single cutover and live verification (checkpoint)
+- [x] 10.5-05-PLAN.md — Truth up the docs, then the single cutover and live verification (checkpoint)
 
 **Notes for discuss-phase:**
 - Scope discipline: this is a hotfix, not Phase 12. It closes the hole with the guard mechanism that already exists. Per-caller ownership, expiry, and note lifecycle stay in Phase 12 — do not start modelling identity here.
@@ -324,8 +324,8 @@ capacity exists, they can overlap. Phases 15 → 16 → 17 are strictly sequenti
 | 8. Stateless | v1.0 | — | Complete | pre-GSD |
 | 9. Demo & guardrails | v1.0 | — | Complete | pre-GSD |
 | 9.1 Package reorganisation | v1.0 | — | Complete | pre-GSD |
-| 10. ADRs and doc correctness | v1.1 | 4/5 | In Progress|  |
-| 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 4/5 | In Progress | - |
+| 10. ADRs and doc correctness | v1.1 | 5/5 | In Progress | All 5 plans executed; SC-1/2/3/4/6 green. Sign-off pending on SC-5 step 3 — `main` is 21 docs-only commits ahead of `origin/main`. No code differs; resolve with a push, not a deploy. |
+| 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 5/5 | Complete | Shipped as Fly release v4 on 2026-08-04; re-verified live 2026-08-05 (v4 healthy, `/`, `/health`, `/demo`, `/metrics` all 200) |
 | 11. Multi-machine state and pooled Postgres | v1.1 | 0/TBD | Not started | - |
 | 12. Caller identity, session ownership, bounded stores | v1.1 | 0/TBD | Not started | - |
 | 13. Embedding model migration | v1.1 | 0/TBD | Not started | - |

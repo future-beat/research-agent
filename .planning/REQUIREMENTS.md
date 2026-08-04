@@ -119,7 +119,7 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-adr-promotion | Phase 10 | Pending |
+| REQ-adr-promotion | Phase 10 | Pending — the ADR set is built and gate-verified (six records, `Status` fields, Nygard sections, bidirectional DESIGN.md traceability). Held open only by SC-5 step 3: `main` is 21 docs-only commits ahead of `origin/main`. A push closes it; no deploy needed. |
 | REQ-live-endpoint-exposure | Phase 10.5 | Complete (Fly release v4, 2026-08-04) |
 | REQ-multi-machine-state | Phase 11 | Pending |
 | REQ-connection-pool | Phase 11 | Pending |

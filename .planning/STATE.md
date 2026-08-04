@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 10-04-PLAN.md — docs/DESIGN.md now names four MemoryStore backends, dates the rate change 2026-09-01, and forward-links its five promoted passages to ADR-0001…0005. Next: plan 10-05 (verification)."
+stopped_at: "Completed 10-05-PLAN.md — the phase gate battery ran green on SC-1/2/3/4/6 and both regression gates, with non-vacuity controls recorded. SC-5 step 3 came back RED: main is 21 documentation-only commits ahead of origin/main. Zero deployable files differ and release v4 is healthy, so no deploy is needed — a push closes it. 10-VALIDATION.md approval left pending."
 last_updated: "2026-08-05T00:00:00.000Z"
-last_activity: "2026-08-05 — Plan 10-04 executed: docs/DESIGN.md corrected (four implementations including pgvector, ISO-dated pricing window naming /pricing as the live source) and wired forward to the five promoted ADRs plus the index. SC-2, SC-4 and the DESIGN half of SC-6 satisfied. No code touched; suite unchanged at 388/28"
+last_activity: "2026-08-05 — Plan 10-05 executed: every Phase 10 gate run as written on macOS with literal output recorded in 10-VALIDATION.md § Execution Record. Five ADRs plus ADR-0006 verified, all doc corrections green, src byte-identical to 715e9aa, suite 388/28, ruff clean, four non-vacuity controls shown to fail. SC-5 re-verified live (v4 healthy, four endpoints 200) — not redeployed. One red finding: origin/main..main is 21, not 0."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 10
   percent: 56
 ---
 
@@ -25,16 +25,18 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 10 of 17 (ADRs and doc correctness) — **IN PROGRESS**
-Plan: 4 of 5 executed in current phase
-Status: In progress — all six ADRs exist, the deploy/pricing corrections have landed, and `docs/DESIGN.md` is corrected and wired forward to the records. Only plan 10-05 (phase-wide verification) remains.
-Last activity: 2026-08-05 — Plan 10-04 executed: `docs/DESIGN.md` now says the `MemoryStore` ABC has **four** implementations behind `VECTOR_STORE` — JSON, in-memory, Chroma, pgvector — matching `BACKENDS` in `memory.py` and the "four backends" already in `docs/OPERATIONS.md`. The pricing paragraph no longer opens "because one of them expires this month" and no longer says "September 1": the introductory $2/$10 window runs through `2026-08-31` and the standard $3/$15 rate takes over from `2026-09-01`, both on one line with `/pricing` named as the live source. Each of the five promoted paragraphs ends with a "Recorded as ADR-000N" link, and the file's preamble links `adr/README.md`. Every linked path resolves; ADR-0006 is deliberately unlinked. Documentation only — `git status --porcelain src/ tests/ evals/` empty, suite unchanged at 388 passed, 28 skipped.
+Phase: 10 of 17 (ADRs and doc correctness) — **IN PROGRESS (all plans executed; sign-off pending)**
+Plan: 5 of 5 executed in current phase
+Status: All five plans executed and the full gate battery run. Every content criterion is green — SC-1, SC-2, SC-3, SC-4, SC-6, plus both regression gates. **Sign-off is held on one red row: SC-5 step 3, `git rev-list --count origin/main..main`, returned `21` rather than `0`.** All 21 are Phase 10 documentation commits (including the phase base `715e9aa` itself); `git diff --name-only origin/main..main -- src/ tests/ evals/ pyproject.toml Dockerfile fly.toml` returns 0 files, so the deployed v4 image is current and no redeploy is warranted. Pushing `main` turns the row green and closes both the phase and REQ-adr-promotion.
+Last activity: 2026-08-05 — Plan 10-05 executed: the phase gate battery ran with literal output recorded in `10-VALIDATION.md` § Execution Record, and four non-vacuity controls were run to prove the gate shapes can fail. SC-5 was re-verified read-only against the live host — `fly releases` shows v4 `complete`, and `/`, `/health`, `/demo`, `/metrics` all return 200 — with no `fly deploy`, no `fly secrets set` and no `git push` at any point.
+
+Prior activity: 2026-08-05 — Plan 10-04 executed: `docs/DESIGN.md` now says the `MemoryStore` ABC has **four** implementations behind `VECTOR_STORE` — JSON, in-memory, Chroma, pgvector — matching `BACKENDS` in `memory.py` and the "four backends" already in `docs/OPERATIONS.md`. The pricing paragraph no longer opens "because one of them expires this month" and no longer says "September 1": the introductory $2/$10 window runs through `2026-08-31` and the standard $3/$15 rate takes over from `2026-09-01`, both on one line with `/pricing` named as the live source. Each of the five promoted paragraphs ends with a "Recorded as ADR-000N" link, and the file's preamble links `adr/README.md`. Every linked path resolves; ADR-0006 is deliberately unlinked. Documentation only — `git status --porcelain src/ tests/ evals/` empty, suite unchanged at 388 passed, 28 skipped.
 
 Prior activity: 2026-08-05 — Plan 10-03 executed: `docs/OPERATIONS.md` no longer claims deploys run through Fly's GitHub integration. Deploys are stated as manual via `fly deploy -a research-agent` with `fly releases -a research-agent` as the evidence, and the gating is corrected in both directions — `main` carries two required checks under `strict: true` but `enforce_admins` is `false`, so an admin's direct push succeeds with a recorded bypass notice (the Phase 10.5 push is quoted). `README.md`'s cost limitation now names `/pricing` as the live source with both window dates in ISO form and no duplicated rate figures. Documentation only — `git status --porcelain src/ tests/ evals/` is empty and the suite is unchanged at 388 passed, 28 skipped.
 
 Progress: [█████░░░░░] 56% (9 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
-Phase 10: [████████░░] 4 of 5 plans
+Phase 10: [██████████] 5 of 5 plans executed — sign-off pending on SC-5 step 3 (`main` unpushed)
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -53,7 +55,7 @@ Phase 10 — but it must not wait for Phase 11.
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1–9 | pre-GSD | — | — |
-| 10 | 4 (10-01, 10-02, 10-03, 10-04) | 43min | 11min |
+| 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 
 **Recent Trend:**
 
@@ -94,6 +96,10 @@ Recent decisions affecting current work:
 - [Phase 10-04]: The forward-links point at **ADR-0001…0005 only**. ADR-0006 is not linked from `docs/DESIGN.md` and must not be added: it originates in the Phase 10.5 hotfix and carries `**Source:**`, not `**Promoted from:**`. A link from DESIGN.md would assert a provenance that does not exist.
 - [Phase 10-04]: The link text carries both the record number and the path (`Recorded as [ADR-000N](adr/000N-slug.md)`) rather than a bare title link, so a reader scanning the prose gets the identifier that supersession notices will use.
 - [Phase 10-04]: The "expires this month" clause was replaced with "is time-boxed" rather than a fresher relative date. Any wording anchored to a writing date decays; the two ISO dates carry the fact.
+- [Phase 10-05]: A red gate is recorded as red. SC-5 step 3 failed and the row was marked ❌ with the approval left pending, rather than the criterion being reworded to match the observed state. The Criterion and Automated Command columns of `10-VALIDATION.md` were not touched after the gates ran.
+- [Phase 10-05]: Two edits were made to `10-VALIDATION.md` prose that the verify block forced, and neither weakens a gate: the `⬜ pending` token was dropped from the status legend (nothing is pending, so the key entry was dead), and the sign-off item `` `nyquist_compliant: true` set in frontmatter`` was reworded to "Frontmatter marks the phase Nyquist-compliant" so the literal token appears exactly once, in the frontmatter that owns it.
+- [Phase 10-05]: `ruff` is not on `PATH` in this environment; `.venv/bin/ruff` is the working invocation, matching the `.venv/bin/pytest` convention. Recorded so a future phase does not read a bare `ruff check .` failure as a lint regression.
+- [Phase 10-05]: The non-vacuity control is now four probes, not one — the zero-occurrence search, the file counter, the link resolver and the `Status` gate were each shown to fail on input that must fail. This repo has shipped five vacuous gates across two phases; a gate that has only ever passed is treated as unproven.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
@@ -101,6 +107,19 @@ Recent decisions affecting current work:
 None yet.
 
 ### Blockers/Concerns
+
+- **OPEN — `main` is 21 commits ahead of `origin/main`; Phase 10 sign-off waits on a push.**
+  Found by plan 10-05's SC-5 re-verification on 2026-08-05, after a `git fetch origin` so the
+  count is against a current remote and not a stale tracking ref. `origin/main` sits at
+  `804b873` (the Phase 10.5 close); `main` sits at `238d479`. Every one of the 21 commits is
+  Phase 10 documentation — `.planning/`, `docs/`, `docs/adr/`, `README.md` — **including the
+  phase base `715e9aa` itself**, which is also unpushed.
+  `git diff --name-only origin/main..main -- src/ tests/ evals/ pyproject.toml Dockerfile fly.toml`
+  returns **0 files**, so the code in Fly release v4, on `origin/main` and on `main` is
+  identical and the deployed image is not stale. **This is not a deploy problem and must not be
+  answered with `fly deploy`** — `git push` alone turns the row green, after which Phase 10 and
+  `REQ-adr-promotion` can both be closed. Recorded as ❌ red in
+  `10-VALIDATION.md` § Execution Record with `**Approval:** pending`.
 
 - **LIVE SECURITY EXPOSURE — Phase 10.5.** `GET /sessions`, `GET /sessions/{id}`,
   `GET /sessions/{id}/trace` and `DELETE /sessions/{id}` have no `Depends(guard)`
@@ -160,7 +179,21 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 10-04-PLAN.md.** SC-2, SC-4 and the DESIGN half of SC-6 are done, so
+Stopped at: **Completed 10-05-PLAN.md — the phase gate battery.** Every gate in
+`10-VALIDATION.md` was run as written on macOS and recorded with its literal output: five ADRs
+with `Status` lines and Nygard sections, all five citing `docs/DESIGN.md` and all five linked
+back from it, ADR-0006 verified separately (exists, `Accepted`, `DEMO_TOKEN` present, zero
+`Promoted from`) so the `000[1-5]` globs stayed as written, `GitHub integration` at zero,
+`Deploys are manual` and `enforce_admins` present, four backends with `pgvector`, no unpaired
+`$2/$10`, `src/` byte-identical to `715e9aa`, the suite at exactly 388 passed / 28 skipped, and
+`.venv/bin/ruff check .` clean. Four non-vacuity controls were run and recorded. SC-5 was
+re-verified read-only — release v4 `complete` under the owner's personal account, `/`, `/health`,
+`/demo`, `/metrics` all 200 — with **nothing redeployed**. One row is ❌ red: SC-5 step 3
+returned `21` for `origin/main..main`, so `**Approval:** pending`. ROADMAP's stale Phase 10.5 row
+was reconciled to 5/5 Complete. `REQ-adr-promotion` is left Pending with the blocker named.
+Resume file: None
+
+Superseded — previous session: **Completed 10-04-PLAN.md.** SC-2, SC-4 and the DESIGN half of SC-6 are done, so
 every corrective criterion in Phase 10 has now landed. `docs/DESIGN.md` names four
 `MemoryStore` implementations including pgvector; its pricing paragraph carries both windows
 as `2026-08-31` / `2026-09-01` on one line with `/pricing` as the live source and no
@@ -203,6 +236,8 @@ Resume file: None
 - **Deploys are manual and now proven so.** `fly secrets set --stage` then one `fly deploy`
   puts secret and code in the same release — required whenever a control fails closed.
 
-Next: `/gsd:plan-phase 10` (ADRs and doc correctness). Note Phase 10's SC-5 (deployed release
-matches `main`) is **already satisfied** by the v4 cutover — Phase 10 need only re-verify, not
-redeploy.
+Next: **push `main`** (21 documentation-only commits, no deployable file among them), then flip
+the SC-5 row in `10-VALIDATION.md` to ✅, set `**Approval:** approved`, mark Phase 10 Complete in
+ROADMAP and tick `REQ-adr-promotion` in REQUIREMENTS.md. After that, `/gsd:plan-phase 11`
+(multi-machine state and pooled Postgres). No deploy is pending — release v4 is current and was
+re-verified live on 2026-08-05.
