@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Plan 10.5-01 complete — sessions credential built and tested, not yet wired. Next: plan 10.5-02."
-last_updated: "2026-08-04T09:47:39.944Z"
-last_activity: "2026-08-04 — Plan 10.5-01 executed: fail-closed `SESSIONS_TOKEN` credential added to `limits.py` with 7 unit tests; nothing wired yet, so the live exposure is still open by design"
+stopped_at: "Plan 10.5-04 complete — the guard invariant is now structural and non-vacuous. Next: plan 10.5-05, the production cutover."
+last_updated: "2026-08-04T00:00:00.000Z"
+last_activity: "2026-08-04 — Plan 10.5-04 executed: a recursive route walker plus a non-vacuity assertion now prove no route under /sessions is anonymous, and pin the DELETE limiter and the unmetered reads structurally. All four mutation checks bit and were reverted. The code is ready to deploy; only the cutover remains"
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 4
   percent: 53
 ---
 
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 10.5 of 17 (Close the live endpoint exposure — hotfix)
-Plan: 3 of 5 executed in current phase
-Status: Executing — plan 03 complete, plan 04 next
-Last activity: 2026-08-04 — Plan 10.5-03 executed: twelve behavioural cases now ask the unauthenticated question the suite never asked. All four session routes 401 an anonymous caller and serve an authorised one, an unconfigured deployment 403s everyone, `DEMO_TOKEN` alone closes the group, reads stay unmetered by both guardrails, `DELETE` is rate-limited without letting an unauthorised caller burn the slot, and the demo's two anonymous calls still work. Every control was broken by mutation and the matching test observed failing. The deployed service is still exposed until plan 05.
+Plan: 4 of 5 executed in current phase
+Status: Executing — plan 04 complete, plan 05 (production cutover) next
+Last activity: 2026-08-04 — Plan 10.5-04 executed: `api_routes()` walks `_IncludedRouter` recursively and `test_route_guard_invariant_over_the_sessions_tree` refuses to pass on fewer than six session routes, so a route added under `/sessions` without `guard` or `require_sessions_token` fails the suite and the test cannot go green by examining nothing. `test_delete_carries_the_rate_limiter` pins the DELETE limiter and proves the three reads carry neither it nor the daily cap. Four mutation checks run and reverted; the naive walker mutation confirmed a flat scan reports a *clean* sessions tree while the four leaking routes are invisible. The deployed service is still exposed until plan 05.
 
 Progress: [█████░░░░░] 53% (9 of 17 phases complete; v1.0 shipped)
-Phase 10.5: [██████░░░░] 3 of 5 plans
+Phase 10.5: [████████░░] 4 of 5 plans
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -78,6 +78,9 @@ Recent decisions affecting current work:
 - [Phase 10.5-02]: **Any assertion over `app.routes` must now be recursive.** fastapi 0.141.1 leaves an `_IncludedRouter` in `app.routes` rather than flattening, so a flat scan silently misses every session route. Two pre-existing tests were fixed for this; plan 04's structural test must not repeat the mistake.
 - [Phase 10.5-03]: The daily-cap test records real spend and asserts `POST /research` 429s *before* asserting a read is 200. Under the fixture's `DEMO_DAILY_USD_CAP=0`, `check_daily_cap` returns early, so the obvious construction cannot fail even if the cap were wired onto the reads.
 - [Phase 10.5-03]: A guard test is not done until the guard has been removed and the test observed failing. All six controls in this phase were mutation-checked individually; the mutation table lives in `10.5-03-SUMMARY.md` and is plan 04's acceptance shortcut.
+- [Phase 10.5-04]: `api_routes()` **supersedes** wave 2's private `_served_routes()` walker rather than sitting beside it. Two independent recursive walkers over `fastapi.routing._IncludedRouter` — a private, version-specific internal — is two things to fix on the next FastAPI upgrade and two things that can drift.
+- [Phase 10.5-04]: The non-vacuity threshold is **6 route objects across 5 paths**, not 5 — `/sessions/{session_id}` is served by both a GET and a DELETE. Do not "correct" it downward.
+- [Phase 10.5-04]: A naive flat route scan does not find *zero* session routes as the obvious analysis suggests — it finds the two `@app.post` ask routes, both of which carry `guard`, and therefore reports a perfectly clean sessions tree. A guard invariant without a count assertion goes green over exactly this phase's defect. Verified by mutation.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
