@@ -96,6 +96,14 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
   Derived from INGEST-CONFLICTS WARNING 3, user-approved 2026-08-04. Not sourced from the
   README Limitations list.
 
+- [ ] **REQ-live-endpoint-exposure**: The session read and delete endpoints are not reachable
+  without credentials on the deployed service, `DEMO_TOKEN` actually protects them, `DELETE`
+  is rate-limited, and the SSE error handler stops returning unredacted exception text.
+  Discovered during codebase mapping 2026-08-04, not present in the README Limitations list.
+  Confirmed live, not theoretical: an unauthenticated `GET /sessions` returned two real
+  sessions with full task text, and two `DELETE` calls returned 204 from the open internet.
+  Scoped as a hotfix — per-caller ownership and expiry remain REQ-store-lifecycle-and-ownership.
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -112,6 +120,7 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | REQ-adr-promotion | Phase 10 | Pending |
+| REQ-live-endpoint-exposure | Phase 10.5 | Pending |
 | REQ-multi-machine-state | Phase 11 | Pending |
 | REQ-connection-pool | Phase 11 | Pending |
 | REQ-demo-authentication | Phase 12 | Pending |
@@ -127,6 +136,7 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 - Mapped to phases: 9
 - Unmapped: 0 ✓
 - Plus REQ-adr-promotion (cross-cutting, added during roadmapping) → Phase 10
+- Plus REQ-live-endpoint-exposure (found during codebase mapping, not in the Limitations list) → Phase 10.5
 
 ---
 *Requirements defined: 2026-08-04*

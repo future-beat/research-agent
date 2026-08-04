@@ -51,6 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### 🚧 v1.1 Closing the limitations list (Phases 10–17)
 
 - [ ] **Phase 10: ADRs and doc correctness** - Promote the load-bearing five to numbered ADRs; fix verified-false docs; redeploy so live matches `main`
+- [ ] **Phase 10.5: Close the live endpoint exposure (hotfix)** - Guard the unauthenticated session read/delete paths and stop leaking exception text; ship immediately
 - [ ] **Phase 11: Multi-machine state and pooled Postgres** - Take the `DATABASE_URL` path, run more than one machine, replace the single connection with a pool
 - [ ] **Phase 12: Caller identity, session ownership, bounded stores** - The demo identifies callers; sessions have owners and expiry; notes stop growing forever
 - [ ] **Phase 13: Embedding model migration** - A real, reversible path when the embedding model or dimension changes
@@ -133,6 +134,25 @@ Decimal phases appear between their surrounding integers in numeric order.
 - The ADR set is the gate for everything after it. Phases 13, 15, 16, and 17 each supersede or re-derive one of these records; if the record does not exist, the reversal is silent.
 - Reversals of decisions *not* in the five (DEC-10, DEC-20) should create a new ADR in the phase that reverses them rather than retrofitting one here.
 - Verified 2026-08-04: nothing in the repo or docs cites `/healthz` (which 404s) — `/health` is cited correctly everywhere. No fix needed; re-verify rather than assume.
+
+### Phase 10.5: Close the live endpoint exposure (hotfix)
+**Goal**: The public service stops handing session contents to anyone and stops accepting anonymous deletes
+**Depends on**: Nothing — ships ahead of Phase 11 regardless of Phase 10's state
+**Requirements**: REQ-live-endpoint-exposure
+**Success Criteria** (what must be TRUE):
+  1. `GET /sessions`, `GET /sessions/{id}`, `GET /sessions/{id}/trace` and `DELETE /sessions/{id}` are no longer reachable without credentials on the deployed service. Today all four lack `Depends(guard)` (`src/research_agent/service.py:514`, `:519`, `:533`, `:539`).
+  2. Setting `DEMO_TOKEN` actually protects them. It does not today: `check_token` runs only inside `guard`, and these four paths never reach it — so the existing token control is inert on exactly the endpoints that leak.
+  3. `DELETE /sessions/{id}` is rate-limited, not merely authenticated. It is currently both unauthenticated and unmetered, which makes wiping the demo a two-line script.
+  4. The SSE error handler redacts exception text (`src/research_agent/service.py:263`). The redaction helper already exists and is tested — the `/health` path uses it correctly; this call site just is not wired to it.
+  5. Tests cover each newly-guarded path for both the 401/403 case and the authorised case, and fail if a future endpoint is added to the sessions router without a guard.
+  6. Verified against the deployed service, not just locally: an unauthenticated `GET /sessions` from the open internet returns 401/403.
+**Plans**: TBD
+
+**Notes for discuss-phase:**
+- Scope discipline: this is a hotfix, not Phase 12. It closes the hole with the guard mechanism that already exists. Per-caller ownership, expiry, and note lifecycle stay in Phase 12 — do not start modelling identity here.
+- Decide what `GET /sessions` should do long-term. Guarding it is the fast fix, but a public demo arguably should not have a global listing endpoint at all, even an authenticated one. That question belongs to Phase 12; this phase only has to stop it being open.
+- Verified live on 2026-08-04: `GET /sessions` returned two real sessions with full task text to an unauthenticated caller, and two `DELETE` calls returned 204 from the open internet. Both sessions were backed up and removed with the owner's consent. The exposure is confirmed, not theoretical.
+- The deployed tree is 3 commits behind `main`, but the endpoints are unguarded on `main` too — redeploying does not fix this, and fixing this requires a deploy. Sequence with Phase 10's redeploy criterion so there is one cutover, not two.
 
 ### Phase 11: Multi-machine state and pooled Postgres
 **Goal**: The service runs on more than one machine with shared state and pooled database access
