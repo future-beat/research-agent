@@ -65,7 +65,10 @@ def test_the_service_port_matches_the_container(fly, dockerfile):
 def test_the_healthcheck_path_is_served(fly):
     from research_agent import service
 
-    paths = {route.path for route in service.app.routes}
+    # getattr, because app.routes now also holds an included-router object with
+    # no .path of its own. The healthchecks all point at top-level ops routes,
+    # so there is no need to descend into it.
+    paths = {getattr(route, "path", None) for route in service.app.routes}
     for check in fly.get("http_service", {}).get("checks", []):
         assert check["path"] in paths, check["path"]
 

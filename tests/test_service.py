@@ -20,6 +20,13 @@ from research_agent.memory import InMemoryStore
 from research_agent.metrics import SQLiteMetricsStore
 from research_agent.sessions import SQLiteSessionStore
 
+# The session read/delete routes fail closed, so every client the suite builds
+# needs a credential. Configuring it here -- and sending it as a default header
+# -- keeps the fixture the one place that knows about it, the way it already
+# owns DEMO_RATE_LIMIT_PER_HOUR and SESSION_BACKEND. A test that wants the
+# anonymous case builds a bare TestClient instead.
+SESSIONS_TOKEN = "sessions-s3cret"
+
 
 @pytest.fixture
 def make_client(tmp_path, monkeypatch):
@@ -38,6 +45,7 @@ def make_client(tmp_path, monkeypatch):
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "0")
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0")
     monkeypatch.delenv("DEMO_TOKEN", raising=False)
+    monkeypatch.setenv("SESSIONS_TOKEN", SESSIONS_TOKEN)
     limits.reset_limiter()
     # The lifespan calls the backend factories, which follow DATABASE_URL.
     # Pinning them keeps these tests about the API rather than about whichever
@@ -55,7 +63,7 @@ def make_client(tmp_path, monkeypatch):
         service.app.dependency_overrides[service.get_sessions] = lambda: store
         service.app.dependency_overrides[service.get_metrics] = lambda: metrics
 
-        client = TestClient(service.app)
+        client = TestClient(service.app, headers={"x-demo-token": SESSIONS_TOKEN})
         created.append((client, store, metrics))
         return client, fake
 
@@ -268,6 +276,18 @@ def test_sessions_can_be_deleted(make_client):
 def test_unknown_sessions_are_404(make_client, path):
     client, _ = make_client()
     assert client.get(path).status_code == 404
+
+
+@pytest.mark.parametrize("path", ["/sessions/nope", "/sessions/nope/trace"])
+def test_unknown_sessions_are_401_without_a_token(make_client, path):
+    """Auth runs before the handler, so an anonymous caller gets 401, not 404.
+
+    That ordering is the point: answering 404 first would tell an
+    unauthenticated caller which session IDs exist.
+    """
+    make_client()  # for the env and the dependency overrides
+    with TestClient(service.app) as anonymous:
+        assert anonymous.get(path).status_code == 401
 
 
 # --------------------------------------------------------------------------
@@ -584,18 +604,42 @@ def test_the_root_url_is_not_a_404(make_client):
     assert "health" in body["endpoints"]
 
 
+def _served_routes() -> set[tuple[str, str]]:
+    """Every (method, path) the app actually serves.
+
+    Recursive on purpose: fastapi no longer flattens an included router into
+    app.routes, so a flat scan would silently miss every route on
+    sessions_router and let this test pass over an index that advertises them.
+    """
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:  # pragma: no cover - older fastapi flattens instead
+        _IncludedRouter = ()
+
+    served: set[tuple[str, str]] = set()
+
+    def walk(routes, prefix=""):
+        for route in routes:
+            if _IncludedRouter and isinstance(route, _IncludedRouter):
+                walk(route.original_router.routes, prefix + route.include_context.prefix)
+                continue
+            for method in getattr(route, "methods", ()):
+                served.add((method, prefix + route.path))
+
+    walk(service.app.routes)
+    return served
+
+
 def test_every_advertised_endpoint_actually_exists(make_client):
     """An index that lists a route the app doesn't serve is worse than no
     index at all."""
     client, _ = make_client()
-    served = {
-        (method, route.path)
-        for route in service.app.routes
-        for method in getattr(route, "methods", ())
-    }
+    served = _served_routes()
+    assert ("GET", "/health") in served  # the walker found something
 
     for advertised in client.get("/").json()["endpoints"].values():
-        method, path = advertised.split(" ", 1)
+        # Entries may carry a trailing annotation, e.g. "(X-Demo-Token required)".
+        method, path = advertised.split(" ")[:2]
         assert (method, path) in served, advertised
 
 
@@ -805,7 +849,14 @@ def test_streaming_endpoints_are_guarded(make_client, monkeypatch):
 
 
 def test_the_guard_runs_before_anything_is_spent(make_client, monkeypatch):
-    """A refusal must not open a session or record a run."""
+    """A refusal must not open a session or record a run.
+
+    This test is about spend, not auth. Setting DEMO_TOKEN here refuses the
+    POST; it does not change how the read below authenticates, because
+    limits.sessions_token() prefers SESSIONS_TOKEN -- which the fixture set,
+    and whose value the client sends by default -- and only falls back to
+    DEMO_TOKEN when SESSIONS_TOKEN is unset.
+    """
     client, _ = make_client()
     monkeypatch.setenv("DEMO_TOKEN", "s3cret")
 
