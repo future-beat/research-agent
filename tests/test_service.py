@@ -566,6 +566,52 @@ def test_route_guard_invariant_over_the_sessions_tree():
     assert unguarded == [], f"routes under /sessions with no auth dependency: {unguarded}"
 
 
+def test_delete_carries_the_rate_limiter():
+    """The destructive route is metered and the reads are not.
+
+    Asserted structurally rather than behaviourally because the fixture runs
+    with DEMO_RATE_LIMIT_PER_HOUR=0: driving enough real deletes to observe a
+    429 is slower and more brittle than reading the wiring. The behavioural
+    half exists too (test_delete_rate_limited_after_the_hourly_limit, which
+    monkeypatches the limit) -- both are wanted, because a passing 429 test
+    does not prove the reads stayed unmetered and this does.
+
+    The shared-bucket consequence is documented on the DELETE decorator in
+    service.py: the limiter's key space is the one research runs use, so an
+    operator deleting many sessions consumes that IP's research quota. That
+    is accepted for the hotfix.
+    """
+    session_routes = {}
+    for path, route in api_routes(service.app):
+        if path.startswith("/sessions") and "/ask" not in path:
+            for method in route.methods:
+                session_routes[(method, path)] = route
+
+    # Non-vacuity again: four routes, one DELETE and three GETs.
+    assert len(session_routes) >= 4, f"found only {sorted(session_routes)}"
+
+    delete = session_routes[("DELETE", "/sessions/{session_id}")]
+    assert "check_rate_limit" in dependency_names(delete)
+
+    gets = [(key, route) for key, route in session_routes.items() if key[0] == "GET"]
+    assert len(gets) == 3, sorted(key for key, _ in gets)
+    metered_reads = [key for key, route in gets if "check_rate_limit" in dependency_names(route)]
+    # Reads must stay unmetered: listing sessions may not consume the caller's
+    # research quota (CONTEXT, Dependency composition).
+    assert metered_reads == [], f"session reads must not be rate limited: {metered_reads}"
+
+    # And none of the four may acquire the spend cap, so a later refactor
+    # cannot quietly reach for `guard` -- which bundles check_daily_cap and
+    # would 429 every read once the $5/day budget is gone, contradicting the
+    # cap's own "Read-only endpoints still work" message.
+    capped = [
+        key
+        for key, route in session_routes.items()
+        if "check_daily_cap" in dependency_names(route)
+    ]
+    assert capped == [], f"session routes must not carry the daily cap: {capped}"
+
+
 # --------------------------------------------------------------------------
 # Streaming
 # --------------------------------------------------------------------------
