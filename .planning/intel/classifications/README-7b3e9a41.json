@@ -1,0 +1,38 @@
+{
+  "source_path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/README.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Research agent",
+  "summary": "Top-level README for a multi-agent research pipeline: overview, phase status, quick start, API surface, architecture, testing, deployment, and known limitations.",
+  "scope": [
+    "supervisor graph",
+    "classifier node",
+    "researcher node",
+    "writer node",
+    "responder node",
+    "critic node",
+    "revision loop",
+    "memory and note store",
+    "Voyage embeddings",
+    "FastAPI service",
+    "SSE streaming",
+    "sessions",
+    "cost accounting and spend cap",
+    "metrics endpoint",
+    "eval harness and LLM judge",
+    "SQLite backend",
+    "Postgres and pgvector backends",
+    "Docker and CI",
+    "public demo guardrails and rate limiting"
+  ],
+  "cross_refs": [
+    "docs/DESIGN.md",
+    "docs/OPERATIONS.md",
+    "LICENSE",
+    ".env.example"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": "Genre is ambiguous between DOC and SPEC. SPEC signals present: an endpoint table under '## API', a supervisor routing table that reads as a behavioural contract, and an SSE event schema sample. Classified DOC because these describe an already-built system for readers rather than specifying contracts to be honoured; the document is prose-heavy overview with quick-start and license sections. No ADR signals (no frontmatter, no Status/Decision/Consequences) and no PRD signals (no user stories or acceptance criteria). Two sections are milestone-bearing for downstream synthesis: '## Status' carries nine roadmap checkboxes, all marked complete (phases 1-9), so no open roadmap items derive from it; '## Limitations' carries nine explicitly deliberate constraints (follow-ups cannot trigger new searches; critic shares the writer's model with the eval judge on a stronger model; offline evals cannot grade answer quality; cost uses list prices only; stores grow unbounded with no session ownership or expiry; SQLite pins to one machine; no connection pool; embedding-model change requires a new pgvector table; public demo is rate-limited but unauthenticated) which are the most likely source of next-milestone requirements despite this document not being a requirements artifact."
+}

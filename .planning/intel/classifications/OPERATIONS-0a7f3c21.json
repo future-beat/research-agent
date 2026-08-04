@@ -1,0 +1,36 @@
+{
+  "source_path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/docs/OPERATIONS.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Operations",
+  "summary": "Production runbook for the research-agent service: container and Fly.io deployment, the SQLite-to-Postgres migration, CI gates, configuration knobs, and project layout.",
+  "scope": [
+    "Docker container and compose workflow",
+    "Fly.io app research-agent",
+    "fly.toml (min_machines_running, internal_port 8000, [[mounts]])",
+    "persistent volume at /data",
+    "secrets handling (fly secrets, .dockerignore, /health key presence)",
+    "SQLite stores (sessions, metrics, vector store)",
+    "Postgres + pgvector migration via DATABASE_URL",
+    "research_agent.migrate CLI",
+    "CI pipeline (ruff, 364 tests, 12 offline eval cases, image build, smoke test)",
+    "branch protection on main",
+    "environment variable configuration table",
+    "cost accounting and spend caps (AGENT_MAX_RUN_COST_USD, DEMO_DAILY_USD_CAP)",
+    "demo guardrails (rate limit, DEMO_TOKEN, TRUST_FORWARDED_FOR)",
+    "retry and backoff settings",
+    "observability (LOG_FORMAT, LOG_LEVEL, OTEL_ENABLED)",
+    "src/research_agent package layout"
+  ],
+  "cross_refs": [
+    "../README.md",
+    "DESIGN.md",
+    "fly.toml",
+    "tests/test_deploy_config.py",
+    "pyproject.toml"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": "Primary structure is a prose runbook (deployment procedures, migration steps, CI description), which the taxonomy places under DOC. Competing SPEC signal: two substantive contract tables (code knobs and environment variables with exact defaults) plus hard operational invariants. Resolved to DOC because no section defines an API, schema, or SLO; the tables document existing defaults rather than mandate them. Synthesizer should still lift these as operational constraints: min_machines_running = 1 while SQLite is the backend (single writer, per-machine volume, second machine 404s on existing sessions); volume required at /data or memory silently no-ops; container listens on port 8000; credentials must never enter an image layer and /health reports presence only; CI runs every gate with ANTHROPIC_API_KEY=\"\"; pgvector guard test must fail rather than skip; deploys run through Fly's GitHub integration and are NOT gated on CI, so a direct push to main can deploy failing code; Fly Launch PRs must not be merged (they have twice broken the deploy, once silently via internal_port 8080); default per-run spend cap $1.00, rolling 24h demo cap $5.00, 10 requests per visitor IP per hour; switching backends does not migrate data; VECTOR_DIMENSIONS 1024 for voyage-3.5."
+}
