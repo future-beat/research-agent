@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 10 of 17 (ADRs and doc correctness) — **IN PROGRESS**
-Plan: 2 of 5 executed in current phase
-Status: In progress — all six ADRs now exist on disk. Plans 10-03 and 10-04 (doc corrections) and 10-05 (verification) remain.
-Last activity: 2026-08-05 — Plan 10-02 executed: records 0003–0006. DEC-04, DEC-14 and DEC-22 promoted from `docs/DESIGN.md`; ADR-0006 records the Phase 10.5 auth decisions with `**Source:**` rather than `**Promoted from:**` and states unmissably that `DEMO_TOKEN` must never be set in production. All six `Accepted`; nothing superseded. Documentation only — `git status --porcelain src/ tests/ evals/` is empty and the suite is unchanged at 388 passed, 28 skipped.
+Plan: 3 of 5 executed in current phase
+Status: In progress — all six ADRs exist and the deploy/pricing corrections have landed. Plan 10-04 (`docs/DESIGN.md` corrections) and 10-05 (verification) remain.
+Last activity: 2026-08-05 — Plan 10-03 executed: `docs/OPERATIONS.md` no longer claims deploys run through Fly's GitHub integration. Deploys are stated as manual via `fly deploy -a research-agent` with `fly releases -a research-agent` as the evidence, and the gating is corrected in both directions — `main` carries two required checks under `strict: true` but `enforce_admins` is `false`, so an admin's direct push succeeds with a recorded bypass notice (the Phase 10.5 push is quoted). `README.md`'s cost limitation now names `/pricing` as the live source with both window dates in ISO form and no duplicated rate figures. Documentation only — `git status --porcelain src/ tests/ evals/` is empty and the suite is unchanged at 388 passed, 28 skipped.
 
 Progress: [█████░░░░░] 56% (9 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
-Phase 10: [████░░░░░░] 2 of 5 plans
+Phase 10: [██████░░░░] 3 of 5 plans
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -51,7 +51,7 @@ Phase 10 — but it must not wait for Phase 11.
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1–9 | pre-GSD | — | — |
-| 10 | 2 (10-01, 10-02) | 26min | 13min |
+| 10 | 3 (10-01, 10-02, 10-03) | 35min | 12min |
 
 **Recent Trend:**
 
@@ -155,11 +155,16 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 10-02-PLAN.md.** `docs/adr/` is now the complete six-record set —
-0003 (`no_prior_research`), 0004 (SQLite, not the checkpointer), 0005 (the Opus 5 judge) and
-0006 (the Phase 10.5 auth decisions) joined 0001–0002, and every filename in the index
-resolves. All `Accepted`; nothing superseded. Plans 10-03 through 10-05 remain. (Phase 10.5
-remains complete and shipped as Fly release v4.)
+Stopped at: **Completed 10-03-PLAN.md.** SC-3 and the README half of SC-6 are done.
+`docs/OPERATIONS.md` states that deploys are manual (`fly deploy -a research-agent`, evidenced
+by `fly releases -a research-agent`), that `main` and the deployed release can drift because
+nothing automates the deploy, and — the half the old text got wrong in the other direction —
+that `enforce_admins` is `false`, so a direct push to `main` bypasses the two required checks
+and CI runs only after the fact. `README.md` now names `/pricing` as the live rate source with
+`2026-08-31` / `2026-09-01` in ISO form and no duplicated figures. `docs/adr/` remains the
+complete six-record set from 10-02. Plans 10-04 (`docs/DESIGN.md`: four MemoryStore backends,
+the rate figures) and 10-05 (verification) remain. (Phase 10.5 remains complete and shipped as
+Fly release v4.)
 Resume file: None
 
 **Carry forward — findings that outlive this phase:**
