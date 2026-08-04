@@ -45,24 +45,26 @@ phase touched code, which is out of scope.
 
 ## Per-Task Verification Map
 
-Task IDs are assigned by the planner. Every row must map to a real task; no row may be dropped.
+Task IDs assigned by the planner (`{plan}-T{n}`). Every row maps to a real task; no row may be
+dropped, and no Criterion or Automated Command may be rewritten after the gate has been run.
+**Phase base commit for all regression diffs: `715e9aa`.**
 
 | Task ID | Plan | Wave | Requirement | Criterion | Test Type | Automated Command | Status |
 |---------|------|------|-------------|-----------|-----------|-------------------|--------|
-| TBD | TBD | 1 | REQ-adr-promotion | SC-1: five ADRs exist, numbered `0001`–`0005` | file gate | `ls docs/adr/*.md \| wc -l` returns 5 | ⬜ pending |
-| TBD | TBD | 1 | REQ-adr-promotion | SC-1: every ADR carries an explicit `Status` field | grep gate | `grep -L '^## Status\|^\*\*Status' docs/adr/*.md` returns nothing | ⬜ pending |
-| TBD | TBD | 1 | REQ-adr-promotion | SC-1: Nygard sections present in every ADR | grep gate | each of `docs/adr/*.md` contains `Context`, `Decision`, `Consequences` | ⬜ pending |
-| TBD | TBD | 1 | REQ-adr-promotion | SC-1: the five subjects are covered — deterministic routing, separate critic, `no_prior_research` follow-ups, Opus 5 judge, SQLite over checkpointer | grep gate | one ADR each matches `deterministic`, `critic`, `no_prior_research`, `judge`, `checkpointer` | ⬜ pending |
-| TBD | TBD | 2 | REQ-adr-promotion | SC-2: each ADR names the `docs/DESIGN.md` passage it was promoted from | grep gate | every `docs/adr/*.md` contains `DESIGN.md` | ⬜ pending |
-| TBD | TBD | 2 | REQ-adr-promotion | SC-2: `docs/DESIGN.md` points forward to all five | grep gate | `grep -c 'docs/adr/\|ADR-000' docs/DESIGN.md` returns ≥ 5 | ⬜ pending |
-| TBD | TBD | 2 | REQ-adr-promotion | Supersession works: the format documents how a later reversal marks a record superseded | grep gate | `grep -rl 'Superseded' docs/adr/` returns ≥ 1 (the convention, in a template or README) | ⬜ pending |
-| TBD | TBD | 3 | REQ-adr-promotion | SC-3: no doc claims deploys run through Fly's GitHub integration | grep gate | `grep -rn 'GitHub integration' docs/ README.md` returns 0 | ⬜ pending |
-| TBD | TBD | 3 | REQ-adr-promotion | SC-3: `docs/OPERATIONS.md` states deploys are manual | grep gate | `grep -c 'fly deploy -a research-agent' docs/OPERATIONS.md` returns ≥ 1 and the surrounding prose says manual | ⬜ pending |
-| TBD | TBD | 3 | REQ-adr-promotion | SC-4: `docs/DESIGN.md` names four backends | grep gate | `grep -c 'three implementations' docs/DESIGN.md` returns 0; `pgvector` appears in the same paragraph | ⬜ pending |
-| TBD | TBD | 3 | REQ-adr-promotion | SC-6: no doc quotes a Sonnet 5 rate as permanent | grep gate | any doc mentioning `$2/$10` also mentions `$3/$15` and `2026-09-01`; `/pricing` named as the live source | ⬜ pending |
-| TBD | TBD | 4 | REQ-adr-promotion | SC-5 **re-verify only** — already satisfied by the v4 cutover | manual | see Manual-Only Verifications | ⬜ pending |
-| TBD | TBD | 4 | REQ-adr-promotion | Regression: no production code touched | source gate | `git diff --quiet <phase-base> -- src/` exits 0 | ⬜ pending |
-| TBD | TBD | 4 | REQ-adr-promotion | Regression: suite unchanged | test | `.venv/bin/pytest` → exactly 388 passed, 28 skipped | ⬜ pending |
+| 10-02-T3 | 10-02 | 1 | REQ-adr-promotion | SC-1: five ADRs exist, numbered `0001`–`0005` | file gate | `ls docs/adr/000[1-5]-*.md \| wc -l` returns 5 | ⬜ pending |
+| 10-02-T3 | 10-02 | 1 | REQ-adr-promotion | SC-1: every ADR carries an explicit `Status` field | grep gate | `grep -L '^\*\*Status:\*\* Accepted' docs/adr/000[1-5]-*.md \| wc -l` returns 0 | ⬜ pending |
+| 10-01-T1 | 10-01 | 1 | REQ-adr-promotion | SC-1: Nygard sections present in every ADR | grep gate | `for f in docs/adr/000[1-5]-*.md; do grep -q '^## Context' "$f" && grep -q '^## Decision' "$f" && grep -q '^## Consequences' "$f" \|\| echo "MISSING $f"; done` prints nothing | ⬜ pending |
+| 10-02-T3 | 10-02 | 1 | REQ-adr-promotion | SC-1: the five subjects are covered — deterministic routing, separate critic, `no_prior_research` follow-ups, Opus 5 judge, SQLite over checkpointer | grep gate | `for t in deterministic critic no_prior_research checkpointer judge; do [ "$(grep -il "$t" docs/adr/000[1-5]-*.md \| wc -l \| tr -d ' ')" -ge 1 ] \|\| echo "UNCOVERED $t"; done` prints nothing | ⬜ pending |
+| 10-02-T3 | 10-02 | 1 | REQ-adr-promotion | SC-2: each ADR names the `docs/DESIGN.md` passage it was promoted from | grep gate | `grep -L 'DESIGN.md' docs/adr/000[1-5]-*.md \| wc -l` returns 0 | ⬜ pending |
+| 10-04-T3 | 10-04 | 2 | REQ-adr-promotion | SC-2: `docs/DESIGN.md` points forward to all five | grep gate | `grep -o 'adr/000[1-5]-[a-z0-9-]*\.md' docs/DESIGN.md \| sort -u \| wc -l` returns 5, and each path resolves under `docs/` | ⬜ pending |
+| 10-01-T1 | 10-01 | 1 | REQ-adr-promotion | Supersession works: the format documents how a later reversal marks a record superseded | grep gate | `grep -c 'Superseded by ADR-' docs/adr/README.md` returns ≥ 1 | ⬜ pending |
+| 10-03-T1 | 10-03 | 1 | REQ-adr-promotion | SC-3: no doc claims deploys run through Fly's GitHub integration | grep gate | `grep -rn 'GitHub integration' docs README.md \| wc -l` returns 0 | ⬜ pending |
+| 10-03-T1 | 10-03 | 1 | REQ-adr-promotion | SC-3: `docs/OPERATIONS.md` states deploys are manual | grep gate | `grep -c 'Deploys are manual' docs/OPERATIONS.md` ≥ 1 and `grep -c 'fly deploy -a research-agent' docs/OPERATIONS.md` ≥ 1 and `grep -c 'fly releases -a research-agent' docs/OPERATIONS.md` ≥ 1 | ⬜ pending |
+| 10-04-T1 | 10-04 | 2 | REQ-adr-promotion | SC-4: `docs/DESIGN.md` names four backends | grep gate | `grep -c 'three implementations' docs/DESIGN.md` returns 0; `grep 'four implementations' docs/DESIGN.md \| grep -c 'pgvector'` returns 1 | ⬜ pending |
+| 10-04-T2, 10-03-T2 | 10-04, 10-03 | 2 | REQ-adr-promotion | SC-6: no doc quotes a Sonnet 5 rate as permanent | grep gate | `grep -rn '2/\$10' docs README.md \| grep -v '3/\$15' \| wc -l` returns 0; `grep -c '2026-09-01' docs/DESIGN.md` ≥ 1; `grep 'list prices' README.md \| grep -c '/pricing'` ≥ 1 | ⬜ pending |
+| 10-05-T2 | 10-05 | 3 | REQ-adr-promotion | SC-5 **re-verify only** — already satisfied by the v4 cutover | manual | see Manual-Only Verifications | ⬜ pending |
+| 10-05-T1 | 10-05 | 3 | REQ-adr-promotion | Regression: no production code touched | source gate | `git diff --quiet 715e9aa -- src/` exits 0 | ⬜ pending |
+| 10-05-T1 | 10-05 | 3 | REQ-adr-promotion | Regression: suite unchanged | test | `.venv/bin/pytest 2>&1 \| tail -3 \| grep -c '388 passed, 28 skipped'` returns 1 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

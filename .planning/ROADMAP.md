@@ -128,7 +128,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. `docs/DESIGN.md` names four `MemoryStore` backends (json, memory, chroma, pgvector), not three.
   5. The deployed release matches `main` — the README restructure, the `src/` reorganisation, and its bugfix are live, and `/`, `/health`, `/demo`, `/metrics` still return 200.
   6. No planning or reference doc quotes a Sonnet 5 rate as if permanent; the introductory $2/$10 window through 2026-08-31 and the $3/$15 rate from 2026-09-01 are both stated, with `/pricing` named as the live source.
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 10-01-PLAN.md — ADR index, Nygard contract and supersession convention, plus ADR-0001 and ADR-0002
+- [ ] 10-02-PLAN.md — ADR-0003, ADR-0004 and ADR-0005, completing the promoted five
+- [ ] 10-03-PLAN.md — Kill the false GitHub-integration deploy claim; name `/pricing` as the live rate source in README
+- [ ] 10-04-PLAN.md — `docs/DESIGN.md`: four backends, ISO-dated price windows, forward-links to all five ADRs
+- [ ] 10-05-PLAN.md — Run every gate, prove no `src/` change and an unchanged suite, re-verify SC-5 live (checkpoint)
 
 **Notes for discuss-phase:**
 - The ADR set is the gate for everything after it. Phases 13, 15, 16, and 17 each supersede or re-derive one of these records; if the record does not exist, the reversal is silent.
