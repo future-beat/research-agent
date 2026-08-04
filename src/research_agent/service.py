@@ -269,7 +269,13 @@ def _stream(state: dict, metrics: MetricsStore, on_complete) -> Iterator[str]:
         # Headers are long gone by now, so an exception here would otherwise
         # look to the client like a truncated stream rather than a failure.
         metrics.record(_failed_record(state, exc, started))
-        yield _sse("error", {"error": type(exc).__name__, "detail": str(exc)})
+        # Same treatment /health gives a probe failure, for the same reason:
+        # first line only, because a psycopg error is multi-line and the DSN
+        # tends to sit below the first; _redact, because the DSN carries a
+        # password; and a cap, because redaction alone still lets an arbitrarily
+        # long body reach a browser that will render it.
+        message = str(exc).splitlines()[0] if str(exc) else ""
+        yield _sse("error", {"error": type(exc).__name__, "detail": _redact(message)[:160]})
 
 
 def _node_detail(node_name: str, state: dict) -> dict:

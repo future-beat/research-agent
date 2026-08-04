@@ -379,6 +379,28 @@ def test_stream_reports_a_mid_run_failure_as_an_error_event(make_client, monkeyp
     assert events[0][1]["error"] == "APIConnectionError"
 
 
+def test_sse_error_redacted_and_truncated(make_client, monkeypatch):
+    """The error event lands in a browser, so it gets /health's treatment: one
+    line, credentials substituted, and capped."""
+    client, _ = make_client()
+
+    def explode(state):
+        raise ConnectionError(
+            "connection failed: postgresql://user:sup3rsecret@host/db\n"
+            + "second line with the rest of the parameters " * 6
+        )
+
+    monkeypatch.setattr(graph.app, "stream", explode)
+
+    events = sse_events(client.post("/research/stream", json={"question": "why?"}))
+    detail = events[0][1]["detail"]
+
+    assert "sup3rsecret" not in detail
+    assert "***@host/db" in detail          # redacted, not merely truncated
+    assert "second line" not in detail      # only the first line
+    assert len(detail) <= 160
+
+
 def test_a_failed_stream_leaves_no_session_behind(make_client, monkeypatch):
     client, _ = make_client()
     monkeypatch.setattr(
