@@ -27,6 +27,56 @@ from research_agent.sessions import SQLiteSessionStore
 # anonymous case builds a bare TestClient instead.
 SESSIONS_TOKEN = "sessions-s3cret"
 
+# The dependencies that count as "this route is not anonymous". `guard` fronts
+# the money-spending routes; `require_sessions_token` fronts the session
+# read/delete group. A route under /sessions carrying neither is open.
+AUTH_DEPENDENCIES = {"guard", "require_sessions_token"}
+
+
+def api_routes(app):
+    """Every APIRoute the app serves, including ones behind include_router.
+
+    FastAPI 0.141 stopped flattening included routers into app.routes: an
+    include leaves a single _IncludedRouter that resolves at match time.
+    Filtering app.routes for APIRoute alone therefore finds nothing behind a
+    router and iterates an empty list -- which is exactly how a guard test
+    goes green over a wide-open service. Hence the recursion, and hence the
+    non-vacuity assertion at every call site that reasons about auth.
+
+    Returns (path, route) pairs with any include_router prefix composed in.
+    Lives here rather than in a conftest.py because this repo has none: shared
+    test helpers live in the module that owns the surface (this one owns the
+    API) and are imported by name via pythonpath = [".", "src", "tests"].
+    """
+    from fastapi.routing import APIRoute
+
+    try:
+        from fastapi.routing import _IncludedRouter
+    except ImportError:  # pragma: no cover - older fastapi flattens instead
+        _IncludedRouter = ()
+
+    found: list[tuple[str, APIRoute]] = []
+
+    def walk(routes, prefix=""):
+        for route in routes:
+            if isinstance(route, APIRoute):
+                found.append((prefix + route.path, route))
+            elif _IncludedRouter and isinstance(route, _IncludedRouter):
+                walk(route.original_router.routes, prefix + route.include_context.prefix)
+
+    walk(app.routes)
+    return found
+
+
+def dependency_names(route) -> set[str]:
+    """The names of the dependencies attached to a route.
+
+    Router-level dependencies are visible here on the router's own APIRoute
+    objects, so this sees both `dependencies=[...]` on the APIRouter and
+    `dependencies=[...]` on the decorator.
+    """
+    return {getattr(d.call, "__name__", "") for d in route.dependant.dependencies}
+
 
 @pytest.fixture
 def make_client(tmp_path, monkeypatch):
@@ -483,6 +533,39 @@ def test_demo_stays_open_when_sessions_token_is_set(make_client):
         assert anonymous.get("/health").status_code == 200
 
 
+def test_route_guard_invariant_over_the_sessions_tree():
+    """No route under /sessions may be anonymous.
+
+    Asserted over the route table rather than trusted to four decorators
+    because the bug this phase exists to fix was four routes that each
+    individually forgot one. A property checked against every route the app
+    actually serves catches the fifth route nobody remembered, which a
+    per-route review by construction cannot.
+
+    Inspects the app object directly -- no client, nothing to boot.
+    """
+    routes = [
+        (path, route) for path, route in api_routes(service.app) if path.startswith("/sessions")
+    ]
+
+    # This assertion is the point of the test. If a future FastAPI changes how
+    # include_router stores routes, the walker above stops finding the session
+    # group and everything below iterates an empty list and passes over a
+    # wide-open service. Better to fail loudly and be fixed. Six is a count of
+    # route *objects*, not of distinct paths: /sessions/{session_id} is served
+    # by both a GET and a DELETE, so six objects span five paths. Do not lower
+    # this to 5. (Same convention as the skip detector in test_store_contract.)
+    assert len(routes) >= 6, f"the walker found only {len(routes)} /sessions routes; it is broken"
+
+    unguarded = [
+        (sorted(route.methods), path)
+        for path, route in routes
+        if not dependency_names(route) & AUTH_DEPENDENCIES
+    ]
+    # Asserted on the list, not on a boolean, so the failure names the route.
+    assert unguarded == [], f"routes under /sessions with no auth dependency: {unguarded}"
+
+
 # --------------------------------------------------------------------------
 # Streaming
 # --------------------------------------------------------------------------
@@ -825,24 +908,12 @@ def _served_routes() -> set[tuple[str, str]]:
     Recursive on purpose: fastapi no longer flattens an included router into
     app.routes, so a flat scan would silently miss every route on
     sessions_router and let this test pass over an index that advertises them.
+    Built on api_routes() so there is one walker in this file, not two that
+    can drift; every endpoint the index advertises is an APIRoute.
     """
-    try:
-        from fastapi.routing import _IncludedRouter
-    except ImportError:  # pragma: no cover - older fastapi flattens instead
-        _IncludedRouter = ()
-
-    served: set[tuple[str, str]] = set()
-
-    def walk(routes, prefix=""):
-        for route in routes:
-            if _IncludedRouter and isinstance(route, _IncludedRouter):
-                walk(route.original_router.routes, prefix + route.include_context.prefix)
-                continue
-            for method in getattr(route, "methods", ()):
-                served.add((method, prefix + route.path))
-
-    walk(service.app.routes)
-    return served
+    return {
+        (method, path) for path, route in api_routes(service.app) for method in route.methods
+    }
 
 
 def test_every_advertised_endpoint_actually_exists(make_client):
