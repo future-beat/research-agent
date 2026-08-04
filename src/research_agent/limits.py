@@ -10,6 +10,16 @@ Three independent limits, checked in the order they get cheaper to fail:
                              that actually closes the service; the other two
                              bound the damage while it stays open.
 
+    SESSIONS_TOKEN           the credential for the session read/delete tree
+                             (/sessions and friends), sent in the same
+                             X-Demo-Token header. Unlike DEMO_TOKEN it fails
+                             closed: with nothing configured those endpoints
+                             refuse everyone. DEMO_TOKEN is accepted as a
+                             fallback value, so setting it protects the
+                             session tree too -- but setting it in production
+                             also closes the demo, which is why the sessions
+                             credential is a separate variable.
+
     DEMO_RATE_LIMIT_PER_HOUR per client IP, sliding window (default 10).
                              Stops one person or one crawler monopolising it.
 
@@ -21,9 +31,11 @@ The per-run cap in the supervisor bounds a single runaway run. It does
 nothing about volume -- a thousand well-behaved runs is still a thousand
 runs. That is what the daily cap is for.
 
-Read-only endpoints (/health, /metrics, /sessions, the demo page) are never
-gated: they cost nothing and are how you diagnose a service that is refusing
-work.
+Not every read is the same. Ops reads (/health, /metrics, /pricing, /memory,
+the demo page) are never gated: they cost nothing, expose aggregates rather
+than content, and are how you diagnose a service that is refusing work.
+Session reads hand back other people's research, so they are gated -- see
+SESSIONS_TOKEN above.
 """
 
 from __future__ import annotations
@@ -176,6 +188,46 @@ def check_token(request: Request) -> None:
     supplied = request.headers.get("x-demo-token", "")
     # Constant-time-ish: compare full strings rather than short-circuiting on
     # the first differing byte. Not a serious timing target, but free.
+    if not supplied or not hmac.compare_digest(supplied, token):
+        raise HTTPException(401, "A valid X-Demo-Token header is required.")
+
+
+def sessions_token() -> str:
+    """The credential for the session read/delete endpoints.
+
+    Separate from DEMO_TOKEN because the two protect different things. The
+    demo page sends no auth header, so setting DEMO_TOKEN in production would
+    401 every anonymous visitor on POST /research/stream and kill the public
+    demo -- which is the whole point of deploying this. SESSIONS_TOKEN closes
+    the session tree without touching the demo.
+
+    DEMO_TOKEN is still honoured as a fallback, which is what makes "setting
+    DEMO_TOKEN protects the session endpoints" true rather than quietly false.
+
+    Read per call, not cached in a module constant: tests flip it with
+    monkeypatch.setenv between cases.
+    """
+    return os.environ.get("SESSIONS_TOKEN", "").strip() or demo_token()
+
+
+def require_sessions_token(request: Request) -> None:
+    """Session-endpoint credential check. Fails closed.
+
+    Deliberately not check_token. That one returns early when no token is
+    configured, which is right for the demo write path and was exactly what
+    left every stored report world-readable on the deployed service: the
+    control was present in the code and inert in production. Here an unset
+    credential means nobody passes, so forgetting the secret cannot silently
+    reopen the hole.
+
+    403 when nothing is configured (no one can pass), 401 when a credential
+    exists and the caller's is missing or wrong.
+    """
+    token = sessions_token()
+    if not token:
+        raise HTTPException(403, "Session endpoints are closed: no SESSIONS_TOKEN is set.")
+
+    supplied = request.headers.get("x-demo-token", "")
     if not supplied or not hmac.compare_digest(supplied, token):
         raise HTTPException(401, "A valid X-Demo-Token header is required.")
 
