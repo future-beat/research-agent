@@ -189,7 +189,7 @@ Plans:
 **Depends on**: Phase 10
 **Requirements**: REQ-multi-machine-state, REQ-connection-pool
 **Success Criteria** (what must be TRUE):
-  1. `DATABASE_URL` is set in production, `research_agent.migrate` has been run dry-run then real, and `/health` reports Postgres-backed stores.
+  1. `DATABASE_URL` is set in production against an external managed Postgres and `/health` reports Postgres-backed stores. **Amended 2026-08-05:** originally "…`research_agent.migrate` has been run dry-run then real…". The user decided the phase starts against an empty database with no data migration, keeping the volume as a backup, so the migrate step is deliberately **not** exercised. What is knowingly given up is the cumulative `/metrics` history. `research_agent.migrate` therefore remains an unproven path — a later phase needing a real migration must not assume otherwise.
   2. `[[mounts]]` is gone from `fly.toml` and more than one machine is running.
   3. A session created against one machine resolves identically from another — the "404 on a session that demonstrably exists" failure is gone.
   4. Postgres access goes through a pool with configurable min/max size; reconnect-on-failure still works and no DDL runs at construction time.
