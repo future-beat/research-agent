@@ -32,8 +32,8 @@ class FakeMetrics:
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for var in ("DEMO_TOKEN", "DEMO_RATE_LIMIT_PER_HOUR", "DEMO_DAILY_USD_CAP",
-                "TRUST_FORWARDED_FOR"):
+    for var in ("DEMO_TOKEN", "SESSIONS_TOKEN", "DEMO_RATE_LIMIT_PER_HOUR",
+                "DEMO_DAILY_USD_CAP", "TRUST_FORWARDED_FOR"):
         monkeypatch.delenv(var, raising=False)
     limits.reset_limiter()
     yield
@@ -185,6 +185,50 @@ def test_a_wrong_token_is_rejected(monkeypatch):
 def test_the_right_token_passes(monkeypatch):
     monkeypatch.setenv("DEMO_TOKEN", "s3cret")
     limits.check_token(FakeRequest({"x-demo-token": "s3cret"}))
+
+
+# --------------------------------------------------------------------------
+# Sessions token
+# --------------------------------------------------------------------------
+
+
+def test_sessions_token_prefers_its_own_variable(monkeypatch):
+    monkeypatch.setenv("SESSIONS_TOKEN", "alpha")
+    monkeypatch.setenv("DEMO_TOKEN", "beta")
+    assert limits.sessions_token() == "alpha"
+
+
+def test_sessions_token_falls_back_to_demo_token(monkeypatch):
+    """What makes "setting DEMO_TOKEN protects the session endpoints" true
+    rather than quietly false."""
+    monkeypatch.setenv("DEMO_TOKEN", "beta")
+    assert limits.sessions_token() == "beta"
+
+
+def test_require_sessions_token_refuses_when_nothing_is_configured():
+    """The whole point of the hotfix: an operator who forgets the secret must
+    not silently reopen the leak. Unset means nobody passes, not everybody."""
+    with pytest.raises(HTTPException) as exc:
+        limits.require_sessions_token(FakeRequest())
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("headers", [{}, {"x-demo-token": "wrong"}])
+def test_require_sessions_token_rejects_a_missing_or_wrong_header(monkeypatch, headers):
+    monkeypatch.setenv("SESSIONS_TOKEN", "alpha")
+    with pytest.raises(HTTPException) as exc:
+        limits.require_sessions_token(FakeRequest(headers))
+    assert exc.value.status_code == 401
+
+
+def test_require_sessions_token_accepts_the_configured_token(monkeypatch):
+    monkeypatch.setenv("SESSIONS_TOKEN", "alpha")
+    assert limits.require_sessions_token(FakeRequest({"x-demo-token": "alpha"})) is None
+
+
+def test_require_sessions_token_accepts_a_demo_token_value(monkeypatch):
+    monkeypatch.setenv("DEMO_TOKEN", "beta")
+    limits.require_sessions_token(FakeRequest({"x-demo-token": "beta"}))  # must not raise
 
 
 # --------------------------------------------------------------------------
