@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: phase-complete
-stopped_at: "Phase 10.5 complete — shipped as Fly release v4 and verified from the open internet. Next: /gsd:plan-phase 10."
+status: in-progress
+stopped_at: "Completed 10-01-PLAN.md — docs/adr/ created with the index, the supersession convention, and records 0001–0002. Next: plans 10-02 through 10-05."
 last_updated: "2026-08-04T00:00:00.000Z"
-last_activity: "2026-08-04 — Plan 10.5-05 executed: docs corrected, SESSIONS_TOKEN staged, one cutover deployed as Fly release v4. The four session endpoints now return 401 anonymously from the open internet and 200 with the token; the demo still serves anonymous research runs. Phase 10.5 complete"
+last_activity: "2026-08-04 — Plan 10-01 executed: docs/adr/ created. The index defines the Nygard section contract, states a verbatim supersession convention, and names all six records including ADR-0006's non-DESIGN.md origin. ADR-0001 (deterministic routing) and ADR-0002 (separate critic) promoted. No code touched; suite unchanged at 388/28"
 progress:
   total_phases: 19
   completed_phases: 9
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 10
+  completed_plans: 6
   percent: 56
 ---
 
@@ -25,13 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 10.5 of 17 (Close the live endpoint exposure — hotfix) — **COMPLETE**
-Plan: 5 of 5 executed in current phase
-Status: Complete — shipped as Fly release v4 on 2026-08-04 and verified from the open internet. Next phase: 10 (ADRs and doc correctness).
-Last activity: 2026-08-04 — Plan 10.5-05 executed: the cutover. Fly release v4 carries the guarded session routes, the SSE redaction, the corrected docs, and Phase 10's three pending commits. Verified live: 401 anonymous on all four session endpoints, 200 with the token, demo still anonymous.
+Phase: 10 of 17 (ADRs and doc correctness) — **IN PROGRESS**
+Plan: 1 of 5 executed in current phase
+Status: In progress — `docs/adr/` now exists with the index, the supersession convention, and records 0001–0002. Plans 10-02 (records 0003–0006), 10-03 and 10-04 (doc corrections) and 10-05 (verification) remain.
+Last activity: 2026-08-04 — Plan 10-01 executed: the ADR directory. The index defines the Nygard contract and a verbatim supersession instruction, names all six records, and flags ADR-0006 as Phase 10.5 in origin rather than a DESIGN.md promotion. Documentation only — `git diff --quiet 715e9aa -- src/` exits 0 and the suite is unchanged at 388 passed, 28 skipped.
 
 Progress: [█████░░░░░] 56% (9 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
+Phase 10: [██░░░░░░░░] 1 of 5 plans
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -50,6 +51,7 @@ Phase 10 — but it must not wait for Phase 11.
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1–9 | pre-GSD | — | — |
+| 10 | 1 (10-01) | 12min | 12min |
 
 **Recent Trend:**
 
@@ -75,6 +77,9 @@ Recent decisions affecting current work:
 - [Phase 10.5-01]: `require_sessions_token` fails closed (403 when no credential is configured), deliberately diverging from `check_token`'s open-when-unset convention. A control that goes inert on a missing env var is precisely the defect this hotfix exists to fix.
 - [Phase 10.5-02]: The four session routes are grouped on an `APIRouter`, not given four per-route dependency lists. The defect was four routes each independently forgetting a credential, so membership had to become structural — a new route on `sessions_router` is guarded by construction.
 - [Phase 10.5-02]: `check_rate_limit` on `DELETE /sessions/{id}` only, sharing the research bucket. Reads stay unmetered so the daily cap's "Read-only endpoints still work" message stays true.
+- [Phase 10-01]: ADR provenance is a two-form contract — `**Promoted from:**` for the five `docs/DESIGN.md` promotions, `**Source:**` for ADR-0006, which originates in Phase 10.5 and has no DESIGN.md passage. The index says so in prose so no reader hunts for one.
+- [Phase 10-01]: Supersession is a status-line edit and nothing else. A superseded record's Context, Decision and Consequences are never rewritten, including claims that stopped being true. `docs/adr/README.md` states this as a verbatim three-step instruction for Phases 12, 16 and 17.
+- [Phase 10-01]: Expected supersessions (Phase 16 → ADR-0005, Phase 17 → ADR-0003, Phase 12 → ADR-0006) are carried in the index as italicised forecasts. All six records are `Accepted` today; nothing is marked superseded.
 - [Phase 10.5-02]: **Any assertion over `app.routes` must now be recursive.** fastapi 0.141.1 leaves an `_IncludedRouter` in `app.routes` rather than flattening, so a flat scan silently misses every session route. Two pre-existing tests were fixed for this; plan 04's structural test must not repeat the mistake.
 - [Phase 10.5-03]: The daily-cap test records real spend and asserts `POST /research` 429s *before* asserting a read is 200. Under the fixture's `DEMO_DAILY_USD_CAP=0`, `check_daily_cap` returns early, so the obvious construction cannot fail even if the cap were wired onto the reads.
 - [Phase 10.5-03]: A guard test is not done until the guard has been removed and the test observed failing. All six controls in this phase were mutation-checked individually; the mutation table lives in `10.5-03-SUMMARY.md` and is plan 04's acceptance shortcut.
@@ -147,8 +152,9 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-04
-Stopped at: **Phase 10.5 complete.** All five plans executed and shipped as Fly release v4.
-The live exposure that opened this phase is closed and verified from the open internet.
+Stopped at: **Completed 10-01-PLAN.md.** `docs/adr/` exists with the index, the supersession
+convention, and records 0001–0002. Plans 10-02 through 10-05 remain. (Phase 10.5 remains
+complete and shipped as Fly release v4.)
 Resume file: None
 
 **Carry forward — findings that outlive this phase:**
@@ -165,6 +171,10 @@ Resume file: None
   unguarded list, and reports a *clean* sessions tree while the four leaking routes stay
   invisible. Use `api_routes()` in `tests/test_service.py` and always assert a route count
   first. Two pre-existing tests had this bug.
+
+- **`docs/adr/README.md` is owned by plan 10-01 and is already complete.** It carries index
+  rows for all six records with their titles and expected superseders. Plan 10-02 writes the
+  record files 0003–0006 and must not edit the index.
 
 - **Deploys are manual and now proven so.** `fly secrets set --stage` then one `fly deploy`
   puts secret and code in the same release — required whenever a control fails closed.
