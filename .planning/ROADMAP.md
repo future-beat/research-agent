@@ -132,7 +132,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 10-01-PLAN.md — ADR index, Nygard contract and supersession convention, plus ADR-0001 and ADR-0002
-- [ ] 10-02-PLAN.md — ADR-0003, ADR-0004 and ADR-0005, completing the promoted five
+- [x] 10-02-PLAN.md — ADR-0003, ADR-0004 and ADR-0005, completing the promoted five, plus ADR-0006 (the Phase 10.5 auth decisions)
 - [ ] 10-03-PLAN.md — Kill the false GitHub-integration deploy claim; name `/pricing` as the live rate source in README
 - [ ] 10-04-PLAN.md — `docs/DESIGN.md`: four backends, ISO-dated price windows, forward-links to all five ADRs
 - [ ] 10-05-PLAN.md — Run every gate, prove no `src/` change and an unchanged suite, re-verify SC-5 live (checkpoint)
@@ -324,7 +324,7 @@ capacity exists, they can overlap. Phases 15 → 16 → 17 are strictly sequenti
 | 8. Stateless | v1.0 | — | Complete | pre-GSD |
 | 9. Demo & guardrails | v1.0 | — | Complete | pre-GSD |
 | 9.1 Package reorganisation | v1.0 | — | Complete | pre-GSD |
-| 10. ADRs and doc correctness | v1.1 | 1/5 | In Progress|  |
+| 10. ADRs and doc correctness | v1.1 | 2/5 | In Progress|  |
 | 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 4/5 | In Progress | - |
 | 11. Multi-machine state and pooled Postgres | v1.1 | 0/TBD | Not started | - |
 | 12. Caller identity, session ownership, bounded stores | v1.1 | 0/TBD | Not started | - |

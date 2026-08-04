@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 10-01-PLAN.md — docs/adr/ created with the index, the supersession convention, and records 0001–0002. Next: plans 10-02 through 10-05."
-last_updated: "2026-08-04T00:00:00.000Z"
-last_activity: "2026-08-04 — Plan 10-01 executed: docs/adr/ created. The index defines the Nygard section contract, states a verbatim supersession convention, and names all six records including ADR-0006's non-DESIGN.md origin. ADR-0001 (deterministic routing) and ADR-0002 (separate critic) promoted. No code touched; suite unchanged at 388/28"
+stopped_at: "Completed 10-02-PLAN.md — records 0003–0006 written; docs/adr/ is now the complete six-record set. Next: plans 10-03 through 10-05."
+last_updated: "2026-08-05T00:00:00.000Z"
+last_activity: "2026-08-05 — Plan 10-02 executed: ADR-0003 (DEC-04, no_prior_research), ADR-0004 (DEC-14, SQLite not the checkpointer), ADR-0005 (DEC-22, Opus 5 judge) and ADR-0006 (Phase 10.5 auth, Source: not Promoted from:). Every filename in the index now resolves. No code touched; suite unchanged at 388/28"
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 10
-  completed_plans: 6
+  completed_plans: 7
   percent: 56
 ---
 
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 10 of 17 (ADRs and doc correctness) — **IN PROGRESS**
-Plan: 1 of 5 executed in current phase
-Status: In progress — `docs/adr/` now exists with the index, the supersession convention, and records 0001–0002. Plans 10-02 (records 0003–0006), 10-03 and 10-04 (doc corrections) and 10-05 (verification) remain.
-Last activity: 2026-08-04 — Plan 10-01 executed: the ADR directory. The index defines the Nygard contract and a verbatim supersession instruction, names all six records, and flags ADR-0006 as Phase 10.5 in origin rather than a DESIGN.md promotion. Documentation only — `git diff --quiet 715e9aa -- src/` exits 0 and the suite is unchanged at 388 passed, 28 skipped.
+Plan: 2 of 5 executed in current phase
+Status: In progress — all six ADRs now exist on disk. Plans 10-03 and 10-04 (doc corrections) and 10-05 (verification) remain.
+Last activity: 2026-08-05 — Plan 10-02 executed: records 0003–0006. DEC-04, DEC-14 and DEC-22 promoted from `docs/DESIGN.md`; ADR-0006 records the Phase 10.5 auth decisions with `**Source:**` rather than `**Promoted from:**` and states unmissably that `DEMO_TOKEN` must never be set in production. All six `Accepted`; nothing superseded. Documentation only — `git status --porcelain src/ tests/ evals/` is empty and the suite is unchanged at 388 passed, 28 skipped.
 
 Progress: [█████░░░░░] 56% (9 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
-Phase 10: [██░░░░░░░░] 1 of 5 plans
+Phase 10: [████░░░░░░] 2 of 5 plans
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -51,7 +51,7 @@ Phase 10 — but it must not wait for Phase 11.
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1–9 | pre-GSD | — | — |
-| 10 | 1 (10-01) | 12min | 12min |
+| 10 | 2 (10-01, 10-02) | 26min | 13min |
 
 **Recent Trend:**
 
@@ -86,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 10.5-04]: `api_routes()` **supersedes** wave 2's private `_served_routes()` walker rather than sitting beside it. Two independent recursive walkers over `fastapi.routing._IncludedRouter` — a private, version-specific internal — is two things to fix on the next FastAPI upgrade and two things that can drift.
 - [Phase 10.5-04]: The non-vacuity threshold is **6 route objects across 5 paths**, not 5 — `/sessions/{session_id}` is served by both a GET and a DELETE. Do not "correct" it downward.
 - [Phase 10.5-04]: A naive flat route scan does not find *zero* session routes as the obvious analysis suggests — it finds the two `@app.post` ask routes, both of which carry `guard`, and therefore reports a perfectly clean sessions tree. A guard invariant without a count assertion goes green over exactly this phase's defect. Verified by mutation.
+- [Phase 10-02]: Each record with a named future reversal carries a `### Expected reversal` subsection, not a passing mention — which phase, which requirement, and what specifically breaks. ADR-0005's is the sharpest: Phase 16 removes the record's *premise* (the critic's shared model), so the stronger-judge rationale must be re-derived rather than inherited.
+- [Phase 10-02]: ADR-0006 leads its Consequences with a dedicated heading, `### DEMO_TOKEN must never be set in production`, rather than a bullet. The record exists for that one consequence; a list would bury it, and the refactor it guards against ("tidy the two tokens into one") is the plausible-looking kind.
+- [Phase 10-02]: ADR-0006 states all four decision parts with individual reasons because they are separable — a future change is most likely to pick off one (apply `guard` to the reads, or make the credential open-when-unset) without seeing the others.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
@@ -151,10 +154,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-04
-Stopped at: **Completed 10-01-PLAN.md.** `docs/adr/` exists with the index, the supersession
-convention, and records 0001–0002. Plans 10-02 through 10-05 remain. (Phase 10.5 remains
-complete and shipped as Fly release v4.)
+Last session: 2026-08-05
+Stopped at: **Completed 10-02-PLAN.md.** `docs/adr/` is now the complete six-record set —
+0003 (`no_prior_research`), 0004 (SQLite, not the checkpointer), 0005 (the Opus 5 judge) and
+0006 (the Phase 10.5 auth decisions) joined 0001–0002, and every filename in the index
+resolves. All `Accepted`; nothing superseded. Plans 10-03 through 10-05 remain. (Phase 10.5
+remains complete and shipped as Fly release v4.)
 Resume file: None
 
 **Carry forward — findings that outlive this phase:**
@@ -173,8 +178,12 @@ Resume file: None
   first. Two pre-existing tests had this bug.
 
 - **`docs/adr/README.md` is owned by plan 10-01 and is already complete.** It carries index
-  rows for all six records with their titles and expected superseders. Plan 10-02 writes the
-  record files 0003–0006 and must not edit the index.
+  rows for all six records with their titles and expected superseders. Plan 10-02 wrote the
+  record files 0003–0006 without editing the index; every row now resolves to a file on disk.
+
+- **The `000[1-5]` ADR gates deliberately exclude 0006.** Records 0001–0005 are DESIGN.md
+  promotions and are gated for a `DESIGN.md` citation; ADR-0006 has none by design. Widening
+  those globs to `000[1-6]` would make the citation gate fail correctly-written work.
 
 - **Deploys are manual and now proven so.** `fly secrets set --stage` then one `fly deploy`
   puts secret and code in the same release — required whenever a control fails closed.
