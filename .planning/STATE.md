@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 10 of 17 (ADRs and doc correctness) — first phase of milestone v1.1
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-08-04 — Codebase mapped (7 docs); Phase 10.5 hotfix inserted after a live security exposure was confirmed
+Phase: 10.5 of 17 (Close the live endpoint exposure — hotfix)
+Plan: 0 of 5 executed in current phase
+Status: Planned — ready to execute
+Last activity: 2026-08-04 — Phase 10.5 planned: 5 plans across 5 sequential waves, checker returned 0 blockers, 6 warnings fixed in one revision
 
 Progress: [█████░░░░░] 53% (9 of 17 phases complete; v1.0 shipped)
 
@@ -100,7 +100,20 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-04
-Stopped at: Roadmap created for v1.1 (Phases 10–17), codebase mapped, Phase 10.5 hotfix inserted
+Stopped at: Phase 10.5 planned and verified (0 blockers). Nothing executed yet; no code changed.
 Resume file: None
 
-Next: `/gsd:plan-phase 10.5` (hotfix, live exposure) — then `/gsd:plan-phase 10`
+**Carry into execution — the two findings that most shape this phase:**
+- Setting `DEMO_TOKEN` in production would kill the public demo. `guard` already checks it and
+  fronts `POST /research/stream`, and the demo page sends no token header. That is why the fix
+  uses a separate `SESSIONS_TOKEN`. `DEMO_TOKEN` must stay unset in production.
+- The structural invariant test passes **vacuously** with a naive route walker: FastAPI 0.141.1
+  leaves a `fastapi.routing._IncludedRouter` in `app.routes`, so `isinstance(r, APIRoute)` finds
+  zero session routes. Verified empirically. The recursive walker plus the `len(...) >= 6`
+  non-vacuity assertion is load-bearing — do not "simplify" it to five.
+
+Next: `/gsd:execute-phase 10.5` — then `/gsd:plan-phase 10`
+
+Note: Plan 10.5-05 is `autonomous: false`. It stages a Fly secret and performs the production
+cutover (carrying Phase 10's three pending commits in the same deploy), so it needs you at the
+keyboard. Plans 01–04 are autonomous.
