@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v1.1
+milestone_name: Closing the limitations list
+status: executing
+stopped_at: "Plan 10.5-01 complete — sessions credential built and tested, not yet wired. Next: plan 10.5-02."
+last_updated: "2026-08-04T09:47:39.944Z"
+last_activity: "2026-08-04 — Plan 10.5-01 executed: fail-closed `SESSIONS_TOKEN` credential added to `limits.py` with 7 unit tests; nothing wired yet, so the live exposure is still open by design"
+progress:
+  total_phases: 19
+  completed_phases: 9
+  total_plans: 5
+  completed_plans: 1
+  percent: 53
+---
+
 # Project State
 
 ## Project Reference
@@ -10,11 +26,12 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 10.5 of 17 (Close the live endpoint exposure — hotfix)
-Plan: 0 of 5 executed in current phase
-Status: Planned — ready to execute
-Last activity: 2026-08-04 — Phase 10.5 planned: 5 plans across 5 sequential waves, checker returned 0 blockers, 6 warnings fixed in one revision
+Plan: 1 of 5 executed in current phase
+Status: Executing — plan 01 complete, plan 02 next
+Last activity: 2026-08-04 — Plan 10.5-01 executed: fail-closed `SESSIONS_TOKEN` credential added to `limits.py` with 7 unit tests; nothing wired yet, so the live exposure is still open by design
 
 Progress: [█████░░░░░] 53% (9 of 17 phases complete; v1.0 shipped)
+Phase 10.5: [██░░░░░░░░] 1 of 5 plans
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -23,6 +40,7 @@ Phase 10 — but it must not wait for Phase 11.
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0 under GSD (phases 1–9 predate GSD planning)
 - Average duration: —
 - Total execution time: —
@@ -34,6 +52,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 1–9 | pre-GSD | — | — |
 
 **Recent Trend:**
+
 - Last 5 plans: —
 - Trend: — (no GSD-tracked plans yet)
 
@@ -52,6 +71,9 @@ Recent decisions affecting current work:
 - [Phase 10, approved 2026-08-04]: Promote five load-bearing decisions (DEC-01, DEC-02, DEC-04, DEC-14, DEC-22) to numbered ADRs before any reversal lands.
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
+- [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
+- [Phase 10.5-01]: `require_sessions_token` fails closed (403 when no credential is configured), deliberately diverging from `check_token`'s open-when-unset convention. A control that goes inert on a missing env var is precisely the defect this hotfix exists to fix.
+- [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
 
@@ -69,6 +91,7 @@ None yet.
   consent; two orphaned notes remain in the memory store (`/memory` exposes counts only,
   not content). Also: the SSE error handler leaks unredacted `str(exc)`
   (`service.py:263`) while `/health` correctly redacts using a helper that already exists.
+
 - **Other findings from codebase mapping, not yet phased.** Notes are written to a shared
   store with no tenant scoping (`graph.py:274`) and recalled into other visitors' runs
   (`graph.py:248`), and the critic reads the same untrusted text it polices
@@ -78,6 +101,7 @@ None yet.
   `pyproject.toml`, floating in via FastAPI. `requires-python = ">=3.10"` while Docker and
   CI run 3.14, so the floor is untested. Voyage embedding spend is accounted nowhere.
   Decide in Phase 12 planning which of these belong there versus a later phase.
+
 - **Six requirements are design reversals, not bug fixes.** Each needs a replacement guarantee decided in its own discuss-phase. Two are severe: Phase 17 (REQ-followup-live-search) retires the guarantee DESIGN.md calls "the single failure mode this whole pipeline exists to prevent"; Phase 16 (REQ-independent-critic-model) falsifies README's eval-judge rationale, which must be re-derived rather than inherited. See ROADMAP.md → Reversal register.
 - **Docs assert a verified-false fact.** `docs/OPERATIONS.md` (~lines 49–51) says deploys run through Fly's GitHub integration and are not CI-gated. `fly releases -a research-agent` shows 3 releases, all from the owner's personal account — deploys are manual via `fly deploy -a research-agent`. Fixed in Phase 10.
 - **Live release is 3 commits behind `main`** (README restructure, `src/` reorg, its bugfix). Functionally healthy — `/`, `/health`, `/demo`, `/metrics` all 200 — but the deployed tree differs from `main`. Redeploy is in Phase 10.
@@ -88,6 +112,7 @@ None yet.
   2026-09-01: `AGENT_MAX_RUN_COST_USD=1.00` and `DEMO_DAILY_USD_CAP=5.00` in `fly.toml` will
   bind roughly a third sooner once the same workload costs 50% more. Planning docs must not
   quote a single rate as permanent. Touches Phase 14.
+
 - Acceptance criteria in `.planning/intel/requirements.md` are synthesis proposals, **not user-ratified** — firm them up per phase.
 - Verified 2026-08-04: nothing cites `/healthz` (which 404s); `/health` is cited correctly. No fix needed, but re-verify in Phase 10 rather than assume.
 
@@ -100,19 +125,23 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-04
-Stopped at: Phase 10.5 planned and verified (0 blockers). Nothing executed yet; no code changed.
+Stopped at: Plan 10.5-01 complete (`c3edc46`, `f264190`) — the fail-closed sessions credential
+exists and is tested, but nothing is wired to it, so the live exposure is unchanged. Next: plan
+10.5-02 attaches `require_sessions_token` to the four session routes.
 Resume file: None
 
 **Carry into execution — the two findings that most shape this phase:**
+
 - Setting `DEMO_TOKEN` in production would kill the public demo. `guard` already checks it and
   fronts `POST /research/stream`, and the demo page sends no token header. That is why the fix
   uses a separate `SESSIONS_TOKEN`. `DEMO_TOKEN` must stay unset in production.
+
 - The structural invariant test passes **vacuously** with a naive route walker: FastAPI 0.141.1
   leaves a `fastapi.routing._IncludedRouter` in `app.routes`, so `isinstance(r, APIRoute)` finds
   zero session routes. Verified empirically. The recursive walker plus the `len(...) >= 6`
   non-vacuity assertion is load-bearing — do not "simplify" it to five.
 
-Next: `/gsd:execute-phase 10.5` — then `/gsd:plan-phase 10`
+Next: continue `/gsd:execute-phase 10.5` from plan 02 — then `/gsd:plan-phase 10`
 
 Note: Plan 10.5-05 is `autonomous: false`. It stages a Fly secret and performs the production
 cutover (carrying Phase 10's three pending commits in the same deploy), so it needs you at the
