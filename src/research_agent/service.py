@@ -30,7 +30,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import anthropic
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -134,9 +134,18 @@ def get_metrics(request: Request) -> MetricsStore:
 def guard(request: Request, metrics: MetricsStore = Depends(get_metrics)) -> None:
     """Applied to every endpoint that spends money, and to no others.
 
-    Read-only endpoints stay open on purpose: they cost nothing, and they are
-    how you diagnose a service that is refusing work. A demo that hides
-    /health when it hits its budget is a demo you cannot debug.
+    Ops reads -- /health, /ready, /metrics, /pricing, /memory, /demo -- stay
+    open on purpose: they cost nothing, and they are how you diagnose a
+    service that is refusing work. A demo that hides /health when it hits its
+    budget is a demo you cannot debug.
+
+    Session reads are a different matter and are *not* open: they return other
+    people's research. They are closed by limits.require_sessions_token on
+    sessions_router -- a separate, token-only, unmetered dependency, and
+    deliberately not this one. Applying guard to them would spend the caller's
+    research quota on a listing and 429 every read once the daily cap is hit,
+    which would contradict the cap's own message that read-only endpoints
+    still work.
     """
     limits.enforce(request, metrics)
 
@@ -320,9 +329,9 @@ def _index_json() -> dict:
             "research_stream": "POST /research/stream",
             "ask": "POST /sessions/{session_id}/ask",
             "ask_stream": "POST /sessions/{session_id}/ask/stream",
-            "sessions": "GET /sessions",
-            "session": "GET /sessions/{session_id}",
-            "trace": "GET /sessions/{session_id}/trace",
+            "sessions": "GET /sessions (X-Demo-Token required)",
+            "session": "GET /sessions/{session_id} (X-Demo-Token required)",
+            "trace": "GET /sessions/{session_id}/trace (X-Demo-Token required)",
             "metrics": "GET /metrics",
             "pricing": "GET /pricing",
             "memory": "GET /memory",
@@ -511,12 +520,27 @@ def ask_stream(
     )
 
 
-@app.get("/sessions", tags=["sessions"])
+# The session read/delete group. Membership is structural rather than
+# per-route on purpose: four routes each independently forgot to name a
+# credential, and a control you have to remember to repeat is a control that
+# will be forgotten again. A future `@sessions_router.get("/{id}/notes")`
+# inherits the guard by construction, with nothing to remember.
+#
+# The ask routes share the /sessions prefix but are NOT here: grouping is by
+# dependency, not by path. They are the demo's second turn and stay anonymous.
+sessions_router = APIRouter(
+    prefix="/sessions",
+    tags=["sessions"],
+    dependencies=[Depends(limits.require_sessions_token)],
+)
+
+
+@sessions_router.get("")
 def list_sessions(store: SessionStore = Depends(get_sessions)) -> dict:
     return {"sessions": [s.summary() for s in store.list(SESSION_LIST_LIMIT)]}
 
 
-@app.get("/sessions/{session_id}", response_model=SessionDetail, tags=["sessions"])
+@sessions_router.get("/{session_id}", response_model=SessionDetail)
 def get_session(session_id: str, store: SessionStore = Depends(get_sessions)) -> SessionDetail:
     session = _require(store, session_id)
     state = session.state
@@ -530,16 +554,29 @@ def get_session(session_id: str, store: SessionStore = Depends(get_sessions)) ->
     )
 
 
-@app.get("/sessions/{session_id}/trace", tags=["sessions"])
+@sessions_router.get("/{session_id}/trace")
 def get_trace(session_id: str, store: SessionStore = Depends(get_sessions)) -> dict:
     session = _require(store, session_id)
     return {"session_id": session_id, "trace": session.state["trace"]}
 
 
-@app.delete("/sessions/{session_id}", status_code=204, tags=["sessions"])
+# The only one of the four that is metered, because it is the only one that
+# destroys anything. Router dependencies run before decorator dependencies, so
+# an unauthorised caller is refused before it can consume a rate-limit slot --
+# the same cheapest-first ordering limits.enforce already argues for. The
+# bucket is deliberately the same one research runs use: a second module global
+# and a second entry in reset_limiter() would buy nothing here.
+@sessions_router.delete(
+    "/{session_id}",
+    status_code=204,
+    dependencies=[Depends(limits.check_rate_limit)],
+)
 def delete_session(session_id: str, store: SessionStore = Depends(get_sessions)) -> None:
     if not store.delete(session_id):
         raise HTTPException(404, f"No session {session_id!r}.")
+
+
+app.include_router(sessions_router)
 
 
 @app.get("/memory", tags=["ops"])
