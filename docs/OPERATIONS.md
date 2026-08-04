@@ -46,9 +46,26 @@ exist. Setting `DATABASE_URL` lifts that constraint — see below.
 > every request failing. Copy any value you want out by hand and close the PR.
 > `tests/test_deploy_config.py` fails the build on both cases.
 
-Deploys currently run through Fly's GitHub integration, which is **not** gated
-on CI: a direct push that fails tests still deploys, because branch protection
-only gates pull requests.
+**Deploys are manual.** Fly is not wired to this repository, and there is no
+deploy job in CI — nothing ships on push, on merge, or on tag.
+Releases are cut by hand with `fly deploy -a research-agent` from a working
+tree the operator has tested; `fly releases -a research-agent` is the evidence —
+every release is attributed to the owner's personal account, not to a machine
+token. So nothing can deploy a failing tree, but equally, merging to `main`
+ships nothing until someone runs the command, and `main` and the deployed
+release can drift apart silently. Re-run the command after any merge you expect
+to be live.
+
+What CI *does* gate is described under [CI](#ci) below, with one caveat worth
+stating plainly. `main` is protected with two required checks — `lint · tests ·
+evals` and `image build · container smoke test` — under `strict: true`, but
+`enforce_admins` is `false`. An admin pushing straight to `main` therefore
+succeeds: GitHub records a **bypass** notice rather than blocking the push. The
+Phase 10.5 push on 2026-08-04 did exactly that, reporting `Bypassed rule
+violations for refs/heads/main: 2 of 2 required status checks are expected`
+(verified against `gh api repos/future-beat/research-agent/branches/main/protection`).
+The checks gate **pull requests**, not every path to `main`; after a direct push
+CI still runs, but only after the fact.
 
 ## Going stateless
 
