@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 10.5 of 17 (Close the live endpoint exposure — hotfix)
-Plan: 1 of 5 executed in current phase
-Status: Executing — plan 01 complete, plan 02 next
-Last activity: 2026-08-04 — Plan 10.5-01 executed: fail-closed `SESSIONS_TOKEN` credential added to `limits.py` with 7 unit tests; nothing wired yet, so the live exposure is still open by design
+Plan: 2 of 5 executed in current phase
+Status: Executing — plan 02 complete, plan 03 next
+Last activity: 2026-08-04 — Plan 10.5-02 executed: the four session routes now sit on a `sessions_router` carrying `require_sessions_token`, `DELETE` also carries `check_rate_limit`, and the SSE error handler redacts and truncates. The hole is closed in code; the deployed service is still exposed until plan 05.
 
 Progress: [█████░░░░░] 53% (9 of 17 phases complete; v1.0 shipped)
-Phase 10.5: [██░░░░░░░░] 1 of 5 plans
+Phase 10.5: [████░░░░░░] 2 of 5 plans
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -73,6 +73,9 @@ Recent decisions affecting current work:
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
 - [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
 - [Phase 10.5-01]: `require_sessions_token` fails closed (403 when no credential is configured), deliberately diverging from `check_token`'s open-when-unset convention. A control that goes inert on a missing env var is precisely the defect this hotfix exists to fix.
+- [Phase 10.5-02]: The four session routes are grouped on an `APIRouter`, not given four per-route dependency lists. The defect was four routes each independently forgetting a credential, so membership had to become structural — a new route on `sessions_router` is guarded by construction.
+- [Phase 10.5-02]: `check_rate_limit` on `DELETE /sessions/{id}` only, sharing the research bucket. Reads stay unmetered so the daily cap's "Read-only endpoints still work" message stays true.
+- [Phase 10.5-02]: **Any assertion over `app.routes` must now be recursive.** fastapi 0.141.1 leaves an `_IncludedRouter` in `app.routes` rather than flattening, so a flat scan silently misses every session route. Two pre-existing tests were fixed for this; plan 04's structural test must not repeat the mistake.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
@@ -91,6 +94,12 @@ None yet.
   consent; two orphaned notes remain in the memory store (`/memory` exposes counts only,
   not content). Also: the SSE error handler leaks unredacted `str(exc)`
   (`service.py:263`) while `/health` correctly redacts using a helper that already exists.
+  **Status after plan 10.5-02:** both halves are fixed in code on
+  `gsd/phase-10.5-close-the-live-endpoint-exposure` — the four routes carry
+  `require_sessions_token` and the SSE handler now redacts. **The deployed service is
+  unchanged and still exploitable.** This blocker closes at the plan-05 cutover, which must
+  stage `SESSIONS_TOKEN` as a Fly secret in the same release as the code (the routes fail
+  closed, so a deploy without the secret 403s them).
 
 - **Other findings from codebase mapping, not yet phased.** Notes are written to a shared
   store with no tenant scoping (`graph.py:274`) and recalled into other visitors' runs
@@ -125,9 +134,9 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-04
-Stopped at: Plan 10.5-01 complete (`c3edc46`, `f264190`) — the fail-closed sessions credential
-exists and is tested, but nothing is wired to it, so the live exposure is unchanged. Next: plan
-10.5-02 attaches `require_sessions_token` to the four session routes.
+Stopped at: Plan 10.5-02 complete (`ca83cfd`, `e2596cd`, `cff7ec7`) — the four session routes are
+guarded in code, `DELETE` is rate-limited, the SSE error is redacted, and the suite is green at
+374 passed / 28 skipped. The live exposure is unchanged until plan 05 deploys. Next: plan 10.5-03.
 Resume file: None
 
 **Carry into execution — the two findings that most shape this phase:**
