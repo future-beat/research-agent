@@ -78,7 +78,8 @@ and ruff. A worker that imports the graph never pulls in a web server.
 | `GET` | `/` | Demo page in a browser, JSON index to `curl` |
 | `POST` | `/research` · `/research/stream` | Full pipeline; blocking or SSE |
 | `POST` | `/sessions/{id}/ask` · `/ask/stream` | Follow-up from that session's notes — no new search |
-| `GET` | `/sessions` · `/sessions/{id}` · `/{id}/trace` | Session list, thread, node-by-node trace |
+| `GET` | `/sessions` · `/sessions/{id}` · `/{id}/trace` | Session list, thread, node-by-node trace — `X-Demo-Token` required |
+| `DELETE` | `/sessions/{id}` | Delete a session — `X-Demo-Token` required |
 | `GET` | `/health` · `/ready` | Liveness (always 200) · readiness (503 when a store is down) |
 | `GET` | `/metrics` · `/pricing` · `/demo` | Volume, approval rate, cost, latency · live rates · guardrail state |
 
@@ -200,11 +201,11 @@ Known, and deliberate for the scope.
 - **The critic shares the writer's model.** Independent enough to catch ungrounded claims, not a genuinely independent evaluator. The eval judge runs on a stronger model precisely because of this.
 - **Offline evals can't measure answer quality**, and twelve live cases are a smoke test, not a benchmark.
 - **Cost is computed from list prices** — no enterprise discounts or `inference_geo` multiplier, so `/metrics` tracks the shape of the bill, not the bill.
-- **Stores grow without bound.** No eviction, dedup, or summarisation for notes; no expiry or ownership for sessions. Anyone who can reach the service can read any session.
+- **Stores grow without bound.** No eviction, dedup, or summarisation for notes; no expiry or ownership for sessions.
 - **SQLite pins you to one machine.** `DATABASE_URL` lifts it; until then a second machine would hold its own database and 404 on sessions that exist.
 - **No connection pool.** One lock-guarded Postgres connection per machine — right when a run occupies a worker for tens of seconds, but a ceiling worth knowing before raising concurrency.
 - **Changing embedding model means a new pgvector table.** The column width is fixed at creation; the dimension check fails loudly but can't migrate for you.
-- **The public demo is rate-limited, not authenticated.** Guardrails bound the spend; they don't identify callers.
+- **The public demo is rate-limited, not authenticated.** Running research is deliberately open to anyone — guardrails bound the spend, they don't identify callers. Reading or deleting a stored session is not: those endpoints need a token, but the token says *authorised*, not *who*.
 
 ---
 

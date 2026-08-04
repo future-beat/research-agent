@@ -134,10 +134,21 @@ Environment variables:
 | `AGENT_RETRY_BASE_DELAY` · `AGENT_RETRY_MAX_DELAY` | Backoff bounds, seconds | `1.0` / `30.0` |
 | `DEMO_DAILY_USD_CAP` | Rolling 24h ceiling across all callers; `0` disables | `5.00` |
 | `DEMO_RATE_LIMIT_PER_HOUR` | Requests per visitor IP; `0` disables | `10` |
-| `DEMO_TOKEN` | When set, write endpoints need an `X-Demo-Token` header | *(unset)* |
+| `DEMO_TOKEN` | When set, write endpoints need an `X-Demo-Token` header. Also accepted as a fallback for `SESSIONS_TOKEN` | *(unset)* |
+| `SESSIONS_TOKEN` | Credential for the session read and delete endpoints, sent as `X-Demo-Token`. **Fails closed** — while unset those endpoints refuse everyone with 403 | *(unset)* |
 | `TRUST_FORWARDED_FOR` | Believe `X-Forwarded-For` for client IP | `false` |
 | `LOG_FORMAT` · `LOG_LEVEL` | `json` or `text`; level | `json` / `INFO` |
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is installed | `true` |
+
+The two tokens are not interchangeable in production. `SESSIONS_TOKEN` guards
+`GET /sessions`, `/sessions/{id}`, `/{id}/trace` and `DELETE /sessions/{id}`,
+and setting it leaves the demo untouched. `DEMO_TOKEN` fronts
+`POST /research/stream`, which the demo page calls with no header — setting it
+on the public app 401s every anonymous visitor and takes the demo offline. To
+close the session endpoints, set `SESSIONS_TOKEN` and leave `DEMO_TOKEN` unset.
+
+Both are secrets: `fly secrets set SESSIONS_TOKEN=… -a research-agent`, never
+`fly.toml`'s `[env]` block — that file is committed.
 
 Switching backends does **not** migrate existing data — each store owns its
 own. `VECTOR_STORE=chroma` additionally needs the `[chroma]` extra.
