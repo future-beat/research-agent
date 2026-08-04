@@ -146,7 +146,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The SSE error handler redacts exception text (`src/research_agent/service.py:263`). The redaction helper already exists and is tested — the `/health` path uses it correctly; this call site just is not wired to it.
   5. Tests cover each newly-guarded path for both the 401/403 case and the authorised case, and fail if a future endpoint is added to the sessions router without a guard.
   6. Verified against the deployed service, not just locally: an unauthenticated `GET /sessions` from the open internet returns 401/403.
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 10.5-01-PLAN.md — Add the fail-closed `SESSIONS_TOKEN` credential to `limits.py`, with unit coverage
+- [ ] 10.5-02-PLAN.md — Regroup the four session routes behind it, rate-limit the DELETE, redact the SSE error, repair the suite
+- [ ] 10.5-03-PLAN.md — Behavioural coverage: refusal, service, fail-closed, fallback, unmetered reads, and a demo that survives
+- [ ] 10.5-04-PLAN.md — Recursive non-vacuous route-guard invariant, plus the DELETE's limiter pinned structurally
+- [ ] 10.5-05-PLAN.md — Truth up the docs, then the single cutover and live verification (checkpoint)
 
 **Notes for discuss-phase:**
 - Scope discipline: this is a hotfix, not Phase 12. It closes the hole with the guard mechanism that already exists. Per-caller ownership, expiry, and note lifecycle stay in Phase 12 — do not start modelling identity here.
@@ -295,6 +302,7 @@ capacity exists, they can overlap. Phases 15 → 16 → 17 are strictly sequenti
 | 9. Demo & guardrails | v1.0 | — | Complete | pre-GSD |
 | 9.1 Package reorganisation | v1.0 | — | Complete | pre-GSD |
 | 10. ADRs and doc correctness | v1.1 | 0/TBD | Not started | - |
+| 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 0/5 | Planned | - |
 | 11. Multi-machine state and pooled Postgres | v1.1 | 0/TBD | Not started | - |
 | 12. Caller identity, session ownership, bounded stores | v1.1 | 0/TBD | Not started | - |
 | 13. Embedding model migration | v1.1 | 0/TBD | Not started | - |
