@@ -362,6 +362,127 @@ def test_demo_token_fallback_protects_the_session_routes(make_client, monkeypatc
         assert holder.get("/sessions").status_code == 200
 
 
+def test_session_reads_not_metered_by_the_rate_limit_or_daily_cap(make_client, monkeypatch):
+    """Reads carry the credential check and nothing else.
+
+    Applying `guard` to them would have been the one-line fix, and it would
+    have made listing sessions eat the caller's research quota and 429 every
+    read once the daily cap was hit -- while the cap's own refusal message
+    says "Read-only endpoints still work". A demo that hides its state at
+    exactly the moment it starts refusing work is a demo you cannot debug.
+    """
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    # Rate limit: one slot in the bucket, then several reads. If reads were
+    # metered, the second one would be 429.
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
+    limits.reset_limiter()
+    for _ in range(3):
+        assert client.get("/sessions").status_code == 200
+    assert client.get(f"/sessions/{sid}").status_code == 200
+    assert client.get(f"/sessions/{sid}/trace").status_code == 200
+
+    # Daily cap. This half only means anything if the cap is genuinely
+    # exhausted: check_daily_cap returns early for a cap of 0, which is what
+    # the fixture ships, so a read asserted under the defaults would pass
+    # even if the cap were wired onto it. So record real spend first, then
+    # set a positive-but-tiny cap, then prove the cap is live.
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "0")  # unlimited again
+    limits.reset_limiter()
+    client.post("/research", json={"question": "spend something"})
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0.0000001")
+
+    refused = client.post("/research", json={"question": "one too many"})
+    assert refused.status_code == 429  # the cap is live, not dormant
+
+    assert client.get("/sessions").status_code == 200
+    assert client.get(f"/sessions/{sid}").status_code == 200
+    assert client.get(f"/sessions/{sid}/trace").status_code == 200
+
+
+def test_delete_rate_limited_after_the_hourly_limit(make_client, monkeypatch):
+    """The destructive path is the one read-only reasoning does not cover.
+
+    Order matters. Creating the sessions goes POST /research -> guard ->
+    check_rate_limit, which shares the DELETE's per-IP bucket. Lowering the
+    limit first would let the setup requests eat the only slot: the test would
+    still go green, but for the wrong reason, and it would break the moment
+    anyone raised the limit. Create first, then lower and reset.
+    """
+    client, _ = make_client()
+    first = client.post("/research", json={"question": "one"}).json()["session_id"]
+    second = client.post("/research", json={"question": "two"}).json()["session_id"]
+
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
+    limits.reset_limiter()
+
+    assert client.delete(f"/sessions/{first}").status_code == 204
+    refused = client.delete(f"/sessions/{second}")
+
+    assert refused.status_code == 429
+    assert "Retry-After" in refused.headers
+
+
+def test_delete_rate_limited_check_runs_after_the_token_check(make_client, monkeypatch):
+    """An unauthorised caller must not be able to burn someone else's quota.
+
+    Router dependencies run before decorator ones, so the credential check
+    fires first and the request never reaches the limiter -- the same ordering
+    limits.enforce already argues for.
+    """
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
+    limits.reset_limiter()
+    before = limits.limiter().tracked_keys()
+
+    with TestClient(service.app) as anonymous:
+        assert anonymous.delete(f"/sessions/{sid}").status_code == 401
+
+    assert limits.limiter().tracked_keys() == before
+    # The slot the refused caller could have burned is still there.
+    assert client.delete(f"/sessions/{sid}").status_code == 204
+
+
+def test_ask_still_anonymous_for_the_demos_second_turn(make_client):
+    """POST /sessions/{id}/ask shares the prefix and must not share the guard.
+
+    This is the demo's second turn. Grouping the endpoints by path prefix
+    instead of by dependency would have swept it up and broken follow-ups for
+    every anonymous visitor.
+    """
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    with TestClient(service.app) as anonymous:
+        response = anonymous.post(f"/sessions/{sid}/ask", json={"question": "and?"})
+
+    assert response.status_code not in (401, 403)
+    assert response.status_code == 200
+
+
+def test_demo_stays_open_when_sessions_token_is_set(make_client):
+    """The regression test for the failure mode that would end the project.
+
+    The obvious remediation -- setting DEMO_TOKEN in production -- 401s every
+    anonymous visitor, because the demo page sends no auth header at all.
+    SESSIONS_TOKEN exists precisely so the session tree can be closed without
+    closing the demo, and this asserts that setting it does not.
+    """
+    make_client()
+
+    with TestClient(service.app) as anonymous:
+        assert anonymous.post("/research/stream", json={"question": "why?"}).status_code == 200
+
+        demo = anonymous.get("/demo")
+        assert demo.status_code == 200
+        assert demo.json()["token_required"] is False
+
+        assert anonymous.get("/health").status_code == 200
+
+
 # --------------------------------------------------------------------------
 # Streaming
 # --------------------------------------------------------------------------
