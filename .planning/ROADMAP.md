@@ -51,7 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### 🚧 v1.1 Closing the limitations list (Phases 10–17)
 
 - [ ] **Phase 10: ADRs and doc correctness** - Promote the load-bearing five to numbered ADRs; fix verified-false docs; redeploy so live matches `main`
-- [ ] **Phase 10.5: Close the live endpoint exposure (hotfix)** - Guard the unauthenticated session read/delete paths and stop leaking exception text; ship immediately
+- [x] **Phase 10.5: Close the live endpoint exposure (hotfix)** - Guard the unauthenticated session read/delete paths and stop leaking exception text; ship immediately
 - [ ] **Phase 11: Multi-machine state and pooled Postgres** - Take the `DATABASE_URL` path, run more than one machine, replace the single connection with a pool
 - [ ] **Phase 12: Caller identity, session ownership, bounded stores** - The demo identifies callers; sessions have owners and expiry; notes stop growing forever
 - [ ] **Phase 13: Embedding model migration** - A real, reversible path when the embedding model or dimension changes
@@ -137,6 +137,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ### Phase 10.5: Close the live endpoint exposure (hotfix)
 **Goal**: The public service stops handing session contents to anyone and stops accepting anonymous deletes
+**Status**: ✅ Complete — shipped as Fly release **v4** on 2026-08-04. All four endpoints return 401 anonymously from the open internet; the demo still serves anonymous research runs.
 **Depends on**: Nothing — ships ahead of Phase 11 regardless of Phase 10's state
 **Requirements**: REQ-live-endpoint-exposure
 **Success Criteria** (what must be TRUE):
@@ -146,6 +147,21 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The SSE error handler redacts exception text (`src/research_agent/service.py:263`). The redaction helper already exists and is tested — the `/health` path uses it correctly; this call site just is not wired to it.
   5. Tests cover each newly-guarded path for both the 401/403 case and the authorised case, and fail if a future endpoint is added to the sessions router without a guard.
   6. Verified against the deployed service, not just locally: an unauthenticated `GET /sessions` from the open internet returns 401/403.
+
+**Outcome (2026-08-04):** all six met, with SC-2 satisfied by a **superseding decision** rather than
+literally. Research found that setting `DEMO_TOKEN` in production would 401 every anonymous visitor
+on `POST /research/stream` and kill the public demo — `guard` already checks it and the demo page
+sends no token header. SC-2's intent was "the token control stops being inert on the endpoints that
+leak"; that is met by a separate `SESSIONS_TOKEN` (with `DEMO_TOKEN` accepted as a fallback value),
+which fails closed at 403 when unset. `DEMO_TOKEN` must remain **unset** in production. Locked in
+`10.5-CONTEXT.md` § Protection mechanism.
+
+SC-5's structural test was nearly worthless as first conceived: fastapi 0.141.1 leaves an
+`_IncludedRouter` in `app.routes`, so a flat walker sees only the two `@app.post` ask routes — both
+legitimately guarded — computes an empty unguarded list, and reports a clean sessions tree while the
+four leaking routes stay invisible. The shipped test walks recursively and asserts a route count
+first. Two pre-existing tests had the same flat-scan bug and were fixed.
+
 **Plans**: 5 plans
 
 Plans:

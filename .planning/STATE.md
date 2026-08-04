@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: executing
-stopped_at: "Plan 10.5-04 complete — the guard invariant is now structural and non-vacuous. Next: plan 10.5-05, the production cutover."
+status: phase-complete
+stopped_at: "Phase 10.5 complete — shipped as Fly release v4 and verified from the open internet. Next: /gsd:plan-phase 10."
 last_updated: "2026-08-04T00:00:00.000Z"
-last_activity: "2026-08-04 — Plan 10.5-04 executed: a recursive route walker plus a non-vacuity assertion now prove no route under /sessions is anonymous, and pin the DELETE limiter and the unmetered reads structurally. All four mutation checks bit and were reverted. The code is ready to deploy; only the cutover remains"
+last_activity: "2026-08-04 — Plan 10.5-05 executed: docs corrected, SESSIONS_TOKEN staged, one cutover deployed as Fly release v4. The four session endpoints now return 401 anonymously from the open internet and 200 with the token; the demo still serves anonymous research runs. Phase 10.5 complete"
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 5
-  completed_plans: 4
-  percent: 53
+  completed_plans: 5
+  percent: 56
 ---
 
 # Project State
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-04)
 
 **Core value:** The pipeline never answers from model knowledge when it should be answering from research — and it is demonstrable to a stranger in one click.
-**Current focus:** Phase 10 — ADRs and doc correctness
+**Current focus:** Phase 10 — ADRs and doc correctness (Phase 10.5 hotfix shipped)
 
 ## Current Position
 
-Phase: 10.5 of 17 (Close the live endpoint exposure — hotfix)
-Plan: 4 of 5 executed in current phase
-Status: Executing — plan 04 complete, plan 05 (production cutover) next
-Last activity: 2026-08-04 — Plan 10.5-04 executed: `api_routes()` walks `_IncludedRouter` recursively and `test_route_guard_invariant_over_the_sessions_tree` refuses to pass on fewer than six session routes, so a route added under `/sessions` without `guard` or `require_sessions_token` fails the suite and the test cannot go green by examining nothing. `test_delete_carries_the_rate_limiter` pins the DELETE limiter and proves the three reads carry neither it nor the daily cap. Four mutation checks run and reverted; the naive walker mutation confirmed a flat scan reports a *clean* sessions tree while the four leaking routes are invisible. The deployed service is still exposed until plan 05.
+Phase: 10.5 of 17 (Close the live endpoint exposure — hotfix) — **COMPLETE**
+Plan: 5 of 5 executed in current phase
+Status: Complete — shipped as Fly release v4 on 2026-08-04 and verified from the open internet. Next phase: 10 (ADRs and doc correctness).
+Last activity: 2026-08-04 — Plan 10.5-05 executed: the cutover. Fly release v4 carries the guarded session routes, the SSE redaction, the corrected docs, and Phase 10's three pending commits. Verified live: 401 anonymous on all four session endpoints, 200 with the token, demo still anonymous.
 
-Progress: [█████░░░░░] 53% (9 of 17 phases complete; v1.0 shipped)
-Phase 10.5: [████████░░] 4 of 5 plans
+Progress: [█████░░░░░] 56% (9 of 17 phases complete + hotfix 10.5; v1.0 shipped)
+Phase 10.5: [██████████] 5 of 5 plans — complete
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -99,12 +99,17 @@ None yet.
   consent; two orphaned notes remain in the memory store (`/memory` exposes counts only,
   not content). Also: the SSE error handler leaks unredacted `str(exc)`
   (`service.py:263`) while `/health` correctly redacts using a helper that already exists.
-  **Status after plan 10.5-02:** both halves are fixed in code on
-  `gsd/phase-10.5-close-the-live-endpoint-exposure` — the four routes carry
-  `require_sessions_token` and the SSE handler now redacts. **The deployed service is
-  unchanged and still exploitable.** This blocker closes at the plan-05 cutover, which must
-  stage `SESSIONS_TOKEN` as a Fly secret in the same release as the code (the routes fail
-  closed, so a deploy without the secret 403s them).
+  **✅ RESOLVED 2026-08-04 — Fly release v4.** `SESSIONS_TOKEN` was staged and deployed in the
+  same release as the code. Verified from the open internet: all four endpoints return **401**
+  anonymously and **200** with the token; `/`, `/health`, `/demo`, `/metrics` still 200;
+  `/demo` still reports `token_required: false`; an anonymous browser research run still
+  completes. The SSE handler redacts and truncates. The cutover also carried Phase 10's three
+  pending commits, so the deployed tree now equals `main` and the deploy drift is gone.
+
+  **Residual, now owned by Phase 12:** the token proves *authorised*, not *who* — there is
+  still no per-caller ownership or session expiry, and `GET /sessions` still lists every
+  session to any token holder. Two orphaned notes from the sessions deleted on 2026-08-04
+  remain in the memory store. `_index_json` does not advertise `DELETE /sessions/{id}`.
 
 - **Other findings from codebase mapping, not yet phased.** Notes are written to a shared
   store with no tenant scoping (`graph.py:274`) and recalled into other visitors' runs
@@ -118,7 +123,10 @@ None yet.
 
 - **Six requirements are design reversals, not bug fixes.** Each needs a replacement guarantee decided in its own discuss-phase. Two are severe: Phase 17 (REQ-followup-live-search) retires the guarantee DESIGN.md calls "the single failure mode this whole pipeline exists to prevent"; Phase 16 (REQ-independent-critic-model) falsifies README's eval-judge rationale, which must be re-derived rather than inherited. See ROADMAP.md → Reversal register.
 - **Docs assert a verified-false fact.** `docs/OPERATIONS.md` (~lines 49–51) says deploys run through Fly's GitHub integration and are not CI-gated. `fly releases -a research-agent` shows 3 releases, all from the owner's personal account — deploys are manual via `fly deploy -a research-agent`. Fixed in Phase 10.
-- **Live release is 3 commits behind `main`** (README restructure, `src/` reorg, its bugfix). Functionally healthy — `/`, `/health`, `/demo`, `/metrics` all 200 — but the deployed tree differs from `main`. Redeploy is in Phase 10.
+- ~~**Live release is 3 commits behind `main`**~~ — **RESOLVED 2026-08-04.** The Phase 10.5 cutover
+  (release v4) carried the README restructure, the `src/` reorganisation and its bugfix. The
+  deployed tree now equals `main`. This satisfies Phase 10's SC-5 ahead of schedule; Phase 10 need
+  only re-verify rather than redeploy.
 - **`docs/DESIGN.md` says three `MemoryStore` backends; there are four** (json, memory, chroma, pgvector). Stale since Phase 8. Fixed in Phase 10.
 - **Pricing has a shelf life — but the code already handles it.** Verified 2026-08-04:
   `src/research_agent/usage.py:59-76` has contiguous windows (`until=date(2026, 8, 31)` and
@@ -139,27 +147,28 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-04
-Stopped at: Plan 10.5-03 complete (`c68cc87`, `5ebc861`) — the guarded sessions group now has
-behavioural coverage: 401 anonymous on all four routes, 200/204 authorised, 403 fail-closed,
-the `DEMO_TOKEN` fallback, unmetered reads, a rate-limited `DELETE` that checks the token first,
-and the demo-survival regression test. Suite green at 386 passed / 28 skipped, `ruff` clean,
-no production code touched. The live exposure is unchanged until plan 05 deploys.
-Next: plan 10.5-04 (structural regression test — must walk `app.routes` recursively).
+Stopped at: **Phase 10.5 complete.** All five plans executed and shipped as Fly release v4.
+The live exposure that opened this phase is closed and verified from the open internet.
 Resume file: None
 
-**Carry into execution — the two findings that most shape this phase:**
+**Carry forward — findings that outlive this phase:**
 
-- Setting `DEMO_TOKEN` in production would kill the public demo. `guard` already checks it and
-  fronts `POST /research/stream`, and the demo page sends no token header. That is why the fix
-  uses a separate `SESSIONS_TOKEN`. `DEMO_TOKEN` must stay unset in production.
+- **`DEMO_TOKEN` must stay UNSET in production.** `guard` checks it and fronts
+  `POST /research/stream`; the demo page sends no token header, so setting it 401s every
+  anonymous visitor and takes the public demo offline. Session endpoints use `SESSIONS_TOKEN`
+  instead (sent as `x-demo-token`, fails closed at 403 when unset). Any future phase that
+  touches auth must not "tidy" these into one variable.
 
-- The structural invariant test passes **vacuously** with a naive route walker: FastAPI 0.141.1
-  leaves a `fastapi.routing._IncludedRouter` in `app.routes`, so `isinstance(r, APIRoute)` finds
-  zero session routes. Verified empirically. The recursive walker plus the `len(...) >= 6`
-  non-vacuity assertion is load-bearing — do not "simplify" it to five.
+- **Any assertion over `app.routes` must walk recursively.** fastapi 0.141.1 leaves a
+  `fastapi.routing._IncludedRouter` in `app.routes` rather than flattening. A flat scan sees
+  only the two `@app.post` ask routes — both legitimately guarded — computes an empty
+  unguarded list, and reports a *clean* sessions tree while the four leaking routes stay
+  invisible. Use `api_routes()` in `tests/test_service.py` and always assert a route count
+  first. Two pre-existing tests had this bug.
 
-Next: continue `/gsd:execute-phase 10.5` from plan 02 — then `/gsd:plan-phase 10`
+- **Deploys are manual and now proven so.** `fly secrets set --stage` then one `fly deploy`
+  puts secret and code in the same release — required whenever a control fails closed.
 
-Note: Plan 10.5-05 is `autonomous: false`. It stages a Fly secret and performs the production
-cutover (carrying Phase 10's three pending commits in the same deploy), so it needs you at the
-keyboard. Plans 01–04 are autonomous.
+Next: `/gsd:plan-phase 10` (ADRs and doc correctness). Note Phase 10's SC-5 (deployed release
+matches `main`) is **already satisfied** by the v4 cutover — Phase 10 need only re-verify, not
+redeploy.
