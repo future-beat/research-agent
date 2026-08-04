@@ -291,6 +291,78 @@ def test_unknown_sessions_are_401_without_a_token(make_client, path):
 
 
 # --------------------------------------------------------------------------
+# The guarded sessions group
+# --------------------------------------------------------------------------
+#
+# The defect this phase fixes passed a green suite for months because no test
+# ever asked an unauthenticated question. These do.
+
+
+@pytest.mark.parametrize(
+    "method,template",
+    [
+        ("GET", "/sessions"),
+        ("GET", "/sessions/{sid}"),
+        ("GET", "/sessions/{sid}/trace"),
+        ("DELETE", "/sessions/{sid}"),
+    ],
+)
+def test_unauthenticated_sessions_routes_are_refused(make_client, method, template):
+    """All four routes, against a real session id, from a caller with no header."""
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    with TestClient(service.app) as anonymous:
+        response = anonymous.request(method, template.format(sid=sid))
+
+    assert response.status_code == 401
+
+
+def test_authorised_sessions_routes_still_work(make_client):
+    """The other half of the same criterion: guarding them did not break them."""
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    listed = client.get("/sessions")
+    assert listed.status_code == 200
+    assert sid in [s["session_id"] for s in listed.json()["sessions"]]
+
+    assert client.get(f"/sessions/{sid}").status_code == 200
+    assert client.get(f"/sessions/{sid}/trace").status_code == 200
+    assert client.delete(f"/sessions/{sid}").status_code == 204
+
+
+def test_sessions_token_unset_fails_closed(make_client, monkeypatch):
+    """Nothing configured means nobody passes -- 403, not 401 and not 200.
+
+    The assertion is on 403 specifically. 401 would mean a caller could get in
+    by guessing a token, and 200 would mean the hotfix had regressed to the
+    original bug. That bug was not a missing control: it was a control that
+    was present in the code and inert in production, which is exactly what an
+    open-when-unset default reproduces.
+    """
+    client, _ = make_client()
+    monkeypatch.delenv("SESSIONS_TOKEN", raising=False)
+    monkeypatch.delenv("DEMO_TOKEN", raising=False)
+
+    assert client.get("/sessions").status_code == 403
+
+
+def test_demo_token_fallback_protects_the_session_routes(make_client, monkeypatch):
+    """Setting only DEMO_TOKEN closes the group rather than leaving it open."""
+    client, _ = make_client()
+    client.post("/research", json={"question": "why?"})
+    monkeypatch.delenv("SESSIONS_TOKEN", raising=False)
+    monkeypatch.setenv("DEMO_TOKEN", "demo-only")
+
+    with TestClient(service.app) as anonymous:
+        assert anonymous.get("/sessions").status_code == 401
+
+    with TestClient(service.app, headers={"x-demo-token": "demo-only"}) as holder:
+        assert holder.get("/sessions").status_code == 200
+
+
+# --------------------------------------------------------------------------
 # Streaming
 # --------------------------------------------------------------------------
 
