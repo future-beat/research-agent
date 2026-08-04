@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 10-02-PLAN.md — records 0003–0006 written; docs/adr/ is now the complete six-record set. Next: plans 10-03 through 10-05."
+stopped_at: "Completed 10-04-PLAN.md — docs/DESIGN.md now names four MemoryStore backends, dates the rate change 2026-09-01, and forward-links its five promoted passages to ADR-0001…0005. Next: plan 10-05 (verification)."
 last_updated: "2026-08-05T00:00:00.000Z"
-last_activity: "2026-08-05 — Plan 10-02 executed: ADR-0003 (DEC-04, no_prior_research), ADR-0004 (DEC-14, SQLite not the checkpointer), ADR-0005 (DEC-22, Opus 5 judge) and ADR-0006 (Phase 10.5 auth, Source: not Promoted from:). Every filename in the index now resolves. No code touched; suite unchanged at 388/28"
+last_activity: "2026-08-05 — Plan 10-04 executed: docs/DESIGN.md corrected (four implementations including pgvector, ISO-dated pricing window naming /pricing as the live source) and wired forward to the five promoted ADRs plus the index. SC-2, SC-4 and the DESIGN half of SC-6 satisfied. No code touched; suite unchanged at 388/28"
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 56
 ---
 
@@ -26,13 +26,15 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 10 of 17 (ADRs and doc correctness) — **IN PROGRESS**
-Plan: 3 of 5 executed in current phase
-Status: In progress — all six ADRs exist and the deploy/pricing corrections have landed. Plan 10-04 (`docs/DESIGN.md` corrections) and 10-05 (verification) remain.
-Last activity: 2026-08-05 — Plan 10-03 executed: `docs/OPERATIONS.md` no longer claims deploys run through Fly's GitHub integration. Deploys are stated as manual via `fly deploy -a research-agent` with `fly releases -a research-agent` as the evidence, and the gating is corrected in both directions — `main` carries two required checks under `strict: true` but `enforce_admins` is `false`, so an admin's direct push succeeds with a recorded bypass notice (the Phase 10.5 push is quoted). `README.md`'s cost limitation now names `/pricing` as the live source with both window dates in ISO form and no duplicated rate figures. Documentation only — `git status --porcelain src/ tests/ evals/` is empty and the suite is unchanged at 388 passed, 28 skipped.
+Plan: 4 of 5 executed in current phase
+Status: In progress — all six ADRs exist, the deploy/pricing corrections have landed, and `docs/DESIGN.md` is corrected and wired forward to the records. Only plan 10-05 (phase-wide verification) remains.
+Last activity: 2026-08-05 — Plan 10-04 executed: `docs/DESIGN.md` now says the `MemoryStore` ABC has **four** implementations behind `VECTOR_STORE` — JSON, in-memory, Chroma, pgvector — matching `BACKENDS` in `memory.py` and the "four backends" already in `docs/OPERATIONS.md`. The pricing paragraph no longer opens "because one of them expires this month" and no longer says "September 1": the introductory $2/$10 window runs through `2026-08-31` and the standard $3/$15 rate takes over from `2026-09-01`, both on one line with `/pricing` named as the live source. Each of the five promoted paragraphs ends with a "Recorded as ADR-000N" link, and the file's preamble links `adr/README.md`. Every linked path resolves; ADR-0006 is deliberately unlinked. Documentation only — `git status --porcelain src/ tests/ evals/` empty, suite unchanged at 388 passed, 28 skipped.
+
+Prior activity: 2026-08-05 — Plan 10-03 executed: `docs/OPERATIONS.md` no longer claims deploys run through Fly's GitHub integration. Deploys are stated as manual via `fly deploy -a research-agent` with `fly releases -a research-agent` as the evidence, and the gating is corrected in both directions — `main` carries two required checks under `strict: true` but `enforce_admins` is `false`, so an admin's direct push succeeds with a recorded bypass notice (the Phase 10.5 push is quoted). `README.md`'s cost limitation now names `/pricing` as the live source with both window dates in ISO form and no duplicated rate figures. Documentation only — `git status --porcelain src/ tests/ evals/` is empty and the suite is unchanged at 388 passed, 28 skipped.
 
 Progress: [█████░░░░░] 56% (9 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
-Phase 10: [██████░░░░] 3 of 5 plans
+Phase 10: [████████░░] 4 of 5 plans
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -51,7 +53,7 @@ Phase 10 — but it must not wait for Phase 11.
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1–9 | pre-GSD | — | — |
-| 10 | 3 (10-01, 10-02, 10-03) | 35min | 12min |
+| 10 | 4 (10-01, 10-02, 10-03, 10-04) | 43min | 11min |
 
 **Recent Trend:**
 
@@ -89,6 +91,9 @@ Recent decisions affecting current work:
 - [Phase 10-02]: Each record with a named future reversal carries a `### Expected reversal` subsection, not a passing mention — which phase, which requirement, and what specifically breaks. ADR-0005's is the sharpest: Phase 16 removes the record's *premise* (the critic's shared model), so the stronger-judge rationale must be re-derived rather than inherited.
 - [Phase 10-02]: ADR-0006 leads its Consequences with a dedicated heading, `### DEMO_TOKEN must never be set in production`, rather than a bullet. The record exists for that one consequence; a list would bury it, and the refactor it guards against ("tidy the two tokens into one") is the plausible-looking kind.
 - [Phase 10-02]: ADR-0006 states all four decision parts with individual reasons because they are separable — a future change is most likely to pick off one (apply `guard` to the reads, or make the credential open-when-unset) without seeing the others.
+- [Phase 10-04]: The forward-links point at **ADR-0001…0005 only**. ADR-0006 is not linked from `docs/DESIGN.md` and must not be added: it originates in the Phase 10.5 hotfix and carries `**Source:**`, not `**Promoted from:**`. A link from DESIGN.md would assert a provenance that does not exist.
+- [Phase 10-04]: The link text carries both the record number and the path (`Recorded as [ADR-000N](adr/000N-slug.md)`) rather than a bare title link, so a reader scanning the prose gets the identifier that supersession notices will use.
+- [Phase 10-04]: The "expires this month" clause was replaced with "is time-boxed" rather than a fresher relative date. Any wording anchored to a writing date decays; the two ISO dates carry the fact.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
@@ -135,7 +140,7 @@ None yet.
   (release v4) carried the README restructure, the `src/` reorganisation and its bugfix. The
   deployed tree now equals `main`. This satisfies Phase 10's SC-5 ahead of schedule; Phase 10 need
   only re-verify rather than redeploy.
-- **`docs/DESIGN.md` says three `MemoryStore` backends; there are four** (json, memory, chroma, pgvector). Stale since Phase 8. Fixed in Phase 10.
+- ~~**`docs/DESIGN.md` says three `MemoryStore` backends; there are four**~~ (json, memory, chroma, pgvector) — **RESOLVED 2026-08-05, plan 10-04.** The seams paragraph now reads "four implementations" and names pgvector alongside the other three.
 - **Pricing has a shelf life — but the code already handles it.** Verified 2026-08-04:
   `src/research_agent/usage.py:59-76` has contiguous windows (`until=date(2026, 8, 31)` and
   `since=date(2026, 9, 1)`), so no rollover work is needed. What does need a decision before
@@ -155,16 +160,16 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 10-03-PLAN.md.** SC-3 and the README half of SC-6 are done.
-`docs/OPERATIONS.md` states that deploys are manual (`fly deploy -a research-agent`, evidenced
-by `fly releases -a research-agent`), that `main` and the deployed release can drift because
-nothing automates the deploy, and — the half the old text got wrong in the other direction —
-that `enforce_admins` is `false`, so a direct push to `main` bypasses the two required checks
-and CI runs only after the fact. `README.md` now names `/pricing` as the live rate source with
-`2026-08-31` / `2026-09-01` in ISO form and no duplicated figures. `docs/adr/` remains the
-complete six-record set from 10-02. Plans 10-04 (`docs/DESIGN.md`: four MemoryStore backends,
-the rate figures) and 10-05 (verification) remain. (Phase 10.5 remains complete and shipped as
-Fly release v4.)
+Stopped at: **Completed 10-04-PLAN.md.** SC-2, SC-4 and the DESIGN half of SC-6 are done, so
+every corrective criterion in Phase 10 has now landed. `docs/DESIGN.md` names four
+`MemoryStore` implementations including pgvector; its pricing paragraph carries both windows
+as `2026-08-31` / `2026-09-01` on one line with `/pricing` as the live source and no
+"this month" phrasing; and its five promoted paragraphs each end with a `Recorded as ADR-000N`
+link, with `adr/README.md` linked from the preamble. All five paths resolve on disk and the
+reverse citation from each record back to `docs/DESIGN.md` still holds. `docs/OPERATIONS.md`
+and `README.md` remain as 10-03 left them; `docs/adr/` remains the complete six-record set
+from 10-01/10-02. Only plan 10-05 (phase-wide verification, including the SC-5 live re-check)
+remains. (Phase 10.5 remains complete and shipped as Fly release v4.)
 Resume file: None
 
 **Carry forward — findings that outlive this phase:**
@@ -185,6 +190,11 @@ Resume file: None
 - **`docs/adr/README.md` is owned by plan 10-01 and is already complete.** It carries index
   rows for all six records with their titles and expected superseders. Plan 10-02 wrote the
   record files 0003–0006 without editing the index; every row now resolves to a file on disk.
+
+- **`docs/DESIGN.md` is now a two-way index into `docs/adr/`.** Any future phase that renames
+  an ADR file must update the five `adr/000N-slug.md` links in `docs/DESIGN.md` as well as the
+  index rows in `docs/adr/README.md`. The check is
+  `for f in $(grep -o 'adr/000[1-5]-[a-z0-9-]*\.md' docs/DESIGN.md | sort -u); do test -f "docs/$f" || echo "DANGLING $f"; done`.
 
 - **The `000[1-5]` ADR gates deliberately exclude 0006.** Records 0001–0005 are DESIGN.md
   promotions and are gated for a `DESIGN.md` citation; ADR-0006 has none by design. Widening
