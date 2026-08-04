@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 10.5 of 17 (Close the live endpoint exposure — hotfix)
-Plan: 2 of 5 executed in current phase
-Status: Executing — plan 02 complete, plan 03 next
-Last activity: 2026-08-04 — Plan 10.5-02 executed: the four session routes now sit on a `sessions_router` carrying `require_sessions_token`, `DELETE` also carries `check_rate_limit`, and the SSE error handler redacts and truncates. The hole is closed in code; the deployed service is still exposed until plan 05.
+Plan: 3 of 5 executed in current phase
+Status: Executing — plan 03 complete, plan 04 next
+Last activity: 2026-08-04 — Plan 10.5-03 executed: twelve behavioural cases now ask the unauthenticated question the suite never asked. All four session routes 401 an anonymous caller and serve an authorised one, an unconfigured deployment 403s everyone, `DEMO_TOKEN` alone closes the group, reads stay unmetered by both guardrails, `DELETE` is rate-limited without letting an unauthorised caller burn the slot, and the demo's two anonymous calls still work. Every control was broken by mutation and the matching test observed failing. The deployed service is still exposed until plan 05.
 
 Progress: [█████░░░░░] 53% (9 of 17 phases complete; v1.0 shipped)
-Phase 10.5: [████░░░░░░] 2 of 5 plans
+Phase 10.5: [██████░░░░] 3 of 5 plans
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -76,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 10.5-02]: The four session routes are grouped on an `APIRouter`, not given four per-route dependency lists. The defect was four routes each independently forgetting a credential, so membership had to become structural — a new route on `sessions_router` is guarded by construction.
 - [Phase 10.5-02]: `check_rate_limit` on `DELETE /sessions/{id}` only, sharing the research bucket. Reads stay unmetered so the daily cap's "Read-only endpoints still work" message stays true.
 - [Phase 10.5-02]: **Any assertion over `app.routes` must now be recursive.** fastapi 0.141.1 leaves an `_IncludedRouter` in `app.routes` rather than flattening, so a flat scan silently misses every session route. Two pre-existing tests were fixed for this; plan 04's structural test must not repeat the mistake.
+- [Phase 10.5-03]: The daily-cap test records real spend and asserts `POST /research` 429s *before* asserting a read is 200. Under the fixture's `DEMO_DAILY_USD_CAP=0`, `check_daily_cap` returns early, so the obvious construction cannot fail even if the cap were wired onto the reads.
+- [Phase 10.5-03]: A guard test is not done until the guard has been removed and the test observed failing. All six controls in this phase were mutation-checked individually; the mutation table lives in `10.5-03-SUMMARY.md` and is plan 04's acceptance shortcut.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
@@ -134,9 +136,12 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-04
-Stopped at: Plan 10.5-02 complete (`ca83cfd`, `e2596cd`, `cff7ec7`) — the four session routes are
-guarded in code, `DELETE` is rate-limited, the SSE error is redacted, and the suite is green at
-374 passed / 28 skipped. The live exposure is unchanged until plan 05 deploys. Next: plan 10.5-03.
+Stopped at: Plan 10.5-03 complete (`c68cc87`, `5ebc861`) — the guarded sessions group now has
+behavioural coverage: 401 anonymous on all four routes, 200/204 authorised, 403 fail-closed,
+the `DEMO_TOKEN` fallback, unmetered reads, a rate-limited `DELETE` that checks the token first,
+and the demo-survival regression test. Suite green at 386 passed / 28 skipped, `ruff` clean,
+no production code touched. The live exposure is unchanged until plan 05 deploys.
+Next: plan 10.5-04 (structural regression test — must walk `app.routes` recursively).
 Resume file: None
 
 **Carry into execution — the two findings that most shape this phase:**
