@@ -20,12 +20,29 @@ Three independent limits, checked in the order they get cheaper to fail:
                              also closes the demo, which is why the sessions
                              credential is a separate variable.
 
-    DEMO_RATE_LIMIT_PER_HOUR per client IP, sliding window (default 10).
+    DEMO_RATE_LIMIT_PER_HOUR per caller identity, sliding window (default 10).
                              Stops one person or one crawler monopolising it.
+                             Keyed on the signed identity cookie, not on the
+                             client address: the address arrived in a header
+                             that only Fly's proxy makes unforgeable, and a
+                             deployment behind anything else had to opt into
+                             trusting it. The identity is signed by us.
 
-    DEMO_DAILY_USD_CAP       rolling 24h spend across every client (default
-                             $5). The backstop: rate limits are per IP and a
-                             botnet has many, but the bill is global.
+    DEMO_DAILY_USD_CAP       rolling 24h spend across every caller (default
+                             $5). The backstop, and the reason per-identity
+                             fairness is safe to offer at all: identities are
+                             free to mint, so nothing about them bounds the
+                             bill. This does. It counts in-flight runs as well
+                             as finished ones -- see DEMO_RESERVED_RUN_USD.
+
+    DEMO_RESERVED_RUN_USD    what a starting run claims against the cap before
+                             it has spent anything (default $0.20, about what
+                             a run actually costs). Settled to the real figure
+                             when the run finishes. Without it the cap counts
+                             only completed runs, so a burst of concurrent
+                             runs each sees the same pre-burst total and they
+                             all pass -- the cap overshoots by roughly the
+                             concurrency.
 
 The per-run cap in the supervisor bounds a single runaway run. It does
 nothing about volume -- a thousand well-behaved runs is still a thousand
@@ -85,17 +102,50 @@ def demo_token() -> str:
 
 
 def rate_limit_per_hour() -> int:
-    """Requests per client IP per hour. 0 disables."""
+    """Requests per caller identity per hour. 0 disables."""
     return _env_int("DEMO_RATE_LIMIT_PER_HOUR", 10)
 
 
 def daily_cap_usd() -> float:
-    """Rolling 24h spend ceiling across all clients. 0 disables."""
+    """Rolling 24h spend ceiling across all callers. 0 disables."""
     return _env_float("DEMO_DAILY_USD_CAP", 5.00)
 
 
+def reserved_run_usd() -> float:
+    """What a starting run claims against the cap. Floor 0, default 0.20.
+
+    Sized on observation, not on the per-run hard cap: runs land around $0.15
+    and AGENT_MAX_RUN_COST_USD's $1.00 default would let only five run at once
+    against a $5 budget -- throttling the demo far below what it actually
+    spends. An estimate that is honest keeps the cap a bound rather than a
+    queue.
+    """
+    return max(0.0, _env_float("DEMO_RESERVED_RUN_USD", 0.20))
+
+
+def caller_identity(request: Request) -> str:
+    """The key every per-caller limit uses.
+
+    IdentityMiddleware sets this on every request before any handler runs, so
+    the fallback should never fire. It falls back to one SHARED bucket rather
+    than to `client_ip` on purpose: a shared bucket is more restrictive than
+    the truth, which is the safe direction, whereas falling back to the address
+    would quietly reinstate the forgeable key this phase removed -- and it
+    would do it exactly when the identity layer was broken, i.e. when nobody
+    was looking.
+    """
+    return getattr(getattr(request, "state", None), "identity", "") or "anonymous"
+
+
 def client_ip(request: Request) -> str:
-    """The caller's address, preferring headers that can't be forged.
+    """The caller's address. FOR LOGGING ONLY -- not load-bearing for fairness.
+
+    Kept because an address is genuinely useful in a log line when diagnosing
+    abuse. It is deliberately no longer what the rate limiter keys on: see
+    `caller_identity`. Do not key any limit on this, and do not reintroduce
+    TRUST_FORWARDED_FOR into a decision that costs money -- the header is
+    caller-controlled against an unproxied origin, which is what made the old
+    rate limiter a formality for anyone who read the code.
 
     `Fly-Client-IP` is set by Fly's proxy and overwritten on every inbound
     request, so a client cannot inject it. `X-Forwarded-For` can be set by
@@ -173,26 +223,12 @@ class RateLimiter:
             self._hits.clear()
 
 
-# One limiter per process, sized on first use so the env var is read after
-# the app has loaded its configuration.
-_limiter: RateLimiter | None = None
-_limiter_lock = threading.Lock()
-
-
-def limiter() -> RateLimiter:
-    global _limiter
-    with _limiter_lock:
-        if _limiter is None or _limiter.limit != rate_limit_per_hour():
-            _limiter = RateLimiter(rate_limit_per_hour())
-        return _limiter
-
-
-def reset_limiter() -> None:
-    """Drop all recorded hits. For tests, and for an operator who has just
-    raised the limit and doesn't want to wait out the old window."""
-    global _limiter
-    with _limiter_lock:
-        _limiter = None
+# The process-global limiter that used to live here is gone. It was the thing
+# that made "the rate limit" mean something different on each machine, and a
+# module global is not something a request can be pointed away from -- so the
+# window now lives in a LimitsStore the service builds at startup and injects,
+# which is what lets the fleet share one. RateLimiter itself survives as
+# InMemoryLimits' internals.
 
 
 # --------------------------------------------------------------------------
@@ -524,8 +560,10 @@ def require_sessions_token(request: Request) -> None:
         raise HTTPException(401, "A valid X-Demo-Token header is required.")
 
 
-def check_rate_limit(request: Request) -> None:
-    allowed, retry_after = limiter().check(client_ip(request))
+def check_rate_limit(request: Request, limits_store: LimitsStore) -> None:
+    allowed, retry_after = limits_store.check_rate(
+        caller_identity(request), rate_limit_per_hour(), HOUR_SECONDS
+    )
     if not allowed:
         raise HTTPException(
             429,
@@ -535,34 +573,71 @@ def check_rate_limit(request: Request) -> None:
         )
 
 
-def check_daily_cap(metrics) -> None:
+def enforce(request: Request, metrics, limits_store: LimitsStore) -> None:
+    """The gates that can be decided before a run exists, cheapest first.
+
+    Token before rate limit so an unauthorised caller can't consume another
+    caller's quota.
+
+    THE SPEND CAP IS DELIBERATELY NOT HERE ANY MORE. It needs a run_id to
+    reserve against, which does not exist until the handler has built the run
+    state -- so it moved to `reserve_or_429`, called inside each spending
+    handler. `metrics` stays in the signature because the caller has it and a
+    guard that cannot see spend is a guard one refactor away from needing it
+    again; nothing in this function reads it today.
+    """
+    check_token(request)
+    check_rate_limit(request, limits_store)
+
+
+def reserve_or_429(limits_store: LimitsStore, run_id: str, identity: str, metrics) -> None:
+    """Claim this run's estimated cost against the daily cap, or refuse it.
+
+    The refusal is raised synchronously, before any streaming response has been
+    started, so a capped caller gets a real 429 rather than a 200 whose body
+    turns out to be an error event.
+    """
     cap = daily_cap_usd()
     if cap <= 0:
-        return
+        return  # disabled: no reservation, and no spend query to pay for
+
     spent = metrics.spend_since(time.time() - DAY_SECONDS)
-    if spent >= cap:
-        raise HTTPException(
-            429,
-            f"This demo has spent its daily budget (${spent:.2f} of ${cap:.2f} "
-            f"in the last 24h). Read-only endpoints still work.",
-            headers={"Retry-After": str(HOUR_SECONDS)},
+    if limits_store.reserve(run_id, identity, reserved_run_usd(), cap, spent):
+        return
+
+    raise HTTPException(
+        429,
+        f"This demo has spent its daily budget (${spent:.2f} of ${cap:.2f} "
+        f"in the last 24h). Read-only endpoints still work.",
+        headers={"Retry-After": str(HOUR_SECONDS)},
+    )
+
+
+def settle(limits_store: LimitsStore, run_id: str) -> None:
+    """Release a run's reservation now that its real cost has been recorded.
+
+    Never raises. A settle that fails must not turn a finished run into a 500
+    or truncate a stream that already delivered its result -- and the failure
+    is survivable, because RESERVATION_STALE_SECONDS stops the orphan counting
+    against the cap either way. Logged, so the leak is visible rather than
+    merely tolerated.
+    """
+    try:
+        limits_store.settle(run_id)
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        log.warning(
+            "reservation settle failed",
+            extra={"event": "settle_failed", "run_id": run_id, "error": type(exc).__name__},
         )
 
 
-def enforce(request: Request, metrics) -> None:
-    """Every gate, cheapest first.
-
-    Token before rate limit so an unauthorised caller can't consume another
-    client's quota; rate limit before the spend query so a flood costs no
-    database round trips.
-    """
-    check_token(request)
-    check_rate_limit(request)
-    check_daily_cap(metrics)
-
-
 def status(metrics) -> dict:
-    """What the demo page shows, and what /health reports."""
+    """What the demo page shows, and what /health reports.
+
+    ADDITIVE ONLY. The deployed page is served from the same repo but the
+    browser tab that is already open is not, so a renamed or removed key breaks
+    a live client for as long as it stays open. New fields go on the end.
+    """
     cap = daily_cap_usd()
     spent = metrics.spend_since(time.time() - DAY_SECONDS) if cap > 0 else 0.0
     return {
@@ -571,4 +646,8 @@ def status(metrics) -> dict:
         "daily_cap_usd": cap or None,
         "spent_24h_usd": round(spent, 4) if cap > 0 else None,
         "budget_exhausted": bool(cap > 0 and spent >= cap),
+        # -- added Phase 12: what the limits are keyed on, and what a run
+        # claims up front. The page copy that uses them lands with the UI wave.
+        "rate_limit_scope": "identity",
+        "reserved_run_usd": reserved_run_usd() if cap > 0 else None,
     }

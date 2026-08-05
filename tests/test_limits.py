@@ -46,9 +46,7 @@ def clean_env(monkeypatch):
                 "DEMO_DAILY_USD_CAP", "TRUST_FORWARDED_FOR", "DEMO_RESERVED_RUN_USD",
                 "LIMITS_BACKEND"):
         monkeypatch.delenv(var, raising=False)
-    limits.reset_limiter()
     yield
-    limits.reset_limiter()
 
 
 # --------------------------------------------------------------------------
@@ -164,11 +162,13 @@ def test_the_limiter_is_thread_safe():
     assert len(rl._hits["shared"]) == 500  # no lost updates
 
 
-def test_the_shared_limiter_reconfigures_when_the_setting_changes(monkeypatch):
-    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "5")
-    assert limits.limiter().limit == 5
-    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "50")
-    assert limits.limiter().limit == 50
+def test_the_memory_store_reconfigures_when_the_setting_changes():
+    """Raising the limit must take effect without a restart -- and without
+    carrying the old window's hits into the new one."""
+    store = InMemoryLimits()
+    assert store.check_rate("a", 1, 60)[0] is True
+    assert store.check_rate("a", 1, 60)[0] is False
+    assert store.check_rate("a", 5, 60)[0] is True
 
 
 # --------------------------------------------------------------------------
@@ -384,17 +384,46 @@ def test_require_sessions_token_accepts_a_demo_token_value(monkeypatch):
 
 def test_spending_under_the_cap_is_allowed(monkeypatch):
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
-    limits.check_daily_cap(FakeMetrics(spent=4.99))
+    store = InMemoryLimits()
+    limits.reserve_or_429(store, "run-1", "id-a", FakeMetrics(spent=4.00))
+    assert store.reservation_ids() == {"run-1"}
 
 
 def test_reaching_the_cap_refuses_new_runs(monkeypatch):
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
     with pytest.raises(HTTPException) as exc:
-        limits.check_daily_cap(FakeMetrics(spent=5.00))
+        limits.reserve_or_429(InMemoryLimits(), "run-1", "id-a", FakeMetrics(spent=5.00))
 
     assert exc.value.status_code == 429
     assert "daily budget" in exc.value.detail
     assert "Retry-After" in exc.value.headers
+
+
+def test_reads_survive_the_cap(monkeypatch):
+    """The refusal's exact promise. The message tells the caller that reads
+    still work, so the sentence is part of the contract and not decoration --
+    ADR-0006 keeps `guard` off the session reads to make it true."""
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
+
+    class AlwaysFull(InMemoryLimits):
+        def reserve(self, *args, **kwargs):
+            return False
+
+    with pytest.raises(HTTPException) as exc:
+        limits.reserve_or_429(AlwaysFull(), "run-1", "id-a", FakeMetrics(spent=9.99))
+
+    assert exc.value.status_code == 429
+    assert "Read-only endpoints still work." in exc.value.detail
+
+
+def test_the_reservation_reflects_the_estimate(monkeypatch):
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "1.00")
+    monkeypatch.setenv("DEMO_RESERVED_RUN_USD", "0.60")
+    store = InMemoryLimits()
+
+    limits.reserve_or_429(store, "run-1", "id-a", FakeMetrics(spent=0.0))
+    with pytest.raises(HTTPException):  # 0.60 + 0.60 > 1.00
+        limits.reserve_or_429(store, "run-2", "id-b", FakeMetrics(spent=0.0))
 
 
 def test_the_cap_asks_about_a_rolling_24h_window(monkeypatch):
@@ -402,7 +431,7 @@ def test_the_cap_asks_about_a_rolling_24h_window(monkeypatch):
     the server happens to think it is in."""
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
     metrics = FakeMetrics()
-    limits.check_daily_cap(metrics)
+    limits.reserve_or_429(InMemoryLimits(), "run-1", "id-a", metrics)
 
     asked_about = metrics.queries[0]
     day_ago = time.time() - limits.DAY_SECONDS
@@ -412,8 +441,20 @@ def test_the_cap_asks_about_a_rolling_24h_window(monkeypatch):
 def test_a_cap_of_zero_disables_it_and_costs_no_query(monkeypatch):
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0")
     metrics = FakeMetrics(spent=1000.0)
-    limits.check_daily_cap(metrics)
+    limits.reserve_or_429(InMemoryLimits(), "run-1", "id-a", metrics)
     assert metrics.queries == []
+
+
+def test_settle_never_raises():
+    """A settle that failed must not turn a finished run into a 500, nor
+    truncate a stream that has already delivered its result. The staleness
+    cutoff is what makes swallowing it survivable."""
+
+    class Broken(InMemoryLimits):
+        def settle(self, run_id):
+            raise RuntimeError("database went away")
+
+    limits.settle(Broken(), "run-1")  # must not raise
 
 
 # --------------------------------------------------------------------------
@@ -426,14 +467,46 @@ def test_an_unauthorised_caller_cannot_consume_the_rate_limit(monkeypatch):
     without ever being allowed to run anything."""
     monkeypatch.setenv("DEMO_TOKEN", "s3cret")
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
+    store = InMemoryLimits()
 
     for _ in range(5):
         with pytest.raises(HTTPException) as exc:
-            limits.enforce(FakeRequest(), FakeMetrics())
+            limits.enforce(FakeRequest(), FakeMetrics(), store)
         assert exc.value.status_code == 401
 
     # The quota was never touched, so a valid caller still gets their turn.
-    limits.enforce(FakeRequest({"x-demo-token": "s3cret"}), FakeMetrics())
+    limits.enforce(FakeRequest({"x-demo-token": "s3cret"}), FakeMetrics(), store)
+
+
+def test_the_rate_limit_keys_on_identity_not_the_address(monkeypatch):
+    """Two callers behind one address -- a household, an office NAT, a mobile
+    carrier -- get independent budgets. Both directions are asserted: A must
+    actually be refused, and B must actually be let through, so neither a
+    shared window nor a limiter that never fires can pass this."""
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
+    store = InMemoryLimits()
+    shared_address = "198.51.100.9"
+    a = FakeRequest(host=shared_address, identity="identity-a")
+    b = FakeRequest(host=shared_address, identity="identity-b")
+
+    limits.enforce(a, FakeMetrics(), store)
+    with pytest.raises(HTTPException) as exc:
+        limits.enforce(a, FakeMetrics(), store)
+    assert exc.value.status_code == 429
+
+    limits.enforce(b, FakeMetrics(), store)  # untouched by A's exhaustion
+
+
+def test_enforce_no_longer_applies_the_daily_cap(monkeypatch):
+    """The cap moved to the run-start choke point, where a run_id exists to
+    reserve against. A guard that still capped would 429 here and cost a spend
+    query doing it."""
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "1.00")
+    metrics = FakeMetrics(spent=1000.0)  # far over the cap
+
+    limits.enforce(FakeRequest(), metrics, InMemoryLimits())  # must not raise
+
+    assert metrics.queries == []  # and must not have asked
 
 
 def test_a_rate_limited_caller_costs_no_database_query(monkeypatch):
@@ -441,14 +514,14 @@ def test_a_rate_limited_caller_costs_no_database_query(monkeypatch):
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
     metrics = FakeMetrics()
+    store = InMemoryLimits()
 
-    limits.enforce(FakeRequest(), metrics)
-    assert len(metrics.queries) == 1
-
+    limits.enforce(FakeRequest(), metrics, store)
     for _ in range(10):
         with pytest.raises(HTTPException):
-            limits.enforce(FakeRequest(), metrics)
-    assert len(metrics.queries) == 1  # unchanged
+            limits.enforce(FakeRequest(), metrics, store)
+
+    assert metrics.queries == []
 
 
 # --------------------------------------------------------------------------
@@ -467,6 +540,30 @@ def test_status_reports_the_live_configuration(monkeypatch):
     assert status["spent_24h_usd"] == 1.2345
     assert status["budget_exhausted"] is False
     assert status["token_required"] is False
+
+
+def test_status_keeps_every_key_it_has_ever_reported(monkeypatch):
+    """Additive only. The deployed page is redeployed with the service; the
+    browser tab already open on it is not, so a renamed key breaks a live
+    client for as long as it stays open."""
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
+    original = {
+        "token_required",
+        "rate_limit_per_hour",
+        "daily_cap_usd",
+        "spent_24h_usd",
+        "budget_exhausted",
+    }
+    assert original <= set(limits.status(FakeMetrics(spent=1.0)))
+
+
+def test_status_reports_the_new_limit_shape(monkeypatch):
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
+    monkeypatch.setenv("DEMO_RESERVED_RUN_USD", "0.25")
+    status = limits.status(FakeMetrics(spent=1.0))
+
+    assert status["rate_limit_scope"] == "identity"
+    assert status["reserved_run_usd"] == 0.25
 
 
 def test_status_flags_an_exhausted_budget(monkeypatch):

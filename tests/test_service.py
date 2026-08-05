@@ -6,6 +6,7 @@ these exercise genuine SQLite persistence and genuine graph traversal -- the
 only thing faked is the network.
 """
 
+import inspect
 import json
 import threading
 import time
@@ -93,6 +94,35 @@ def dependency_names(route) -> set[str]:
     return {getattr(d.call, "__name__", "") for d in route.dependant.dependencies}
 
 
+class RecordingLimits(limits.InMemoryLimits):
+    """The real in-memory store, plus a note of what it was asked to do.
+
+    Behaviour is unchanged -- every call delegates -- so a test asserting on
+    `reserved`/`settled` is reading the app's actual traffic, not a fake's idea
+    of it. Needed because "the reservation was released" and "no reservation
+    was ever made" look identical from the outside, and only one of them is the
+    property being claimed.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.reserved: list[str] = []
+        self.settled: list[str] = []
+
+    def reserve(self, run_id, identity, est_usd, cap, spent_24h):
+        self.reserved.append(run_id)
+        return super().reserve(run_id, identity, est_usd, cap, spent_24h)
+
+    def settle(self, run_id):
+        self.settled.append(run_id)
+        super().settle(run_id)
+
+
+def limits_store() -> RecordingLimits:
+    """The store make_client injected into the app under test."""
+    return service.app.dependency_overrides[service.get_limits]()
+
+
 @pytest.fixture
 def make_client(tmp_path, monkeypatch):
     """Returns a factory so a test can script the critic before the app boots."""
@@ -111,7 +141,6 @@ def make_client(tmp_path, monkeypatch):
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0")
     monkeypatch.delenv("DEMO_TOKEN", raising=False)
     monkeypatch.setenv("SESSIONS_TOKEN", SESSIONS_TOKEN)
-    limits.reset_limiter()
     # The lifespan calls the backend factories, which follow DATABASE_URL.
     # Pinning them keeps these tests about the API rather than about whichever
     # database the surrounding environment happens to expose.
@@ -125,8 +154,15 @@ def make_client(tmp_path, monkeypatch):
 
         store = SQLiteSessionStore(str(tmp_path / "sessions.db"))
         metrics = SQLiteMetricsStore(str(tmp_path / "metrics.db"))
+        # A fresh limits store per client, injected the same way. The rate
+        # window and the spend reservations used to be process globals reset by
+        # hand between cases; a per-client store means a test can no longer
+        # inherit another's hits, and `limits_store()` below lets a test read
+        # the reservations the app actually made.
+        limits_backend = RecordingLimits()
         service.app.dependency_overrides[service.get_sessions] = lambda: store
         service.app.dependency_overrides[service.get_metrics] = lambda: metrics
+        service.app.dependency_overrides[service.get_limits] = lambda: limits_backend
 
         # https, not TestClient's default http: the identity cookie is Secure
         # (unconditionally -- no prod/test fork in a security attribute), and
@@ -145,7 +181,6 @@ def make_client(tmp_path, monkeypatch):
 
     service.app.dependency_overrides.clear()
     graph.set_memory(None)
-    limits.reset_limiter()
     for client, store, metrics in created:
         client.close()
         store.close()
@@ -451,19 +486,17 @@ def test_session_reads_not_metered_by_the_rate_limit_or_daily_cap(make_client, m
     # Rate limit: one slot in the bucket, then several reads. If reads were
     # metered, the second one would be 429.
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
-    limits.reset_limiter()
     for _ in range(3):
         assert client.get("/sessions").status_code == 200
     assert client.get(f"/sessions/{sid}").status_code == 200
     assert client.get(f"/sessions/{sid}/trace").status_code == 200
 
     # Daily cap. This half only means anything if the cap is genuinely
-    # exhausted: check_daily_cap returns early for a cap of 0, which is what
-    # the fixture ships, so a read asserted under the defaults would pass
+    # exhausted: the reservation is skipped entirely for a cap of 0, which is
+    # what the fixture ships, so a read asserted under the defaults would pass
     # even if the cap were wired onto it. So record real spend first, then
     # set a positive-but-tiny cap, then prove the cap is live.
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "0")  # unlimited again
-    limits.reset_limiter()
     client.post("/research", json={"question": "spend something"})
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0.0000001")
 
@@ -479,17 +512,16 @@ def test_delete_rate_limited_after_the_hourly_limit(make_client, monkeypatch):
     """The destructive path is the one read-only reasoning does not cover.
 
     Order matters. Creating the sessions goes POST /research -> guard ->
-    check_rate_limit, which shares the DELETE's per-IP bucket. Lowering the
-    limit first would let the setup requests eat the only slot: the test would
-    still go green, but for the wrong reason, and it would break the moment
-    anyone raised the limit. Create first, then lower and reset.
+    check_rate_limit, which shares the DELETE's per-identity bucket. Lowering
+    the limit first would let the setup requests eat the only slot: the test
+    would still go green, but for the wrong reason, and it would break the
+    moment anyone raised the limit. Create first, then lower.
     """
     client, _ = make_client()
     first = client.post("/research", json={"question": "one"}).json()["session_id"]
     second = client.post("/research", json={"question": "two"}).json()["session_id"]
 
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
-    limits.reset_limiter()
 
     assert client.delete(f"/sessions/{first}").status_code == 204
     refused = client.delete(f"/sessions/{second}")
@@ -504,19 +536,24 @@ def test_delete_rate_limited_check_runs_after_the_token_check(make_client, monke
     Router dependencies run before decorator ones, so the credential check
     fires first and the request never reaches the limiter -- the same ordering
     limits.enforce already argues for.
+
+    The refused caller carries the VICTIM'S identity cookie, which is what
+    makes this a test rather than a tautology: the bucket is keyed on identity
+    now, so an attacker with an identity of their own could only ever burn
+    their own slot. Replaying someone else's cookie without their credential is
+    the shape that could actually cost them something.
     """
     client, _ = make_client()
     sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    victim_cookie = client.cookies["ra_id"]
 
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
-    limits.reset_limiter()
-    before = limits.limiter().tracked_keys()
 
-    with TestClient(service.app) as anonymous:
+    with TestClient(service.app, base_url="https://testserver") as anonymous:
+        anonymous.cookies.set("ra_id", victim_cookie, domain="testserver")
         assert anonymous.delete(f"/sessions/{sid}").status_code == 401
 
-    assert limits.limiter().tracked_keys() == before
-    # The slot the refused caller could have burned is still there.
+    # The one slot the refused caller could have burned is still there.
     assert client.delete(f"/sessions/{sid}").status_code == 204
 
 
@@ -615,23 +652,28 @@ def test_delete_carries_the_rate_limiter():
     assert len(session_routes) >= 4, f"found only {sorted(session_routes)}"
 
     delete = session_routes[("DELETE", "/sessions/{session_id}")]
-    assert "check_rate_limit" in dependency_names(delete)
+    assert "rate_limit" in dependency_names(delete)
 
     gets = [(key, route) for key, route in session_routes.items() if key[0] == "GET"]
     assert len(gets) == 3, sorted(key for key, _ in gets)
-    metered_reads = [key for key, route in gets if "check_rate_limit" in dependency_names(route)]
+    metered_reads = [key for key, route in gets if "rate_limit" in dependency_names(route)]
     # Reads must stay unmetered: listing sessions may not consume the caller's
     # research quota (CONTEXT, Dependency composition).
     assert metered_reads == [], f"session reads must not be rate limited: {metered_reads}"
 
     # And none of the four may acquire the spend cap, so a later refactor
-    # cannot quietly reach for `guard` -- which bundles check_daily_cap and
-    # would 429 every read once the $5/day budget is gone, contradicting the
-    # cap's own "Read-only endpoints still work" message.
+    # cannot quietly reach for `guard` -- which would 429 every read once the
+    # $5/day budget is gone, contradicting the cap's own "Read-only endpoints
+    # still work" message.
+    #
+    # Two ways to acquire it since Phase 12, so both are checked: as the
+    # `guard` dependency, and as an in-handler `reserve_or_429` call, which no
+    # amount of reading the route's dependencies would ever reveal.
     capped = [
         key
         for key, route in session_routes.items()
-        if "check_daily_cap" in dependency_names(route)
+        if "guard" in dependency_names(route)
+        or "reserve_or_429" in inspect.getsource(route.endpoint)
     ]
     assert capped == [], f"session routes must not carry the daily cap: {capped}"
 
@@ -1300,7 +1342,6 @@ def test_demo_endpoint_reports_the_limits(make_client, monkeypatch):
     client, _ = make_client()
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "7")
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
-    limits.reset_limiter()
 
     body = client.get("/demo").json()
 
@@ -1312,7 +1353,6 @@ def test_demo_endpoint_reports_the_limits(make_client, monkeypatch):
 def test_the_rate_limit_refuses_a_flood(make_client, monkeypatch):
     client, fake = make_client()
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "2")
-    limits.reset_limiter()
 
     first = client.post("/research", json={"question": "one"})
     second = client.post("/research", json={"question": "two"})
