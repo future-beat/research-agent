@@ -13,12 +13,12 @@
 # tests/test_deploy_config.py now fails the build on both. Take any value you
 # want from such a PR by hand; don't merge the file.
 #
-# primary_region was pinned to the volume. Once the mount goes it becomes a
+# primary_region was pinned to the volume. The mount is gone, so it is now a
 # choice rather than a constraint: 'syd' sits next to the database's region
 # (ap-southeast-2, Sydney), and every /health store probe pays that hop 120
-# times an hour. Changing region is out of scope for this phase -- the
-# provider's project region cannot be changed after creation either, so the
-# two would have to move together.
+# times an hour. Measured: connect+TLS 119.2 ms, query p50 2.73 ms. Changing
+# region is out of scope -- the provider's project region cannot be changed
+# after creation either, so the two would have to move together.
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -41,32 +41,45 @@ primary_region = 'syd'
   DEMO_RATE_LIMIT_PER_HOUR = '10'
   LOG_FORMAT = 'json'
   LOG_LEVEL = 'INFO'
-  METRICS_DB_PATH = '/data/metrics.db'
-  SESSION_DB_PATH = '/data/sessions.db'
-  VECTOR_STORE_PATH = '/data/agent_memory_store.json'
-
-# Needed only while the stores are on local disk. Once DATABASE_URL is set,
-# all three move to Postgres, the machine holds no state, and this can go.
-[[mounts]]
-  source = 'agent_data'
-  destination = '/data'
+  # The three backend pins, and they are load-bearing rather than
+  # belt-and-braces. The *_DB_PATH vars that used to sit here are gone with
+  # the mount, but deleting them is NOT what stops a fallback to local
+  # SQLite: sessions.py defaults SESSION_DB_PATH to a file beside the module,
+  # and default_backend() returns 'sqlite' whenever no DSN is configured. So
+  # unpinned, two mount-less machines would each boot on their own
+  # container-local database, /health would report dependencies: "ok"
+  # (SQLite is perfectly reachable), Fly's check would pass, and the only
+  # difference on the wire would be a backend class name nothing reads.
+  #
+  # Pinned, the same situation fails CLOSED: db.database_url() raises
+  # RuntimeError naming DATABASE_URL at store construction, lifespan raises,
+  # and the machine never reaches started. Loud beats quiet for a config
+  # error, and a restart does not conjure a missing secret either way.
+  #
+  # Note the distinction: only an ABSENT DSN fails closed. A reachability
+  # OUTAGE (DSN present, server down) still comes up and reports the
+  # unreachable store in /health's body, because Database.__init__ does no
+  # I/O. That is deliberate -- restarting does not fix someone else's server.
+  METRICS_BACKEND = 'postgres'
+  SESSION_BACKEND = 'postgres'
+  VECTOR_STORE = 'pgvector'
 
 [http_service]
   internal_port = 8000
   force_https = true
-  # One machine while the stores are on a per-machine volume: a second would
-  # hold its own database, so a follow-up could land on a machine that has
-  # never heard of the session.
+  # Two machines. This was 1 for as long as the stores lived on a per-machine
+  # volume, because a second machine would have held its own database and a
+  # follow-up could land on one that had never heard of the session.
   #
-  # Raising this to 2 is safe only once ALL THREE of the following hold, in
-  # this order -- DATABASE_URL is set and /health shows three Postgres-backed
-  # stores; the [[mounts]] block and the three *_DB_PATH vars are gone; the
-  # three backend pins are in [env]. Raising it earlier, or with the mount
-  # still in place, gives two machines two independent databases again.
-  # tests/test_deploy_config.py asserts both directions of that pairing.
+  # All three preconditions now hold, in order: DATABASE_URL is set and
+  # /health shows three Postgres-backed stores; the [[mounts]] block and the
+  # three *_DB_PATH vars are gone; the three backend pins are in [env]. Do
+  # not lower it back to 1 without restoring the mount AND removing the pins
+  # -- a mounted machine with the pins still set refuses to boot without a
+  # DSN. tests/test_deploy_config.py asserts both directions of that pairing.
   auto_stop_machines = 'suspend'
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
 
   # These numbers are why the connection pool is sized the way it is:
   # hard_limit 16 x 2 machines = up to 32 in-flight requests against one
@@ -153,9 +166,17 @@ primary_region = 'syd'
 #      container-local SQLite. Deploy.
 #   6. Raise min_machines_running to 2 and: fly scale count 2
 #
-# Steps 1-4 are reversible (`fly secrets unset`, delete the project) and
-# production is untouched throughout. Step 5 is the point of no return for
-# per-machine state.
+# Steps 1-6 are DONE -- this file is the result. Steps 1-4 were reversible
+# (`fly secrets unset`, delete the project) and production was untouched
+# throughout; step 5 was the point of no return for per-machine state.
+#
+# Rolling back now means all four parts together: restore [[mounts]], restore
+# the three *_DB_PATH vars, DELETE the three backend pins, and
+# `fly scale count 1`. Restoring the mount while leaving the pins in place
+# gives a machine that still refuses to boot without a DSN. The SQLite data
+# on the volume is stale by however long the service has run on Postgres, so
+# prefer fixing forward. `fly secrets unset DATABASE_URL` has never been
+# exercised -- it is the documented escape hatch, not a proven one.
 #
 # KEEP THE VOLUME. Detaching is reversible -- an unattached agent_data still
 # exists and a machine that does not require a volume never attaches itself
