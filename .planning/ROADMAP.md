@@ -213,7 +213,13 @@ Plans:
   4. Sessions carry an expiry and expired sessions stop resolving.
   5. Notes have at least one enforced bound — eviction, dedup, or summarisation — and note deletion behaves the same across json, memory, chroma, and pgvector, proven by the shared behavioural suite.
   6. A stranger following a link from a résumé can still reach a working demo without abandoning at an auth wall.
-**Plans**: TBD
+**Plans**: 6 plans
+- [ ] 12-01-PLAN.md — Wave 0: chromadb joins the dev extra + 4-arm contract suite; Database.transaction() helper
+- [ ] 12-02-PLAN.md — Wave 1: signed HMAC identity token + mint-on-response IdentityMiddleware (never 401)
+- [ ] 12-03-PLAN.md — Wave 2: Postgres identity-keyed rate limit + reservation-based spend cap (advisory-lock)
+- [ ] 12-04-PLAN.md — Wave 3: session ownership, 7-day derived expiry, dual-mode listing, 404-not-403, walker surgery
+- [ ] 12-05-PLAN.md — Wave 4: owner-scoped notes + 7-day TTL across all four backends; owner threaded through the graph
+- [ ] 12-06-PLAN.md — Wave 5: ADR-0007 supersedes 0006, README fix, identity-aware page (criterion 6), live cutover
 **UI hint**: yes
 
 **Notes for discuss-phase:**
