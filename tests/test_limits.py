@@ -5,6 +5,7 @@ The service is publicly reachable with live API keys, so these are the tests
 that stand between a shared URL and someone else's Anthropic bill.
 """
 
+import threading
 import time
 
 import pytest
@@ -140,8 +141,6 @@ def test_stale_keys_are_swept():
 
 
 def test_the_limiter_is_thread_safe():
-    import threading
-
     rl = RateLimiter(limit=1000, window_seconds=3600)
     errors = []
 
@@ -303,6 +302,88 @@ def test_postgres_reservations_round_trip(pg_limits):
     assert pg_limits.reservation_ids() == {"pg-run-1"}
     assert pg_limits.reserve("pg-run-2", "id-b", 0.20, cap=5.00, spent_24h=4.95) is False
     pg_limits.settle("pg-run-1")
+    assert pg_limits.reservation_ids() == set()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_cap_reservation_no_overshoot(pg_limits):
+    """Two guards racing one slot: exactly one may have it.
+
+    This is the gate on the whole reservation design. A conditional
+    INSERT ... SELECT reads as atomic and is not: under READ COMMITTED each
+    transaction evaluates its WHERE against a snapshot taken before the other's
+    row was committed, so both see an empty table and both insert. Only the
+    advisory lock around check-and-insert makes the pair serial.
+
+    Two Databases on two tagged DSNs, because db._pool_for caches one pool per
+    DSN -- one handle would hand both threads connections from the same pool,
+    which still works but tests less. Mirrors the schema-lock exclusivity test
+    in test_store_contract.py.
+    """
+    est = 0.20
+    cap = 0.20  # room for exactly one reservation, and not a cent more
+    stores = [
+        PostgresLimits(dsn=_dsn_tagged("ra_cap_race_a")),
+        PostgresLimits(dsn=_dsn_tagged("ra_cap_race_b")),
+    ]
+    results = []
+    results_lock = threading.Lock()
+    # A barrier rather than a bare start(): without it the first thread can
+    # finish before the second begins, and the test proves nothing about
+    # concurrency at all.
+    ready = threading.Barrier(len(stores))
+
+    def attempt(store, run_id):
+        ready.wait(timeout=5)
+        outcome = store.reserve(run_id, "racer", est, cap, 0.0)
+        with results_lock:
+            results.append(outcome)
+
+    threads = [
+        threading.Thread(target=attempt, args=(store, f"race-{i}"))
+        for i, store in enumerate(stores)
+    ]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+    finally:
+        for store in stores:
+            store.close()
+
+    assert results.count(True) == 1, f"the cap admitted {results.count(True)} of two: {results}"
+    assert results.count(False) == 1, results
+    assert len(pg_limits.reservation_ids()) == 1  # and only one row exists
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_postgres_reservation_settles_and_reclaims(pg_limits):
+    """Settle releases the slot; a crashed run's reservation releases itself."""
+    pg_limits.reserve("settled", "id-a", 0.60, cap=1.00, spent_24h=0.0)
+    pg_limits.settle("settled")
+    assert pg_limits.reservation_ids() == set()
+
+    # Control: a LIVE reservation genuinely blocks a second one. Without this,
+    # "the stale one was ignored" below would also pass against a reserve that
+    # had stopped counting reservations altogether.
+    assert pg_limits.reserve("live", "id-a", 0.60, cap=1.00, spent_24h=0.0) is True
+    assert pg_limits.reserve("blocked", "id-b", 0.60, cap=1.00, spent_24h=0.0) is False
+    pg_limits.settle("live")
+
+    # A run whose process died 15 minutes ago. Nothing legitimate is still
+    # going, so its claim on the budget must lapse rather than throttle the
+    # demo until someone notices.
+    pg_limits.db.execute(
+        "INSERT INTO run_reservations (run_id, identity, est_usd, created_at) "
+        "VALUES (%s, %s, %s, %s)",
+        ("crashed", "id-c", 0.60, time.time() - limits.RESERVATION_STALE_SECONDS - 1),
+    )
+    assert pg_limits.reserve("fresh", "id-d", 0.60, cap=1.00, spent_24h=0.0) is True
+
+    # And it is purged rather than accumulating forever.
+    pg_limits.SWEEP_EVERY = 1  # instance attribute: forces the sweep on this call
+    pg_limits.settle("fresh")
     assert pg_limits.reservation_ids() == set()
 
 
