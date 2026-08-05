@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Completed 12-03-PLAN.md (Wave 2): limits moved to a LimitsStore keyed on identity; the daily cap now reserves in-flight spend under pg_advisory_xact_lock and settles on every terminal arm. Next: 12-04."
-last_updated: "2026-08-05T13:20:00.000Z"
-last_activity: "2026-08-05 — Executed 12-03: LimitsStore (memory + Postgres), identity-keyed rate window, reserve_or_429 in all four spending routes, settle at every metrics.record, two-thread no-overshoot race against real Postgres. Suite 493/41 plain, 533/1 armed; README 504 -> 534 and the falsified spend-cap limitation corrected."
+stopped_at: "Completed 12-04-PLAN.md (Wave 3): sessions carry an owner and a derived 7-day expiry; SESSIONS_TOKEN is now the operator dual-mode credential; foreign/expired/missing are one 404. Next: 12-05."
+last_updated: "2026-08-05T13:55:00.000Z"
+last_activity: "2026-08-05 — Executed 12-04: session owner column (lazy migration, both backends), derived 7-day expiry against the DB clock with a sweep on create, require_session_access dual-mode, owner-checked _require returning one 404 for missing/expired/foreign, and the walker extended with the router-level assertion its per-route form was vacuous against. Suite 506/45 plain, 550/1 armed; README/OPERATIONS/.env.example corrected."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 16
+  completed_plans: 17
   percent: 57
 ---
 
@@ -26,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTING**
-Plan: 3 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
-Status: Wave 2 complete (12-03). Rate limiting and the daily spend cap have left per-machine memory: both live in a `LimitsStore` (memory or Postgres, defaulting on `DATABASE_URL`), the rate window keys on the signed identity rather than the client address, and the cap counts in-flight runs by reserving `$0.20` per run inside a transaction holding `pg_advisory_xact_lock(CAP_LOCK_KEY)`. Two of the phase's named defects — the ~3× concurrency overshoot and the two-machines-two-budgets split — are closed with falsifiable gates.
-Last activity: 2026-08-05 — Executed 12-03 (commits fe50a83, 9db9125, 40d2de9, 7fb1c72, fd5267f).
+Plan: 4 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
+Status: Wave 3 complete (12-04). Sessions now belong to the identity that created them and stop resolving seven days after their last write (derived from `updated_at`, evaluated against the *database's* clock, swept opportunistically on `create()`; reads never renew). `SESSIONS_TOKEN` survives as the **operator** credential — a valid token lists every owner's sessions, without one the listing is caller-scoped — and a foreign, expired or invented session id all return the same 404 with the same body. Criterion 3 and criterion 4 are in; the third named defect (sessions immortal and world-readable to any token holder) is closed.
+Last activity: 2026-08-05 — Executed 12-04 (commits 82af2cc, b87a088, 6b52781).
 
 **Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7.
 
 Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 12: [█████░░░░░] 3 of 6 plans — executing
+Phase 12: [███████░░░] 4 of 6 plans — executing
 
 **Carry into execution — what breaks the demo if wrong:**
 
@@ -75,7 +75,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
-| 12 | 3 of 6 (12-01, 12-02, 12-03) | 57min | 19min |
+| 12 | 4 of 6 (12-01, 12-02, 12-03, 12-04) | 86min | 22min |
 
 **Recent Trend:**
 
@@ -159,6 +159,14 @@ Recent decisions affecting current work:
 - [Phase 12-03]: **Settle goes next to `metrics.record`, never in the handler's `except`.** `_stream` swallows its exception to terminate the SSE cleanly, so the handler's own `except` never runs on a failed stream — a settle placed there leaks a reservation on every stream failure. Four terminal arms, four settles. `limits.settle()` itself never raises: a failed settle must not turn a finished run into a 500 or truncate a stream that already delivered, and `RESERVATION_STALE_SECONDS` (900s) makes the failure survivable while the warning keeps the leak visible.
 - [Phase 12-03]: **The process-global `RateLimiter` instance is gone.** It was what made "the rate limit" mean something different on each machine, and a module global is not something a request can be pointed away from. The window now lives in the injected store; `RateLimiter` survives only as `InMemoryLimits`' internals.
 - [Phase 12-03]: **Baselines moved and are fully explained**: plain 467/37 → 493/41, armed 503/1 → 533/1, collected 504 → 534. The four extra plain skips are exactly the Postgres-gated `test_limits.py` tests, so **a green plain run is not evidence for the no-overshoot race** — the armed run against `:54329` is. README's falsified spend-cap limitation was corrected by the wave that falsified it; the "rate-limited, not authenticated" line still belongs to Wave 5.
+- [Phase 12-04]: **A dependency assertion over routes cannot see WHERE the dependency came from.** Every session handler injects `require_session_access` as a parameter to read its value, so `dependency_names(route)` is satisfied with or without the router-level declaration — deleting `sessions_router`'s own `dependencies=[...]` left the new structural gate GREEN. Observed by mutation, not reasoned about. `service.sessions_router.dependencies` is now asserted directly. Structural membership is the entirety of ADR-0006 part 4; a gate that cannot see it removed is not guarding it.
+- [Phase 12-04]: **404 for foreign, expired and missing alike — asserted as an equality between two live responses**, not as two status codes. Equal status, equal key sets, and detail strings differing only in the echoed id. A 403 confirms an id names a real session, and session ids travel in shared URLs and screenshots.
+- [Phase 12-04]: **`delete_session` calls `_require` before `store.delete`.** `store.delete` returns True/False, which distinguishes a real id from an invented one even while refusing both — the oracle rebuilt one layer down. Ownership is checked at the same choke point the reads use.
+- [Phase 12-04]: **Expiry is derived from `updated_at`, never a second column, and Postgres evaluates it with `EXTRACT(EPOCH FROM now())`.** Two machines then read one clock; a Python-side cutoff would make "expired" mean something slightly different on each. `SESSION_TTL_DAYS` (7) is read per call. Reads must never renew — otherwise "7 days after last activity" silently becomes "7 days after last glance" and the table never shrinks (contract-tested on both backends, the renewal half asserted on a live session *before* the expiry half).
+- [Phase 12-04]: **The fail-closed property of `SESSIONS_TOKEN` inverted, and that is the honest reading.** It used to raise 403 when unset because the token was the only thing between a stranger and someone else's research. Ownership is now that thing, and ownership cannot be left unset — so an unset token closes the operator view alone. `require_session_access` never raises. ADR-0007 (Wave 5) records it.
+- [Phase 12-04]: **`client.cookies.set(name, value, domain="testserver")` silently does not send the cookie**; hand cookies to the `TestClient` constructor instead. 12-03's `test_delete_rate_limited_check_runs_after_the_token_check` used the broken form, so its stated premise ("carries the VICTIM'S cookie") was false while the test still passed.
+- [Phase 12-04]: **Pre-Phase-12 rows need no migration step.** `owner=''` matches no caller (identities are 32-hex uuids), so orphans resolve for nobody the moment the filter lands and are swept once past the seven-day line. Claim-by-nobody-and-expire: no manual deletion, no special case in code, and the operator can still inspect them until they age out.
+- [Phase 12-04]: **Baselines moved and are fully explained**: plain 493/41 → 506/45, armed 533/1 → 550/1, collected 534 → 551 (+17 in both arms). The four extra plain skips are exactly the postgres arms of the four new session-contract tests, so the **armed** run is what proves DB-clock expiry. README/OPERATIONS/.env.example corrected for ownership, expiry and `SESSIONS_TOKEN`; the "rate-limited, not authenticated" line at ~210 remains Wave 5's.
 
 ### Pending Todos
 
@@ -217,10 +225,14 @@ None yet.
   completes. The SSE handler redacts and truncates. The cutover also carried Phase 10's three
   pending commits, so the deployed tree now equals `main` and the deploy drift is gone.
 
-  **Residual, now owned by Phase 12:** the token proves *authorised*, not *who* — there is
-  still no per-caller ownership or session expiry, and `GET /sessions` still lists every
-  session to any token holder. Two orphaned notes from the sessions deleted on 2026-08-04
-  remain in the memory store. `_index_json` does not advertise `DELETE /sessions/{id}`.
+  **Residual, owned by Phase 12 — session half RESOLVED 2026-08-05, plan 12-04.** Sessions now
+  carry the identity that created them, `GET /sessions` is caller-scoped (a valid `SESSIONS_TOKEN`
+  switches to the unscoped operator view), a foreign or expired session returns 404 identical to
+  missing, and sessions expire 7 days after their last turn. The two pre-Phase-12 rows carry
+  `owner=''`, resolve for nobody, and are swept on the first `create()` past their TTL — no manual
+  deletion needed. **Still open:** the two orphaned *notes* from the 2026-08-04 deletions (Wave 4,
+  12-05, which scopes and bounds notes), and `_index_json` does not advertise
+  `DELETE /sessions/{id}`.
 
 - **Other findings from codebase mapping, not yet phased.** Notes are written to a shared
   store with no tenant scoping (`graph.py:274`) and recalled into other visitors' runs
@@ -255,12 +267,44 @@ None yet.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Docs drift | `docs/OPERATIONS.md` still says the spend cap counts completed runs only and "this is not fixed" (12-03 closed it), describes `DEMO_RATE_LIMIT_PER_HOUR` as per-visitor-IP (12-03 rekeyed it to identity), and omits `DEMO_RESERVED_RUN_USD` from the env table | Open — 12-06 owns the phase doc pass | 12-04 |
 
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 12-03-PLAN.md — Wave 2 of Phase 12 is in.** Five commits on
+Stopped at: **Completed 12-04-PLAN.md — Wave 3 of Phase 12 is in.** Three commits on
+`gsd/phase-12-caller-identity`: `82af2cc` (the `owner` column on both session backends — an
+idempotent `ALTER TABLE … IF NOT EXISTS` appended to `POSTGRES_SCHEMA` so it runs inside the
+existing advisory-locked lazy DDL, and a `PRAGMA table_info(sessions)` probe for SQLite, whose
+owner index is created *after* the probe because a pre-Phase-12 file already has the table;
+`session_ttl_seconds()` reading `SESSION_TTL_DAYS` (7) per call; a lazy expiry filter in
+`get`/`list` computed from `EXTRACT(EPOCH FROM now())` on Postgres so two machines share one
+clock; `list(limit, owner=None)`; an opportunistic sweep on `create()`; four contract tests over
+BOTH backends), `b87a088` (`require_sessions_token` → `require_session_access` returning
+`("operator", None)` or `("identity", id)` and never raising; `_require(store, id, owner, *,
+operator)` raising one 404 for missing, expired and foreign; caller-scoped listing with the
+operator dual-mode; `delete_session` going through `_require` *before* `store.delete`; the ask
+routes keeping `guard` and enforcing ownership in-handler; `owner=` threaded into both
+`store.create` call sites; the walker extended and then **strengthened after mutation showed the
+plan's own form was vacuous**), and `6b52781` (README's API table and known-limitation bullet,
+OPERATIONS' `SESSIONS_TOKEN` row and two-tokens paragraph, `SESSION_TTL_DAYS` into both env
+tables, and `deferred-items.md`).
+Suite: **506 passed / 45 skipped plain, 550 passed / 1 skipped armed** against 493/41 and 533/1.
+Collected 534 → 551; the four extra plain skips are exactly the postgres arms of the four new
+session-contract tests, so the plain run is **not** evidence for DB-clock expiry — the armed run
+on `:54329` is. `ruff` clean. Nothing deployed; no push.
+**Falsified, not assumed:** dropping the owner check from `_require` turns 7 tests red; forcing
+the listing unscoped turns 3 red; and deleting `sessions_router`'s own `dependencies=[...]`
+initially turned **nothing** red, which is why the gate now asserts the router's dependency list
+directly.
+**Owed to 12-05/12-06:** `REQ-store-lifecycle-and-ownership` stays Pending until the notes half
+lands in Wave 4. `docs/OPERATIONS.md` still carries two claims 12-03 falsified (see Deferred
+Items). README's "rate-limited, not authenticated" line at ~210 is still Wave 5's, and is now
+false in both halves. The two orphaned *notes* from 2026-08-04 are Wave 4's to deal with; the
+orphaned *sessions* need no action — `owner=''` matches nobody and the sweep collects them.
+Resume file: None
+
+Superseded — previous session: **Completed 12-03-PLAN.md — Wave 2 of Phase 12 is in.** Five commits on
 `gsd/phase-12-caller-identity`: `fe50a83` (the `LimitsStore` ABC with `InMemoryLimits` and
 `PostgresLimits`; two new tables under the lazy advisory-locked `ensure_schema`; `get_limits_store()`
 defaulting on `DATABASE_URL` like sessions and metrics), `9db9125` (`DEMO_RESERVED_RUN_USD`;
