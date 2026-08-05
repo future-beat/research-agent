@@ -504,6 +504,85 @@ def test_describe_reports_the_count(notes):
     assert "1 note(s)" in notes.describe()
 
 
+# -- note ownership and expiry (Phase 12) ----------------------------------
+#
+# These two run on all FOUR note backends, which is the whole of SC-5: the
+# roadmap promises notes behave identically across json, memory, chroma and
+# pgvector, and four hand-written filters agreeing is exactly the kind of
+# thing that quietly stops being true. Three of the arms need no server; the
+# pgvector arm skips without DATABASE_URL and runs in CI, where the multi-
+# machine backend is the one actually serving the deployment.
+
+
+def test_note_scoping(notes):
+    """A note is recalled for its owner and for nobody else.
+
+    This is the prompt-injection fix, asserted at the store. Notes are read
+    back into a researcher prompt whose output the critic then reviews, so a
+    note one visitor caused to be written could steer another visitor's
+    report. All three notes here embed IDENTICALLY -- the extra word is
+    outside the fake embedder's vocabulary -- so similarity cannot be what
+    separates them. Drop the owner filter from any backend and a query for
+    one owner returns all three.
+    """
+    notes.add("langgraph supervisor alice-note", owner="alice")
+    notes.add("langgraph supervisor bob-note", owner="bob")
+    notes.add("langgraph supervisor orphan-note")  # owner='' by default
+
+    # Both directions, per arm: mine comes back, theirs does not.
+    assert notes.query("langgraph supervisor", owner="alice") == [
+        "langgraph supervisor alice-note"
+    ]
+    assert notes.query("langgraph supervisor", owner="bob") == ["langgraph supervisor bob-note"]
+
+    # owner='' is a real, exact owner value and never a wildcard. If it meant
+    # "all", every pre-Phase-12 note would still leak into every run and the
+    # REPL's own notes would be readable by the service.
+    assert notes.query("langgraph supervisor", owner="") == [
+        "langgraph supervisor orphan-note"
+    ]
+
+    # And an identity that wrote nothing recalls nothing, rather than
+    # inheriting the communal store.
+    assert notes.query("langgraph supervisor", owner="carol") == []
+
+
+def test_note_ttl(notes, monkeypatch):
+    """Past the TTL a note stops being recalled, and the next add sweeps it.
+
+    The age is produced by moving the line rather than the note: NOTE_TTL_DAYS
+    is read per call on every backend, so setting it to 0 puts an existing note
+    on the far side of the cutoff without reaching into four different storage
+    layouts to forge a timestamp. It also proves the backends read the setting
+    rather than a hardcoded seven.
+
+    Both halves are needed and neither implies the other. The filter is what
+    makes expiry immediate; the sweep is what stops the store growing forever,
+    and against query() alone a lazy filter looks exactly like a sweep. So the
+    sweep is asserted on len(), which is unfiltered on all four backends --
+    and then on the note staying gone once the TTL is widened back out, which
+    a merely-hidden note would not.
+    """
+    monkeypatch.setenv("NOTE_TTL_DAYS", "7")
+    notes.add("langgraph supervisor", owner="alice")
+    # Non-vacuity: it is genuinely recallable before the line moves, so a
+    # backend that returned [] for unrelated reasons cannot pass the next half.
+    assert notes.query("langgraph supervisor", owner="alice") == ["langgraph supervisor"]
+
+    monkeypatch.setenv("NOTE_TTL_DAYS", "0")
+    assert notes.query("langgraph supervisor", owner="alice") == []
+    assert len(notes) == 1, "the note should still be present, only filtered out"
+
+    notes.add("chroma voyage", owner="alice")
+    assert len(notes) == 1, "add() did not sweep the expired note"
+
+    monkeypatch.setenv("NOTE_TTL_DAYS", "7")
+    assert notes.query("langgraph supervisor", owner="alice") == [], (
+        "widening the TTL brought the note back; it was hidden, not swept"
+    )
+    assert notes.query("chroma voyage", owner="alice") == ["chroma voyage"]
+
+
 # --------------------------------------------------------------------------
 # Backend selection and Postgres specifics
 # --------------------------------------------------------------------------
