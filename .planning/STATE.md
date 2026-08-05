@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: planned
-stopped_at: "Phase 13 planned on branch gsd/phase-13-embedding-migration (stacked on phase-12; rebase onto main after PR #6 merges). 5 plans, 5 waves; checker 0 blockers, 3 warnings fixed. Next: /gsd:execute-phase 13."
-last_updated: "2026-08-05T16:35:00.000Z"
-last_activity: "2026-08-06 — Phase 13 planned: repair-then-prove migrate.py (it orphans owners TODAY), copy-only + re-embed as separate commands, golden recall set with exact-scan discipline (HNSW never inside a fidelity claim), VOYAGE_PRICES effective-dated in usage.py, cutover = PGVECTOR_TABLE flip, ADR-0008."
+status: in-progress
+stopped_at: "Completed 13-01-PLAN.md (migrate.py repaired and proven). Branch gsd/phase-13-embedding-migration, rebased onto main. Next: 13-02 (argparse subcommands + embeddings copy)."
+last_updated: "2026-08-06T00:00:00.000Z"
+last_activity: "2026-08-06 — Phase 13 wave 1 executed: migrate.py's live data-loss bug fixed (notes and sessions now carry owner and created_at), owner-aware dedup, expired-session skip stated, and the module's first-ever tests. Five mutations run; one gate found vacuous and repaired."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 19
+  completed_plans: 20
   percent: 58
 ---
 
@@ -25,21 +25,22 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 13 of 17 (Embedding model migration) — **PLANNED, not started**
-Plan: 0 of 5 executed · branch `gsd/phase-13-embedding-migration`, STACKED on
-`gsd/phase-12-caller-identity` (phase 12 note schema is a dependency). **Rebase onto `main`
-after PR #6 merges, before executing.**
-Status: Planned and verified — checker 0 blockers; 3 one-line warnings fixed inline.
+Phase: 13 of 17 (Embedding model migration) — **IN PROGRESS**
+Plan: 1 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
+(PR #6 merged). Not pushed.
+Status: Wave 1 complete — migrate.py repaired and proven.
 
-**Phase 12 shipped** (PR #6 open, green, v9 live). Phases 10, 10.5, 11 merged.
+**Phase 12 shipped** (PR #6 merged, v9 live). Phases 10, 10.5, 11 merged.
 
 Progress: [███████░░░] 71% (12 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 13: [░░░░░░░░░░] 0 of 5 plans — planned
+Phase 13: [██░░░░░░░░] 1 of 5 plans — 13-01 done
 
 **Carry into execution:**
-- `migrate.py` has a LIVE data-loss bug today: `migrate_notes` inserts only `(text,
-  embedding)` → every migrated note orphaned to `owner=''` with its TTL restarted;
-  sessions drop `owner` too. Wave 1 repairs before proving.
+- ~~`migrate.py` has a LIVE data-loss bug today~~ **FIXED in 13-01.** Notes and sessions
+  carry `owner` and `created_at`; dedup keys on `(text, owner, created_at)`; the
+  expired-session skip is printed. `tests/test_migrate.py` gates all three.
+- `migrate_notes` now takes `table=`/`dimensions=` keyword parameters — waves 2–3 should
+  extend that idiom rather than reading module constants inside new functions.
 - "Recall byte-identical" is NEVER asserted through the HNSW index (approximate,
   nondeterministic build). Exact-scan discipline everywhere; index sanity is a separate,
   scale-bounded set-equality check.
@@ -66,6 +67,7 @@ Phase 13: [░░░░░░░░░░] 0 of 5 plans — planned
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
+| 13 | 1 of 5 (13-01) | 41min | 41min |
 
 **Recent Trend:**
 
@@ -137,6 +139,10 @@ Recent decisions affecting current work:
 - [Phase 11-04]: **The HTTP round trip and the database round trip are separable, and worth separating when one is blocked.** Every HTTP write path runs the model first, so a dead model key blocks the session round trip through `/research`. Proving it at the store layer over `fly ssh console` — same classes, same pool, same DSN, same `::vector` cast — discharged the database claim honestly, with the gap (FastAPI's dependency wiring, already covered by `/health`) named rather than papered over.
 - [Phase 11-04]: **`fly ssh console -C` takes no shell**, so RESEARCH's `python - <<'PY'` heredoc never reaches Python, and the container has no `curl`. base64-encode the script locally and run `python -c "import base64;exec(base64.b64decode('...'))"`. This also keeps credentials inside the machine — the script reads `os.environ['DATABASE_URL']` and never prints it.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
+- [Phase 13-01]: **A dedup or idempotency gate that only runs once proves nothing about the key.** The plan's own acceptance criterion — "the same text under two owners produced two rows" — is green under a text-only dedup key, because a first pass into an empty table inserts everything whatever the key is. The gate now deletes one owner's row and re-migrates, which is where the key actually applies. **Fourteenth vacuous gate, second consecutive phase** where a structurally sensible assertion was blind to the exact mutation it existed to catch.
+- [Phase 13-01]: **Timestamp identity across the SQLite/JSON→Postgres boundary is compared as a `datetime`, never as an epoch float.** `extract(epoch FROM …)` returns a psycopg `Decimal` (never equal to a float), and a ~1.8e9 epoch carrying microseconds needs 16 significant digits where float64 has ~15.95 — so a rounded-epoch dedup key could fail to recognise the row it had just written, turning every re-run into a duplicate insert.
+- [Phase 13-01]: **Belt-and-braces writes are honest redundancy, not a caught bug, and the mutation table must say so.** `owner` is written twice in `migrate_sessions` (the `create()` kwarg and the restoring UPDATE), so removing either alone is unobservable and stays green. Only removing both goes red. Recorded as such rather than claiming a red that did not happen.
+- [Phase 13-01]: A missing or zero `created_at` migrates as **epoch 0** — already expired under the note TTL — rather than as `now()`. That mirrors what the store does with pre-Phase-12 entries; stamping them fresh would resurrect data the service had stopped serving.
 - [Phase 12-01]: **The dev extra composes `research-agent[chroma]` rather than repeating the pin.** chromadb==1.4.1 stays pinned once, in the chroma extra; a SQLite/JSON deploy installing `[service]` alone still never pulls it. The contract fixture's chroma arm skips ONLY on a genuinely missing chromadb import — never on HAS_POSTGRES — so CI (which installs dev) collects and runs it.
 - [Phase 12-01]: **`CAP_LOCK_KEY` (11165997) is a different advisory-lock key from `SCHEMA_LOCK_KEY` (3895545195)**, and the inequality test is deliberately not Postgres-gated so a keyless local run still catches a collapsed-constants edit. A shared key would serialise cap accounting against schema DDL.
 - [Phase 12-01]: **The xact-lock test's held-half is what makes it falsifiable.** `pg_advisory_xact_lock` on an autocommit connection degenerates to a one-statement lock, so a `transaction()` that silently stopped opening a transaction would still pass an after-the-block acquisition check. The test therefore also asserts a rival connection is REFUSED the lock while the block is open. `transaction()` mirrors `cursor()`'s PoolTimeout/PoolClosed-before-OperationalError ordering.
