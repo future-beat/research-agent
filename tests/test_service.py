@@ -11,6 +11,8 @@ import json
 import re
 import threading
 import time
+from collections import Counter
+from html.parser import HTMLParser
 
 import anthropic
 import httpx
@@ -2102,3 +2104,330 @@ def test_identity_state_is_populated_before_the_handler(monkeypatch):
     assert client.get("/anything").status_code == 200
 
     assert len(seen["identity"]) == 32 and seen["identity"].isalnum()
+
+
+# --------------------------------------------------------------------------
+# Criterion 6: the first paint a stranger sees
+#
+# ROADMAP criterion 6 is that someone following a link from a resume reaches a
+# working demo with zero added friction. Phase 12 gave the page an identity, an
+# owned-session list and a resume flow, and the whole risk of that work is that
+# it shows up before the first question. The constraint (12-UI-SPEC AC1) is that
+# a cleared-storage first visit differs from the pre-phase page by exactly TWO
+# text deltas -- the footer identity sentence, and the reworded #limits line --
+# and by nothing else.
+#
+# These are static-file assertions: they read the file the service serves and
+# need no client, no server and no browser. They are gates on a property a human
+# would otherwise have to re-check by eye on every future edit, which is the
+# same as not checking it.
+# --------------------------------------------------------------------------
+
+
+def _demo_page() -> str:
+    """The exact file `GET /` serves, located the way the service locates it.
+
+    Via service.DEMO_PAGE rather than a path assembled here, so moving the file
+    cannot leave these gates reading a stale copy and passing.
+    """
+    with open(service.DEMO_PAGE, encoding="utf-8") as handle:
+        return handle.read()
+
+
+class _FirstPaintText(HTMLParser):
+    """Every run of visible text in the markup, in document order.
+
+    Script and style contents are skipped -- they are not paint. Whitespace is
+    collapsed so that reindenting the markup is not a "change".
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._suppressed = 0
+        self.runs: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._suppressed += 1
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self._suppressed -= 1
+
+    def handle_data(self, data):
+        if self._suppressed:
+            return
+        text = re.sub(r"\s+", " ", data).strip()
+        if text:
+            self.runs.append(text)
+
+
+# Measured on the pre-phase tree (2026-08-05) and then re-measured after the
+# Phase 12 page work: the ONLY difference between the two is the footer
+# sentence, inserted at index 4. Anything else -- a banner, a consent line, an
+# empty-state message, a "loading your sessions" placeholder -- adds or changes
+# a run here and turns this red.
+class _MarkupTags(HTMLParser):
+    """Every element the served markup declares."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tags: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.append(tag)
+
+    def census(self) -> dict[str, int]:
+        return dict(sorted(Counter(self.tags).items()))
+
+
+# Measured: identical to the pre-phase census except `div` 2 -> 3, which is the
+# footer identity sentence. Note what is NOT here and must never be: `details`
+# and `summary`. The owned-session list is built in script and inserted only
+# when it has rows, so an empty one cannot render on a first visit.
+FIRST_PAINT_TAGS = {
+    "a": 4, "body": 1, "button": 1, "div": 3, "footer": 1, "form": 1,
+    "h1": 1, "head": 1, "header": 1, "html": 1, "input": 1, "meta": 2,
+    "p": 2, "script": 1, "span": 1, "style": 1, "title": 1,
+}
+
+FIRST_PAINT_TEXT = (
+    "Research agent",
+    "Research agent",
+    "Asks a question, searches the web, drafts a report, then fact-checks that "
+    "draft against its own research notes and revises until every claim is "
+    "grounded. Watch the critic push back.",
+    "Research",
+    "Your sessions and notes are private to this browser and expire after 7 days of inactivity.",
+    "/docs",
+    "·",
+    "/metrics",
+    "·",
+    "/health",
+    "·",
+    "/pricing",
+)
+
+# Measured baseline, 12-UI-SPEC AC7, unchanged by this phase. Asserted as SETS:
+# adding a value fails even though the count of declarations went up, which is
+# what makes "no new sizes or weights" falsifiable rather than decorative.
+FONT_SIZES = {".78rem", ".82rem", ".85em", ".88em", ".9rem", ".95rem", "1.15rem", "1.6rem"}
+FONT_WEIGHTS = {"600", "700"}
+
+# The `font:` shorthand also sets a size and a weight, so a gate that only reads
+# the longhands can be walked straight past with `font: 1.1rem/1.6 serif`. These
+# are the only two shorthand values on the page.
+FONT_SHORTHANDS = {
+    "inherit",
+    '16px/1.6 ui-serif, Georgia, "Times New Roman", serif',
+}
+
+
+def test_page_keeps_innerhtml_at_zero():
+    """Measured baseline on the current tree: 0.
+
+    Session task text and model output are both untrusted input, and the page
+    renders both. `el()`/`textContent` is the rule; one `innerHTML` anywhere in
+    this file is a stored-XSS primitive, so the gate is zero rather than "not
+    many".
+    """
+    page = _demo_page()
+
+    # Non-vacuity: prove we read the real file before asserting an absence.
+    assert "textContent" in page and len(page) > 5000
+
+    assert page.count("innerHTML") == 0
+
+
+def test_page_font_sets_unchanged():
+    """The SETS of declared font sizes and weights equal the AC7 baselines.
+
+    Set equality, not a count and not a `>= 1`: a new size raises the number of
+    declarations, so a count-based gate stays green for exactly the change it
+    exists to catch. This is the machine-checkable half of "the first visit
+    looks like it always did".
+    """
+    page = _demo_page()
+    # Real declarations only. Scanning the whole file matched a CSS comment
+    # that quotes `font: inherit` while explaining why it is there -- a gate
+    # that reads prose is a gate that can be fooled by prose in either
+    # direction.
+    declared = re.search(r"<style>(.*?)</style>", page, re.S).group(1)
+    css = re.sub(r"/\*.*?\*/", "", declared, flags=re.S)
+
+    sizes = {m.strip() for m in re.findall(r"font-size:\s*([^;}]+)", css)}
+    weights = {m.strip() for m in re.findall(r"font-weight:\s*([^;}]+)", css)}
+    shorthands = {m.strip() for m in re.findall(r"(?<!-)\bfont:\s*([^;}]+)", css)}
+
+    assert sizes == FONT_SIZES
+    assert weights == FONT_WEIGHTS
+    assert shorthands == FONT_SHORTHANDS
+
+    # The other way a size could arrive: set from script, where no CSS gate
+    # would ever see it. The page styles nothing from JS and must not start.
+    script = re.search(r"<script>(.*?)</script>", page, re.S).group(1)
+    assert "style" not in script
+
+
+def test_page_first_paint_has_no_new_interactive_element():
+    """AC1's other half: no new interactive element reachable before the first
+    question.
+
+    The text gate below cannot see this one -- an empty `<button>` or a
+    `<details>` with a blank summary contributes no text run and sails past it,
+    which was found by mutating that gate rather than by reading it. So the
+    served markup's tag census is frozen outright. The measured baseline is the
+    pre-phase census: Phase 12 adds ONE `div` (the footer sentence) and no
+    interactive tag at all -- the session list is constructed at runtime and is
+    the reason `details`/`summary` must not appear here.
+    """
+    parser = _MarkupTags()
+    parser.feed(_demo_page())
+
+    assert parser.census() == FIRST_PAINT_TAGS
+
+
+def test_page_first_paint_text_is_frozen():
+    """The visible text of the served markup, against a measured baseline.
+
+    This is criterion 6 itself, as close as a static test gets: the pre-phase
+    page produced these runs minus the footer sentence, so the markup delta of
+    the whole phase is exactly one line of text. The second permitted delta --
+    the reworded #limits line -- is not here because `<p id="limits">` ships
+    empty and is filled from `/demo` at runtime; its copy is asserted below.
+
+    A banner, a prompt, a consent notice, an empty-state message or a rendered
+    session list would all appear here.
+    """
+    parser = _FirstPaintText()
+    parser.feed(_demo_page())
+
+    assert tuple(parser.runs) == FIRST_PAINT_TEXT
+
+
+def test_page_copy_and_dom_present():
+    """The Phase 12 additions are actually in the file, with the agreed copy.
+
+    Verbatim strings, because the copywriting contract is the deliverable: a
+    paraphrase of "private to this browser" that promises more than the cookie
+    delivers would be the one dishonest sentence on an otherwise honest page.
+    """
+    page = _demo_page()
+
+    assert (
+        "Your sessions and notes are private to this browser "
+        "and expire after 7 days of inactivity." in page
+    )
+    assert "Your recent research" in page
+    assert "requests/hour for this browser" in page
+    assert "spent by all visitors in the last 24h" in page
+    assert "That session has expired" in page
+    assert (
+        "Sessions are kept for 7 days after their last activity. "
+        "Ask a new question to start fresh." in page
+    )
+    # The follow-up placeholder is now set from two places (a completed run and
+    # a resume) and must stay one string.
+    assert page.count("Follow up on that — answered from its notes, no new search") == 1
+
+    # The side-effect-free renderer exists and `result()` goes through it, so a
+    # stored turn cannot pick up result()'s fabricated cost and revision count.
+    assert re.search(r"function renderTurnCard\(", page)
+    assert re.search(r"out\.appendChild\(renderTurnCard\(payload", page)
+
+    # The owned-session list is CONSTRUCTED, never declared in the markup. That
+    # is the "not in the DOM until populated" rule: an empty disclosure element
+    # in the served HTML would render a stray triangle on a first visit.
+    # Note the shape of this gate -- a grep for the literal `<details id="mine">`
+    # would be satisfied by a code comment mentioning it, and would be green in
+    # exactly the state (the element shipped in the markup) it is meant to
+    # forbid. So: assert the construction, and assert the tag is absent.
+    assert 'mine.id = "mine"' in page
+    assert re.search(r'el\("details"\)', page)
+    assert "<details" not in page
+
+    # The two new call sites, and the resumed session's follow-up target.
+    assert 'fetch("/sessions")' in page
+    assert "/sessions/${encodeURIComponent(id)}" in page
+    assert "ask/stream" in page
+
+
+def test_page_renderer_omits_absent_badges_instead_of_inventing_them():
+    """The specific defect the renderer was extracted to remove.
+
+    The old `result()` did `Number(payload.cost_usd || 0).toFixed(4)` and
+    `payload.revision_count + " revision(s)"`, which for a stored turn -- whose
+    payload carries only a question and an answer -- renders "$0.0000" and
+    "undefined revision(s)". Both are inventions presented in the same badge
+    style as measured facts, which is worse than showing nothing.
+
+    Gated separately and by *presence* tests rather than truthiness, because
+    truthiness would also drop a genuine $0 or a genuine zero-revision run.
+    Found by mutation: restoring the `|| 0` fallback left every other gate in
+    this block green.
+    """
+    body = re.search(
+        r"function renderTurnCard\(.*?\n}\n", _demo_page(), re.S
+    ).group(0)
+
+    assert '"approved" in turn' in body
+    assert 'typeof turn.cost_usd === "number"' in body
+    assert 'typeof turn.revision_count === "number"' in body
+    assert 'typeof turn.usage.calls === "number"' in body
+    # The fallbacks that did the inventing.
+    assert "|| 0" not in body
+    assert "revision_count +" not in body or 'typeof turn.revision_count === "number"' in body
+
+
+def test_page_session_list_enters_the_dom_only_when_populated():
+    """The rule criterion 6 actually rests on.
+
+    An empty `<details>` in the document renders a stray disclosure triangle, so
+    "you have no sessions yet" would be visible to someone who has never asked
+    anything -- the added friction the whole constraint forbids. Keeping the
+    element out of the markup (asserted above) is only half of it; the other
+    half is that script must not append it unconditionally either, and mutating
+    that line to `if (!mine.parentNode)` left every other gate here green.
+    """
+    page = _demo_page()
+
+    # Asserted on the insertion and removal LINES, not on the enclosing
+    # function. The first version of this gate searched the whole of syncMine()
+    # for "rows &&" -- which the `else if (!rows && ...)` branch satisfies, so
+    # it stayed green under exactly the mutation it was written for. Twelfth
+    # vacuous gate in this project, and the first one I wrote myself.
+    insertion = re.search(r"^.*insertBefore\(mine, out\).*$", page, re.M).group(0)
+    removal = re.search(r"^.*mine\.remove\(\).*$", page, re.M).group(0)
+
+    assert re.search(r"\bif \(rows\b", insertion)   # only while it has rows
+    assert "!rows" in removal                       # and back out when it has none
+    # And nothing else in the file puts it in the document.
+    assert page.count("insertBefore(mine, out)") == 1
+
+
+def test_page_introduces_no_new_colour():
+    """AC7's colour half: every new rule uses the existing custom properties.
+
+    Dark mode is inherited for free precisely because nothing hardcodes a
+    colour, so this is also what keeps the page working in both schemes with no
+    new `@media` rule. Measured baseline: the only literal colour outside the
+    two `:root` blocks is the `#fff` on the accent button's label.
+    """
+    declared = re.search(r"<style>(.*?)</style>", _demo_page(), re.S).group(1)
+    outside_root = re.sub(r":root \{.*?\}", "", declared, flags=re.S)
+
+    assert set(re.findall(r"#[0-9a-fA-F]{3,8}\b", outside_root)) == {"#fff"}
+
+
+def test_page_is_self_contained():
+    """No external resource of any kind.
+
+    A strict CSP can then allow nothing external, the Dockerfile stays one COPY,
+    and the demo cannot be taken down by someone else's CDN. Case-insensitive
+    and wider than the plan's grep, since `HTTPS://` and `//cdn...` would both
+    slip past a lowercase literal.
+    """
+    page = _demo_page()
+
+    assert not re.search(r'(src|href)\s*=\s*"\s*(https?:)?//', page, re.IGNORECASE)
+    assert not re.search(r"@import|url\(\s*['\"]?https?:", page, re.IGNORECASE)
