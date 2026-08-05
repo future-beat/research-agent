@@ -162,14 +162,13 @@ def migrate_notes(
         # Dedup on (text, owner, created_at), never text alone: under Phase 12
         # scoping the same note text under two owners is two legitimate rows,
         # and a text-only key would migrate the first and silently drop the
-        # second. Epochs are rounded to microseconds because that is all a
-        # timestamptz keeps -- otherwise a re-run would fail to recognise the
-        # row it wrote itself.
+        # second. The timestamp half of the key is compared as a datetime
+        # rather than as an epoch float: timestamptz keeps microseconds, and a
+        # ~1.8e9 epoch with six decimals is already past float64's exact range,
+        # so an epoch comparison could fail to recognise the row it just wrote.
         existing = {
-            (r["text"], r["owner"], round(r["created_at"], 6))
-            for r in target.db.fetchall(
-                f"SELECT text, owner, extract(epoch FROM created_at) AS created_at FROM {table}"
-            )
+            (r["text"], r["owner"], r["created_at"])
+            for r in target.db.fetchall(f"SELECT text, owner, created_at FROM {table}")
         }
         for entry in entries:
             owner = entry.get("owner", "")
@@ -178,8 +177,10 @@ def migrate_notes(
             # mirrors what the store itself does with those entries (they read
             # as 0 and are swept), rather than resurrecting them with a fresh
             # timestamp.
-            created_at = float(entry.get("created_at", 0.0))
-            if (entry["text"], owner, round(created_at, 6)) in existing:
+            created_at = datetime.fromtimestamp(
+                float(entry.get("created_at", 0.0)), tz=timezone.utc
+            )
+            if (entry["text"], owner, created_at) in existing:
                 skipped += 1
                 continue
             if not dry_run:
@@ -190,7 +191,7 @@ def migrate_notes(
                         entry["text"],
                         PgVectorMemoryStore._literal(entry["embedding"]),
                         owner,
-                        datetime.fromtimestamp(created_at, tz=timezone.utc),
+                        created_at,
                     ),
                 )
             copied += 1
