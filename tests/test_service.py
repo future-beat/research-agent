@@ -1384,11 +1384,29 @@ def test_health_reports_credential_presence_never_values(make_client, monkeypatc
     client, _ = make_client()
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret-value")
     monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    # The signing secret is the one credential here whose leak is directly
+    # exploitable: it forges any caller's identity cookie. It gets the same
+    # presence-not-value treatment and its own leak assertion.
+    monkeypatch.setenv("IDENTITY_SIGNING_SECRET", "hunter2-secret-value")
 
     body = client.get("/health").json()
 
-    assert body["credentials"] == {"anthropic": True, "voyage": False}
+    assert body["credentials"] == {
+        "anthropic": True,
+        "voyage": False,
+        "identity_signing": True,
+    }
     assert "secret-value" not in json.dumps(body)
+
+
+def test_health_reports_an_unset_signing_secret_as_false(make_client, monkeypatch):
+    """False here is the operator's only signal that a two-machine fleet is
+    minting per-process ephemeral identities -- a cookie from one machine will
+    not verify on the other, and visitors silently lose their sessions."""
+    client, _ = make_client()
+    monkeypatch.delenv("IDENTITY_SIGNING_SECRET", raising=False)
+
+    assert client.get("/health").json()["credentials"]["identity_signing"] is False
 
 
 def test_health_treats_an_empty_key_as_absent(make_client, monkeypatch):

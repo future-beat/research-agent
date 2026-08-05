@@ -606,6 +606,13 @@ def health(
         "credentials": {
             "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "voyage": bool(os.environ.get("VOYAGE_API_KEY")),
+            # Presence, never the value -- the same posture as the API keys,
+            # and it matters more here: this one signs identity cookies, so
+            # leaking it to anyone who can curl /health would let them forge
+            # any caller. False on a multi-machine fleet means each machine
+            # minted its own ephemeral secret and identities do not survive
+            # being bounced between them (ADR-0007).
+            "identity_signing": bool(os.environ.get("IDENTITY_SIGNING_SECRET")),
         },
     }
 
