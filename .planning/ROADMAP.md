@@ -326,7 +326,7 @@ capacity exists, they can overlap. Phases 15 → 16 → 17 are strictly sequenti
 | 9.1 Package reorganisation | v1.0 | — | Complete | pre-GSD |
 | 10. ADRs and doc correctness | v1.1 | 5/5 | In Progress | All 5 plans executed; SC-1/2/3/4/6 green. Sign-off pending on SC-5 step 3 — `main` is 21 docs-only commits ahead of `origin/main`. No code differs; resolve with a push, not a deploy. |
 | 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 5/5 | Complete | Shipped as Fly release v4 on 2026-08-04; re-verified live 2026-08-05 (v4 healthy, `/`, `/health`, `/demo`, `/metrics` all 200) |
-| 11. Multi-machine state and pooled Postgres | v1.1 | 0/TBD | Not started | - |
+| 11. Multi-machine state and pooled Postgres | v1.1 | 1/5 | In Progress | 11-01 done: `db.py` pooled (one `ConnectionPool` per DSN), `PoolTimeout` excluded from the retry, DDL under a single-connection advisory lock. `REQ-connection-pool` stays Pending — 11-02 and 11-03 also claim it |
 | 12. Caller identity, session ownership, bounded stores | v1.1 | 0/TBD | Not started | - |
 | 13. Embedding model migration | v1.1 | 0/TBD | Not started | - |
 | 14. Real cost accounting | v1.1 | 0/TBD | Not started | - |

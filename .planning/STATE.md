@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: planned
-stopped_at: "Phase 11 planned — 5 plans, 5 waves. Checker: 0 blockers after one revision. Next: /gsd:execute-phase 11."
-last_updated: "2026-08-05T00:00:00.000Z"
-last_activity: "2026-08-05 — Phase 11 planned. Supabase chosen over Neon on evidence (Neon free tier meters 100 CU-h/month; /health probes keep compute awake and exhaust it ~day 16). Checker found 4 blockers, all silent-failure modes; fixed in one revision"
+status: executing
+stopped_at: "Completed 11-01-PLAN.md — db.py is pooled. Next: 11-02 (health deadline, lifespan disposal, real-server lock tests, and the _conn contract-test repair)."
+last_updated: "2026-08-05T04:30:00.000Z"
+last_activity: "2026-08-05 — Executed 11-01: one psycopg_pool.ConnectionPool per DSN shared by all three stores, PoolTimeout excluded from the retry (measured 0.505s vs 1.007s), DDL under a single-connection advisory lock. Both behavioural gates mutated and observed red before being reverted"
 progress:
   total_phases: 19
   completed_phases: 9
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 11
+  completed_plans: 11
   percent: 56
 ---
 
@@ -25,12 +25,13 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **PLANNED, not started**
-Plan: 0 of 5 executed in current phase
-Status: Planned and verified. Checker returned 4 blockers on the first pass; all four were
-silent-failure modes, fixed in one revision, re-verified to 0 blockers. Three residual warnings
-were closed by hand.
-Last activity: 2026-08-05 — Phase 11 planned: 5 plans across 5 sequential waves.
+Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **EXECUTING**
+Plan: 1 of 5 executed in current phase
+Status: 11-01 complete. `db.py` runs on one `psycopg_pool.ConnectionPool` per DSN, shared by all
+three stores; the RLock and the single `_conn` are gone. `PoolTimeout`/`PoolClosed` are re-raised
+ahead of the retry arm, and schema DDL is serialised under `pg_advisory_lock(3895545195)` taken,
+held and released on one connection with the unlock's result checked.
+Last activity: 2026-08-05 — Executed 11-01-PLAN.md (3 tasks, 3 commits).
 
 **Phase 10 is closed** — PR #4 merged, both required checks green, so the SC-5 push gate that
 held it open is satisfied and `REQ-adr-promotion` is complete.
@@ -38,17 +39,22 @@ held it open is satisfied and `REQ-adr-promotion` is complete.
 Progress: [██████░░░░] 59% (10 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
 Phase 10:   [██████████] 5 of 5 plans — complete (PR #4 merged)
-Phase 11:   [░░░░░░░░░░] 0 of 5 plans — planned
+Phase 11:   [██░░░░░░░░] 1 of 5 plans — executing
 
 **Carry into execution — the four findings the plans are built around:**
 
-- **`psycopg_pool.PoolTimeout` subclasses `psycopg.OperationalError`**, and `Database.cursor()`
-  retries once on `OperationalError`. A naive port doubles every timeout.
+- ~~**`psycopg_pool.PoolTimeout` subclasses `psycopg.OperationalError`**~~ — **CLOSED by 11-01.**
+  Both `PoolTimeout` and `PoolClosed` are now caught and re-raised in an arm placed *before* the
+  `OperationalError` arm. Measured against an unreachable DSN with `PG_POOL_TIMEOUT=0.5`: 0.505s
+  with the exclusion, 1.007s without it — the naive port was mutated in and observed red.
 - **`/health` already blows its budget today**, before any Phase 11 change: two 3s connect
   attempts × three sequential probes = up to 18s against Fly's 15s check. Phase 11 fixes it with
   a `HEALTH_PROBE_BUDGET` deadline giving a 9s ceiling that holds cold, warm *and* partitioned.
 - **`pg_advisory_lock` is session-scoped**, so lock + DDL + unlock must share ONE pooled
-  connection or the lock serialises nothing and leaks.
+  connection or the lock serialises nothing and leaks. **Unit half closed by 11-01** — the block
+  runs inside one `cursor()`, the unlock's boolean is read and `False` raises, and a fake pool
+  proves one connection was handed out for the whole call (splitting the block was observed red).
+  The real-server exclusivity test is still owed by 11-02.
 - **Removing the three `*_DB_PATH` env vars does NOT prevent SQLite fallback.** `sessions.py:43`
   has a module-dir default and `default_backend()` returns `sqlite` whenever `DATABASE_URL` is
   empty — two mountless machines would each boot their own ephemeral database and `/health` would
@@ -76,6 +82,7 @@ Phase 10 — but it must not wait for Phase 11.
 |-------|-------|-------|----------|
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
+| 11 | 1 of 5 (11-01) | 55min | 55min |
 
 **Recent Trend:**
 
@@ -120,6 +127,10 @@ Recent decisions affecting current work:
 - [Phase 10-05]: Two edits were made to `10-VALIDATION.md` prose that the verify block forced, and neither weakens a gate: the `⬜ pending` token was dropped from the status legend (nothing is pending, so the key entry was dead), and the sign-off item `` `nyquist_compliant: true` set in frontmatter`` was reworded to "Frontmatter marks the phase Nyquist-compliant" so the literal token appears exactly once, in the frontmatter that owns it.
 - [Phase 10-05]: `ruff` is not on `PATH` in this environment; `.venv/bin/ruff` is the working invocation, matching the `.venv/bin/pytest` convention. Recorded so a future phase does not read a bare `ruff check .` failure as a lint regression.
 - [Phase 10-05]: The non-vacuity control is now four probes, not one — the zero-occurrence search, the file counter, the link resolver and the `Status` gate were each shown to fail on input that must fail. This repo has shipped five vacuous gates across two phases; a gate that has only ever passed is treated as unproven.
+- [Phase 11-01]: `check=ConnectionPool.check_connection` is **deliberately not used**, against RESEARCH's own Pattern 1. The check is a server round trip performed *during* checkout and the pool's `timeout` does not interrupt one in flight, so on a partitioned database it adds an unbounded cost to every checkout — on `/health`, the exact endpoint this phase is bounding. Staleness stays covered by the retry-once arm. Gated by `grep -c 'check_connection' src/research_agent/db.py` returning 0, with the reason in a comment so the omission does not read as an oversight.
+- [Phase 11-01]: `Database.close()` is a **claim release**, not a disposal, and is idempotent. `service.lifespan` closes sessions and metrics but never the memory store, and the contract suite closes after every parametrised case; a `close()` that disposed a shared pool would break the remaining holders, and a `ConnectionPool` cannot be reopened. `db.close_all_pools()` exists for the lifespan `finally` and is not wired yet — that is 11-02.
+- [Phase 11-01]: RESEARCH's Pitfall 7 was **wrong in the safe direction**. `PoolTimeout`'s message is "couldn't get a connection after 0.50 sec", and `test_store_contract.py`'s `match="(?i)connect"` is a `re.search`, which "connection" satisfies. The test needed no edit; do not loosen it later on the strength of the prediction.
+- [Phase 11-01]: The retry arm in `cursor()` can only fire on an exception raised at *checkout*. A `@contextmanager` that yields a second time after an exception is thrown in raises `RuntimeError: generator didn't stop after throw()`. This is the pre-existing shape, unchanged by the port — worth knowing before anyone "improves" it.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
@@ -199,7 +210,25 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 10-05-PLAN.md — the phase gate battery.** Every gate in
+Stopped at: **Completed 11-01-PLAN.md — `db.py` is pooled.** Three tasks, three commits
+(`8c7a145`, `9e46158`, `5df970b`). `psycopg-pool==3.3.1` pinned and installed; five new env
+readers (`PG_POOL_MIN_SIZE`, `PG_POOL_MAX_SIZE`, `PG_POOL_TIMEOUT`, `PG_STATEMENT_TIMEOUT`,
+`PG_TCP_USER_TIMEOUT`); one `ConnectionPool` per DSN behind a claim-refcounted registry, shared
+by all three stores; the RLock and single `_conn` deleted; `prepare_threshold=None`,
+`statement_timeout`, `tcp_user_timeout`, keepalives and a `search_path` `configure` callback all
+reaching the connection; `PoolTimeout`/`PoolClosed` re-raised ahead of the retry; DDL under
+`pg_advisory_lock(3895545195)` on one connection with the unlock's result checked. `tests/test_db.py`
+is new (27 tests, no server needed). Suite **415 passed, 28 skipped** against a 388/28 baseline —
+skip count unchanged, so Postgres coverage was extended rather than disarmed. `ruff` clean.
+`fly.toml` untouched. Both behavioural gates were mutated, observed red and reverted; the table
+is in `11-01-SUMMARY.md` § Falsification Checks.
+**Owed to 11-02:** `test_the_connection_recovers_from_being_dropped` reaches into `store.db._conn`,
+which this plan deletes. It is Postgres-gated so it skips locally, but it **will fail in CI**.
+Repairing it, wiring `close_all_pools()` into the lifespan, the `/health` per-probe deadline and
+the real-server lock/pgvector tests are all 11-02's.
+Resume file: None
+
+Superseded — previous session: **Completed 10-05-PLAN.md — the phase gate battery.** Every gate in
 `10-VALIDATION.md` was run as written on macOS and recorded with its literal output: five ADRs
 with `Status` lines and Nygard sections, all five citing `docs/DESIGN.md` and all five linked
 back from it, ADR-0006 verified separately (exists, `Accepted`, `DEMO_TOKEN` present, zero
