@@ -1,7 +1,7 @@
 ---
 phase: 13
 slug: embedding-model-migration
-status: draft
+status: planned
 nyquist_compliant: false
 wave_0_complete: false
 created: 2026-08-06
@@ -45,21 +45,21 @@ after its gate has run.
 
 | Task ID | Plan | Wave | Criterion | Test Type | Automated Command | Status |
 |---------|------|------|-----------|-----------|-------------------|--------|
-| TBD | TBD | 1 | `migrate.py` legacy path REPAIRED: notes migrate with `owner` and `created_at` preserved (not orphaned to `''` / TTL-restarted); sessions keep `owner` | integration (real PG) | `pytest tests/ -k migrate_preserves_owner` | ⬜ pending |
-| TBD | TBD | 1 | The repaired legacy path is PROVEN: SQLite→Postgres round trip with row counts and field equality asserted | integration (real PG) | `pytest tests/ -k migrate_legacy_roundtrip` | ⬜ pending |
-| TBD | TBD | 2 | Golden recall set: deterministic, checked in, includes owner-scoped queries, tie-free by construction | unit | `pytest tests/ -k golden_set` | ⬜ pending |
-| TBD | TBD | 2 | Copy-only migration: server-side `INSERT..SELECT`; SQL join proves `embedding::text` equality keyed on `(text, owner, created_at)` with join-count == row-count | integration (real PG) | `pytest tests/ -k copy_fidelity` | ⬜ pending |
-| TBD | TBD | 2 | Copy-only recall: golden-query results IDENTICAL under exact scan (`SET LOCAL enable_indexscan = off`) — SC-5's infrastructure half | integration (real PG) | `pytest tests/ -k copy_recall_identical` | ⬜ pending |
-| TBD | TBD | 2 | Index sanity separate from fidelity: HNSW on the new table returns the same result SET at this corpus size (honest set-equality, not order) | integration (real PG) | `pytest tests/ -k index_sanity` | ⬜ pending |
-| TBD | TBD | 3 | Re-embed path: batches through the embedder seam into a new table at the new dimension; owner/created_at carried | integration (real PG, fake embedder) | `pytest tests/ -k reembed_carries_tenancy` | ⬜ pending |
-| TBD | TBD | 3 | Cost preview: exact token count via `count_tokens`, priced from effective-dated `VOYAGE_PRICES` in `usage.py`; `pricing_unknown` fails loud, never zero | unit | `pytest tests/ -k voyage_pricing` | ⬜ pending |
-| TBD | TBD | 3 | Preview always prints; **`--yes` required to spend** — no flag combination silently embeds | unit | `pytest tests/ -k preview_requires_yes` | ⬜ pending |
-| TBD | TBD | 3 | Dimension ceiling: re-embed refuses `output_dimension > 2000` loudly (pgvector HNSW limit vs voyage-3.5's 2048) | unit | `pytest tests/ -k dimension_ceiling` | ⬜ pending |
-| TBD | TBD | 3 | SC-4: the loud dimension check on recall STILL fires — no silent coercion crept in | unit | `pytest tests/ -k dimension_check_still_loud` | ⬜ pending |
-| TBD | TBD | 4 | Cutover: `PGVECTOR_TABLE` flip is the whole cutover; old table survives; pointing back is rollback — proven both directions | integration (real PG) | `pytest tests/ -k cutover_reversible` | ⬜ pending |
-| TBD | TBD | 4 | ADR-0008 exists, `Accepted`, `Source:` line (not `Promoted from:`), records what survives of DEC-10 and what supersedes it; index row added | grep gate | baselines: 7 ADRs today, `Source:` count in 0008 == 1 | ⬜ pending |
-| TBD | TBD | 4 | README: the "Changing embedding model means a new pgvector table" limitation rewritten honestly (the path exists now; the check is still loud) | grep gate | baseline: current phrase present today at 1 occurrence | ⬜ pending |
-| TBD | TBD | 5 | LIVE: one real Voyage re-embed against Supabase scratch tables — created, migrated, verified, dropped; cost preview shown before spend; actual cost recorded | manual | see Manual-Only Verifications | ⬜ pending |
+| 13-01.2 | 13-01 | 1 | `migrate.py` legacy path REPAIRED: notes migrate with `owner` and `created_at` preserved (not orphaned to `''` / TTL-restarted); sessions keep `owner` | integration (real PG) | `pytest tests/ -k migrate_preserves_owner` | ⬜ pending |
+| 13-01.2 | 13-01 | 1 | The repaired legacy path is PROVEN: SQLite→Postgres round trip with row counts and field equality asserted | integration (real PG) | `pytest tests/ -k migrate_legacy_roundtrip` | ⬜ pending |
+| 13-02.3 | 13-02 | 2 | Golden recall set (built in 13-02.1): deterministic, checked in, includes owner-scoped queries, tie-free by construction | unit | `pytest tests/ -k golden_set` | ⬜ pending |
+| 13-02.3 | 13-02 | 2 | Copy-only migration (built in 13-02.2): server-side `INSERT..SELECT`; SQL join proves `embedding::text` equality keyed on `(text, owner, created_at)` with join-count == row-count | integration (real PG) | `pytest tests/ -k copy_fidelity` | ⬜ pending |
+| 13-02.3 | 13-02 | 2 | Copy-only recall: golden-query results IDENTICAL under exact scan (`SET LOCAL enable_indexscan = off`) — SC-5's infrastructure half | integration (real PG) | `pytest tests/ -k copy_recall_identical` | ⬜ pending |
+| 13-02.3 | 13-02 | 2 | Index sanity separate from fidelity: HNSW on the new table returns the same result SET at this corpus size (honest set-equality, not order) | integration (real PG) | `pytest tests/ -k index_sanity` | ⬜ pending |
+| 13-03.2 | 13-03 | 3 | Re-embed path: batches through the embedder seam into a new table at the new dimension; owner/created_at carried | integration (real PG, fake embedder) | `pytest tests/ -k reembed_carries_tenancy` | ⬜ pending |
+| 13-03.1 | 13-03 | 3 | Cost preview: exact token count via `count_tokens`, priced from effective-dated `VOYAGE_PRICES` in `usage.py`; `pricing_unknown` fails loud, never zero | unit | `pytest tests/ -k voyage_pricing` | ⬜ pending |
+| 13-03.3 | 13-03 | 3 | Preview always prints; **`--yes` required to spend** — no flag combination silently embeds | unit | `pytest tests/ -k preview_requires_yes` | ⬜ pending |
+| 13-03.3 | 13-03 | 3 | Dimension ceiling: re-embed refuses `output_dimension > 2000` loudly (pgvector HNSW limit vs voyage-3.5's 2048) | unit | `pytest tests/ -k dimension_ceiling` | ⬜ pending |
+| 13-03.2 | 13-03 | 3 | SC-4: the loud dimension check on recall STILL fires — no silent coercion crept in | unit | `pytest tests/ -k dimension_check_still_loud` | ⬜ pending |
+| 13-04.1 | 13-04 | 4 | Cutover: `PGVECTOR_TABLE` flip is the whole cutover; old table survives; pointing back is rollback — proven both directions | integration (real PG) | `pytest tests/ -k cutover_reversible` | ⬜ pending |
+| 13-04.2 | 13-04 | 4 | ADR-0008 exists, `Accepted`, `Source:` line (not `Promoted from:`), records what survives of DEC-10 and what supersedes it; index row added | grep gate | baselines: 7 ADRs today, `Source:` count in 0008 == 1 | ⬜ pending |
+| 13-04.3 | 13-04 | 4 | README: the "Changing embedding model means a new pgvector table" limitation rewritten honestly (the path exists now; the check is still loud) | grep gate | baseline: current phrase present today at 1 occurrence | ⬜ pending |
+| 13-05.1 | 13-05 | 5 | LIVE: one real Voyage re-embed against Supabase scratch tables — created, migrated, verified, dropped; cost preview shown before spend; actual cost recorded | manual | see Manual-Only Verifications | ⬜ pending |
 
 ---
 

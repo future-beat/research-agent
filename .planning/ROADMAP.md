@@ -239,7 +239,14 @@ Plans:
   3. Cutover is explicit and reversible — the old table survives until the new one is confirmed.
   4. The loud dimension check still fires; it has not become a silent coercion.
   5. A recall change caused by a new embedding model is distinguishable from an infrastructure change — the two variables are isolated, not confounded.
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 13-01-PLAN.md — Repair migrate.py's live owner/TTL data-loss bug, then prove the legacy SQLite→Postgres path with its first tests
+- [ ] 13-02-PLAN.md — Golden recall harness + `embeddings copy` subcommand; byte-fidelity and exact-scan zero-delta gates (SC-5 infrastructure half)
+- [ ] 13-03-PLAN.md — `embeddings re-embed` + VOYAGE_PRICES cost preview + `--yes` spend gate + dimension ceiling and loud-check gates (SC-1/2/4)
+- [ ] 13-04-PLAN.md — Cutover-reversible test + ADR-0008 (DEC-10 disposition) + OPERATIONS/README rewrites (SC-3)
+- [ ] 13-05-PLAN.md — Live demonstration against Supabase scratch tables (checkpoint) + phase gate battery
 
 **Notes for discuss-phase:**
 - **Reversal (in tension with DEC-10).** DEC-10 copies embeddings during migration *specifically* so recall behaviour does not change at the same moment infrastructure does — "two suspects and no way to separate them." A re-embedding path re-opens exactly that ambiguity unless criterion 5 is designed for, not hoped for. DEC-10 is not among the promoted five; this phase should record its own ADR stating what supersedes it.
