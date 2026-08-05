@@ -10,14 +10,24 @@ import time
 import pytest
 from fastapi import HTTPException
 
-from research_agent import limits
-from research_agent.limits import RateLimiter
+from research_agent import db, limits
+from research_agent.limits import InMemoryLimits, PostgresLimits, RateLimiter
+
+HAS_POSTGRES = db.postgres_configured()
 
 
 class FakeRequest:
-    def __init__(self, headers=None, host="203.0.113.7"):
+    """A Request stand-in carrying what the guards actually read.
+
+    `state.identity` is set by IdentityMiddleware on every real request, so a
+    fake without one would let an identity-keyed limiter be tested against
+    something the production path never sees.
+    """
+
+    def __init__(self, headers=None, host="203.0.113.7", identity="identity-default"):
         self.headers = headers or {}
         self.client = type("C", (), {"host": host})()
+        self.state = type("S", (), {"identity": identity})()
 
 
 class FakeMetrics:
@@ -33,7 +43,8 @@ class FakeMetrics:
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     for var in ("DEMO_TOKEN", "SESSIONS_TOKEN", "DEMO_RATE_LIMIT_PER_HOUR",
-                "DEMO_DAILY_USD_CAP", "TRUST_FORWARDED_FOR"):
+                "DEMO_DAILY_USD_CAP", "TRUST_FORWARDED_FOR", "DEMO_RESERVED_RUN_USD",
+                "LIMITS_BACKEND"):
         monkeypatch.delenv(var, raising=False)
     limits.reset_limiter()
     yield
@@ -158,6 +169,141 @@ def test_the_shared_limiter_reconfigures_when_the_setting_changes(monkeypatch):
     assert limits.limiter().limit == 5
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "50")
     assert limits.limiter().limit == 50
+
+
+# --------------------------------------------------------------------------
+# The limits store: identity-keyed rate window, reserve/settle
+# --------------------------------------------------------------------------
+
+
+def _dsn_tagged(application_name: str) -> str:
+    """DATABASE_URL carrying an application_name, mirroring test_store_contract.
+
+    Two jobs, both load-bearing here: it makes the DSN test-unique, and
+    db._pool_for caches one pool per DSN -- so two handles on two tagged DSNs
+    are guaranteed two pools and therefore two real connections, which is what
+    the two-thread race below needs.
+    """
+    base = db.database_url()
+    separator = "&" if "?" in base else "?"
+    return f"{base}{separator}application_name={application_name}"
+
+
+@pytest.fixture
+def pg_limits():
+    """A PostgresLimits on a private table state, truncated between cases."""
+    store = PostgresLimits(dsn=_dsn_tagged("ra_limits"))
+    store.db.execute("TRUNCATE rate_hits")
+    store.db.execute("TRUNCATE run_reservations")
+    yield store
+    store.close()
+
+
+def test_the_memory_store_rate_limits_per_identity():
+    """The whole point of the identity rekey: the key is the identity, so one
+    caller's exhaustion is not another's."""
+    store = InMemoryLimits()
+    assert store.check_rate("identity-a", 1, 60)[0] is True
+    assert store.check_rate("identity-a", 1, 60)[0] is False
+    assert store.check_rate("identity-b", 1, 60)[0] is True
+
+
+def test_a_refused_rate_check_reports_a_retry_hint():
+    store = InMemoryLimits()
+    store.check_rate("a", 1, 60)
+    allowed, retry_after = store.check_rate("a", 1, 60)
+    assert allowed is False
+    assert 0 < retry_after <= 61
+
+
+def test_a_rate_limit_of_zero_disables_the_check():
+    store = InMemoryLimits()
+    assert all(store.check_rate("a", 0, 60)[0] for _ in range(50))
+
+
+def test_a_reservation_within_budget_is_recorded():
+    store = InMemoryLimits()
+    assert store.reserve("run-1", "id-a", 0.20, cap=5.00, spent_24h=0.0) is True
+    assert store.reservation_ids() == {"run-1"}
+
+
+def test_settle_releases_the_reservation():
+    store = InMemoryLimits()
+    store.reserve("run-1", "id-a", 0.20, cap=5.00, spent_24h=0.0)
+    store.settle("run-1")
+    assert store.reservation_ids() == set()
+    store.settle("run-1")  # idempotent: a second settle must not raise
+
+
+def test_a_reservation_over_the_cap_is_refused():
+    store = InMemoryLimits()
+    assert store.reserve("run-1", "id-a", 0.20, cap=5.00, spent_24h=4.95) is False
+    assert store.reservation_ids() == set()
+
+
+def test_in_flight_reservations_count_against_the_cap():
+    """The defect this closes: counting only completed runs let N concurrent
+    runs each see the same pre-burst total and all pass."""
+    store = InMemoryLimits()
+    assert store.reserve("run-1", "id-a", 0.60, cap=1.00, spent_24h=0.0) is True
+    assert store.reserve("run-2", "id-b", 0.60, cap=1.00, spent_24h=0.0) is False
+
+
+def test_a_cap_of_zero_reserves_nothing():
+    store = InMemoryLimits()
+    assert store.reserve("run-1", "id-a", 0.20, cap=0.0, spent_24h=1000.0) is True
+    assert store.reservation_ids() == set()
+
+
+def test_a_stale_reservation_stops_counting(monkeypatch):
+    """A run killed mid-flight must not pin the budget forever."""
+    store = InMemoryLimits()
+    assert store.reserve("crashed", "id-a", 0.60, cap=1.00, spent_24h=0.0) is True
+    # Age it past the cutoff without waiting fifteen minutes.
+    identity, est, _ = store._reservations["crashed"]
+    long_ago = time.time() - limits.RESERVATION_STALE_SECONDS - 1
+    store._reservations["crashed"] = (identity, est, long_ago)
+
+    assert store.reserve("fresh", "id-b", 0.60, cap=1.00, spent_24h=0.0) is True
+    assert "crashed" not in store.reservation_ids()  # purged on the way past
+
+
+def test_the_backend_defaults_on_the_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert limits.default_backend() == "memory"
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user@host/db")
+    assert limits.default_backend() == "postgres"
+
+
+def test_an_unknown_backend_is_rejected():
+    with pytest.raises(ValueError, match="Unknown LIMITS_BACKEND"):
+        limits.get_limits_store("mysql")
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_the_postgres_rate_window_persists_across_calls(pg_limits):
+    """The state has to be in the database, not in this process: that is the
+    entire reason for the backend."""
+    assert pg_limits.check_rate("pg-a", 1, 60)[0] is True
+    assert pg_limits.check_rate("pg-a", 1, 60)[0] is False
+    assert pg_limits.check_rate("pg-b", 1, 60)[0] is True
+
+    # A second store on the same database sees the first one's hits -- which is
+    # what "two machines share one window" means.
+    other = PostgresLimits(dsn=_dsn_tagged("ra_limits_other"))
+    try:
+        assert other.check_rate("pg-a", 1, 60)[0] is False
+    finally:
+        other.close()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_postgres_reservations_round_trip(pg_limits):
+    assert pg_limits.reserve("pg-run-1", "id-a", 0.20, cap=5.00, spent_24h=0.0) is True
+    assert pg_limits.reservation_ids() == {"pg-run-1"}
+    assert pg_limits.reserve("pg-run-2", "id-b", 0.20, cap=5.00, spent_24h=4.95) is False
+    pg_limits.settle("pg-run-1")
+    assert pg_limits.reservation_ids() == set()
 
 
 # --------------------------------------------------------------------------
