@@ -444,6 +444,104 @@ def test_reconnect_does_not_swallow_a_caller_error(faked):
 
 
 # --------------------------------------------------------------------------
+# A connection that dies mid-statement
+#
+# The pool changed *where* a dropped connection surfaces. The old single
+# connection failed at entry, when `_conn.cursor()` touched a socket the
+# provider had closed. A pool hands out a connection that still looks live and
+# the failure lands one line later, on cur.execute -- inside the caller's
+# `with` body, which is the one place a generator context manager cannot
+# retry from. These are the local, serverless half of the CI-only
+# pg_terminate_backend test in tests/test_store_contract.py.
+# --------------------------------------------------------------------------
+
+
+class DeadOnFirstExecuteCursor(FakeCursor):
+    """Fails the first execute anywhere in the process, then behaves.
+
+    Models a connection killed server-side while it sat idle in the pool:
+    checkout succeeds, the statement is where it dies.
+    """
+
+    failures_left = 0
+
+    def execute(self, sql, params=None):
+        if type(self).failures_left > 0:
+            type(self).failures_left -= 1
+            raise psycopg.OperationalError("server closed the connection unexpectedly")
+        return super().execute(sql, params)
+
+    def fetchone(self):
+        return {"n": 1}
+
+    def fetchall(self):
+        return [{"n": 1}]
+
+
+class DeadOnFirstExecuteConnection(FakeConnection):
+    def cursor(self, row_factory=None):
+        return DeadOnFirstExecuteCursor(self)
+
+
+class DeadOnFirstExecutePool(FakePool):
+    @contextmanager
+    def connection(self):
+        conn = DeadOnFirstExecuteConnection()
+        self.handed_out.append(conn)
+        yield conn
+
+
+@pytest.fixture
+def dies_mid_statement():
+    """One scripted mid-statement death, reset either way."""
+    DeadOnFirstExecuteCursor.failures_left = 1
+    yield
+    DeadOnFirstExecuteCursor.failures_left = 0
+
+
+def test_a_read_retries_a_connection_that_dies_mid_statement(faked, dies_mid_statement):
+    """The behaviour test_the_connection_recovers_from_being_dropped asserts
+    against a real server, provable here without one.
+
+    Before the read-level retry this raised
+    `RuntimeError: generator didn't stop after throw()` -- contextlib refusing
+    a second yield -- which both failed the call AND destroyed the real error.
+    """
+    handle = faked(DeadOnFirstExecutePool())
+    handle._schema_applied = True
+
+    assert handle.fetchone("SELECT COUNT(*) AS n FROM sessions") == {"n": 1}
+
+
+def test_a_read_retry_gives_up_after_one_attempt(faked):
+    """Retrying forever against a database that is genuinely gone would turn
+    an outage into a hang, which is the opposite of this phase's point."""
+    DeadOnFirstExecuteCursor.failures_left = 2
+    try:
+        handle = faked(DeadOnFirstExecutePool())
+        handle._schema_applied = True
+        with pytest.raises(psycopg.OperationalError):
+            handle.fetchall("SELECT 1")
+    finally:
+        DeadOnFirstExecuteCursor.failures_left = 0
+
+
+def test_a_write_is_not_retried_mid_statement(faked, dies_mid_statement):
+    """Deliberate asymmetry, not an oversight.
+
+    A write that failed with a connection error may already have committed --
+    the client cannot distinguish "never arrived" from "committed, response
+    lost" -- so retrying it is at-least-once. What the caller must get is the
+    real OperationalError rather than a RuntimeError about generators.
+    """
+    handle = faked(DeadOnFirstExecutePool())
+    handle._schema_applied = True
+
+    with pytest.raises(psycopg.OperationalError):
+        handle.execute("INSERT INTO runs (id) VALUES (1)")
+
+
+# --------------------------------------------------------------------------
 # The advisory lock lives on ONE connection
 # --------------------------------------------------------------------------
 

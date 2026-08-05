@@ -5,8 +5,12 @@ All three stores -- sessions, metrics, notes -- need the same thing: a
 connection that survives being idle. A long-lived Postgres connection through
 a managed provider's proxy *will* be closed out from under you, usually
 overnight, and the failure surfaces as the next request dying with
-"server closed the connection unexpectedly". So every statement runs through
-`cursor()`, which reconnects once and retries before giving up.
+"server closed the connection unexpectedly". So `cursor()` retries a failed
+checkout once, and reads retry the whole statement once -- because under a
+pool the dead connection is handed out looking healthy and only dies on the
+statement, which is a place a context manager cannot retry from. Writes get
+the checkout retry only: a retried write is at-least-once. See `cursor()` and
+`_read()`.
 
 **A pool, where this module used to hold one connection behind a lock.** That
 earlier choice was defensible while one machine ran: a research run occupies a
@@ -337,30 +341,85 @@ class Database:
 
     @contextmanager
     def cursor(self, row_factory=None):
-        """A cursor, reconnecting once if the connection has gone stale.
+        """A cursor, reconnecting once if the *checkout* fails.
 
         The retry is deliberately limited to one attempt and to connection
         errors: a genuine SQL error must surface immediately rather than be
         run twice, and a non-database exception raised inside the caller's
         `with` body -- KeyError from sessions.append_turn is the live example
         -- must propagate untouched.
+
+        WHAT THIS CANNOT DO, and why the read helpers below exist. A generator
+        context manager gets one yield. An exception raised inside the
+        *caller's* body arrives here via `gen.throw`, and yielding a second
+        time in response to it is not a retry -- contextlib rejects it with
+        `RuntimeError: generator didn't stop after throw()`, destroying the
+        real error on the way. That matters more under a pool than it did
+        before: the old single connection failed at *entry*, when
+        `self._conn.cursor()` touched a socket the provider had closed, so the
+        rebuild landed in the right place. A pool hands out a connection that
+        looks live and the failure surfaces one line later, inside the body,
+        on `cur.execute`. So this only ever retries a checkout, and the retry
+        that covers a connection dying mid-statement lives in `fetchone` /
+        `fetchall`, which own the whole statement and can honestly re-run it.
         """
         psycopg = _psycopg()
         psycopg_pool = _psycopg_pool()
-        try:
-            with self._pool.connection() as conn, conn.cursor(row_factory=row_factory) as cur:
-                yield cur
-        except (psycopg_pool.PoolTimeout, psycopg_pool.PoolClosed):
-            # Both SUBCLASS psycopg.OperationalError, so this arm has to come
-            # first: without it the arm below would retry a checkout timeout
-            # and double the worst-case wait on an unreachable database --
-            # straight through the Fly health-check budget. The wait has
-            # already happened; a second one buys nothing.
-            raise
-        except (psycopg.OperationalError, psycopg.InterfaceError):
-            # Stale or dropped. Take a fresh connection and try exactly once more.
-            with self._pool.connection() as conn, conn.cursor(row_factory=row_factory) as cur:
-                yield cur
+        with contextlib.ExitStack() as stack:
+            try:
+                conn = stack.enter_context(self._pool.connection())
+            except (psycopg_pool.PoolTimeout, psycopg_pool.PoolClosed):
+                # Both SUBCLASS psycopg.OperationalError, so this arm has to
+                # come first: without it the arm below would retry a checkout
+                # timeout and double the worst-case wait on an unreachable
+                # database -- straight through the Fly health-check budget.
+                # The wait has already happened; a second one buys nothing.
+                raise
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                # Stale or dropped at checkout. One fresh connection, once.
+                conn = stack.enter_context(self._pool.connection())
+            yield stack.enter_context(conn.cursor(row_factory=row_factory))
+
+    def _read(self, sql: str, params, many: bool):
+        """Run a read, retrying the whole statement once on a dead connection.
+
+        The case this covers is the one the pool created: a connection sitting
+        in the pool when the server hung up on it -- `pg_terminate_backend`, a
+        provider's overnight idle cull, a failover -- still looks live to
+        libpq, so the checkout succeeds and `cur.execute` is where it dies.
+        `cursor()` structurally cannot retry that (see its docstring). Here we
+        can, because a read owns its whole statement: re-running it is free of
+        side effects, and psycopg_pool discards a connection it finds broken
+        on return, so the second attempt gets a fresh one.
+
+        WRITES ARE DELIBERATELY NOT GIVEN THIS. A statement that failed with a
+        connection error may or may not have committed server-side -- the
+        client cannot tell the difference between "never arrived" and
+        "committed, response lost". Retrying a read costs nothing; retrying an
+        INSERT is at-least-once, which for metrics.record means a duplicated
+        run in the fleet's numbers and for sessions.create means a
+        UniqueViolation dressed up as a write failure. So `execute` keeps only
+        the checkout-level retry and surfaces the OperationalError itself,
+        which is at least the true error rather than a RuntimeError about
+        generators. A caller that wants at-least-once can ask for it.
+        """
+        from psycopg.rows import dict_row
+
+        psycopg = _psycopg()
+        psycopg_pool = _psycopg_pool()
+        self._apply_schema()
+        attempts = 2
+        for attempt in range(1, attempts + 1):
+            try:
+                with self.cursor(row_factory=dict_row) as cur:
+                    cur.execute(sql, params)
+                    return cur.fetchall() if many else cur.fetchone()
+            except (psycopg_pool.PoolTimeout, psycopg_pool.PoolClosed):
+                raise  # the wait already happened; see cursor()
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                if attempt == attempts:
+                    raise
+        return None  # pragma: no cover - the loop either returns or raises
 
     # -- schema ----------------------------------------------------------
 
@@ -443,20 +502,10 @@ class Database:
             cur.execute(sql, params)
 
     def fetchone(self, sql: str, params=None):
-        from psycopg.rows import dict_row
-
-        self._apply_schema()
-        with self.cursor(row_factory=dict_row) as cur:
-            cur.execute(sql, params)
-            return cur.fetchone()
+        return self._read(sql, params, many=False)
 
     def fetchall(self, sql: str, params=None) -> list:
-        from psycopg.rows import dict_row
-
-        self._apply_schema()
-        with self.cursor(row_factory=dict_row) as cur:
-            cur.execute(sql, params)
-            return cur.fetchall()
+        return self._read(sql, params, many=True)
 
     def close(self) -> None:
         """Release this Database's claim on the shared pool.
