@@ -1454,9 +1454,50 @@ def test_every_advertised_endpoint_actually_exists(make_client):
     assert ("GET", "/health") in served  # the walker found something
 
     for advertised in client.get("/").json()["endpoints"].values():
-        # Entries may carry a trailing annotation, e.g. "(X-Demo-Token required)".
+        # Entries may carry a trailing annotation, e.g. "(your own)".
         method, path = advertised.split(" ")[:2]
         assert (method, path) in served, advertised
+
+
+def test_index_does_not_claim_a_token_is_required_for_a_reachable_endpoint(make_client):
+    """The index's auth annotations must not be false.
+
+    test_every_advertised_endpoint_actually_exists checks only that the
+    method+path is served -- the annotation text rides along unchecked, which
+    is exactly how three entries went on claiming `X-Demo-Token required` for
+    a full phase after Phase 12 made the session reads caller-scoped. A live
+    GET /sessions with no header returned 200 against release v8 while the
+    index still called the token required.
+
+    The gate: for every advertised GET whose annotation says a token is
+    required, a plain tokenless caller must actually be refused. An endpoint
+    that answers 200 without the header makes the annotation a lie.
+    """
+    client, _ = make_client()
+    index = client.get("/").json()["endpoints"]
+
+    checked = 0
+    for advertised in index.values():
+        if "required" not in advertised.lower():
+            continue
+        method, path = advertised.split(" ")[:2]
+        if method != "GET" or "{" in path:
+            continue
+        checked += 1
+        response = client.get(path)
+        assert response.status_code in (401, 403), (
+            f"index advertises {advertised!r} but a tokenless caller got "
+            f"{response.status_code} -- the annotation is false"
+        )
+
+    # Non-vacuity: today NO entry claims a token is required, so `checked` is
+    # legitimately 0. Assert the shape we actually expect rather than letting
+    # a silently-empty loop pass for a real check.
+    assert checked == 0, (
+        "an entry now claims a token is required; the loop above verified it "
+        "-- update this baseline deliberately"
+    )
+    assert "X-Demo-Token required" not in " ".join(index.values())
 
 
 # --------------------------------------------------------------------------

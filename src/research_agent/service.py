@@ -414,9 +414,12 @@ def _index_json() -> dict:
             "research_stream": "POST /research/stream",
             "ask": "POST /sessions/{session_id}/ask",
             "ask_stream": "POST /sessions/{session_id}/ask/stream",
-            "sessions": "GET /sessions (X-Demo-Token required)",
-            "session": "GET /sessions/{session_id} (X-Demo-Token required)",
-            "trace": "GET /sessions/{session_id}/trace (X-Demo-Token required)",
+            # Phase 12: these are caller-scoped, not token-gated. They serve
+            # YOUR sessions with no header at all; X-Demo-Token is the
+            # operator credential that widens the view to every owner's.
+            "sessions": "GET /sessions (your own; X-Demo-Token lists everyone's)",
+            "session": "GET /sessions/{session_id} (your own)",
+            "trace": "GET /sessions/{session_id}/trace (your own)",
             "metrics": "GET /metrics",
             "pricing": "GET /pricing",
             "memory": "GET /memory",
