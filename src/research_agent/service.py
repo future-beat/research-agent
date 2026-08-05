@@ -21,9 +21,11 @@ Run it:  uvicorn service:app --host 0.0.0.0 --port 8000
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 import re
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
@@ -34,7 +36,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from research_agent import graph, limits
+from research_agent import db, graph, limits
 from research_agent import usage as usage_accounting
 from research_agent.graph import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
 from research_agent.metrics import FAILED, MetricsStore, RunRecord, get_metrics_store
@@ -170,6 +172,15 @@ async def lifespan(app: FastAPI):
     finally:
         app.state.sessions.close()
         app.state.metrics.close()
+        # Those two close()es release two claims on the shared pool. There is a
+        # THIRD Database on this machine -- graph.memory()'s -- that nothing has
+        # ever closed, so without this a shutdown leaves a pool and its
+        # background reconnect workers alive in a process on its way out.
+        # close_all_pools() disposes every registered pool regardless of who
+        # holds a claim, which is the right hammer at shutdown and the wrong one
+        # anywhere else.
+        db.close_all_pools()
+        _shutdown_probes()
 
 
 app = FastAPI(
@@ -359,22 +370,109 @@ def _redact(text: str) -> str:
     return _URL_CREDENTIALS.sub(r"\g<scheme>***@", text)
 
 
+def health_probe_budget() -> float:
+    """HEALTH_PROBE_BUDGET -- wall-clock seconds one store probe may take.
+
+    Default 3.0, floor 0.1. See `_probe` for why a wall clock is the only
+    thing that actually bounds this.
+    """
+    try:
+        return max(0.1, float(os.environ.get("HEALTH_PROBE_BUDGET", "3.0")))
+    except ValueError:
+        return 3.0
+
+
+# The probe executor is built lazily and rebuilt after a shutdown, because
+# `lifespan` can run more than once per process -- the test suite alone enters
+# it nine times. A module-level executor shut down on the first exit would make
+# every later /health raise "cannot schedule new futures after shutdown".
+_probe_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_probe_executor_lock = threading.Lock()
+
+
+def _probes() -> concurrent.futures.ThreadPoolExecutor:
+    global _probe_executor
+    with _probe_executor_lock:
+        if _probe_executor is None:
+            _probe_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=3, thread_name_prefix="health-probe"
+            )
+        return _probe_executor
+
+
+def _shutdown_probes() -> None:
+    """Drop the probe executor. For the lifespan's `finally`."""
+    global _probe_executor
+    with _probe_executor_lock:
+        executor, _probe_executor = _probe_executor, None
+    if executor is not None:
+        # No wait: a probe blocked on a dead socket must not hold up shutdown,
+        # and cancel_futures clears anything still queued behind it.
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 def _probe(fn) -> dict:
-    """Report whether a dependency answered, without letting it raise.
+    """Report whether a dependency answered, without letting it raise, and
+    without letting it take longer than `HEALTH_PROBE_BUDGET`.
 
     The whole point of splitting liveness from readiness: a store that cannot
     be reached is information to put in the response body, not a reason to
     fail the probe that decides whether to restart the process.
+
+    **Why a wall clock and not the pool's timeouts.** `PG_POOL_TIMEOUT` bounds
+    a *checkout*, not the statement after it. The case it does not cover is a
+    warm pool behind a partition: the pool holds a connection that still looks
+    live, the checkout returns in ~0 ms, and then `store.count()` blocks on a
+    socket to a peer that has gone away. `PG_CONNECT_TIMEOUT` never applied to
+    an established connection. `statement_timeout` covers a slow server and
+    `tcp_user_timeout` covers a peer that stops ACKing -- but a peer that keeps
+    the socket alive and simply never answers is bounded by nothing in libpq.
+    Left there, /health can exceed Fly's 15 s check timeout, Fly restarts both
+    machines, and the phase reintroduces exactly the restart loop /health was
+    split from /ready to prevent -- now reachable, because the database moved
+    across a provider boundary.
+
+    **The ceiling.** Three sequential probes x HEALTH_PROBE_BUDGET (3.0 s) =
+    **9 s guaranteed**, inside Fly's 15 s check timeout, whether the pool was
+    cold, warm or partitioned. The ordinary cold-pool cost is
+    3 x PG_POOL_TIMEOUT = ~6 s, which is the typical case and not the bound.
+    The pre-pool code had no ceiling at all in the warm case, and up to 18 s in
+    the cold one (two 3 s connect attempts per probe, three probes) against a
+    15 s timeout -- so this is a defect the phase fixes rather than inherits.
+
+    **The tradeoff, stated rather than hidden.** An abandoned probe outlives
+    the response: `future.result(timeout=...)` stops us *waiting*, it cannot
+    interrupt a thread blocked in libpq. The executor bounds its **workers**,
+    not its work **queue**, so against a persistently hung peer abandoned
+    probes accumulate as queued futures at roughly three per 30 s check
+    interval -- the worker count does not cap them. What reaps them is
+    `tcp_user_timeout` and the keepalive sequence, not the executor. The 9 s
+    ceiling is unaffected either way, because the deadline bounds availability
+    rather than execution: a probe that cannot even be scheduled still returns
+    at its deadline.
     """
+    budget = health_probe_budget()
+    future = _probes().submit(fn)
     try:
-        return {"reachable": True, **fn()}
+        result = future.result(timeout=budget)
     except Exception as exc:  # noqa: BLE001 - a probe must never raise
+        if not future.done():
+            # Not done means we stopped waiting; the exception is our deadline
+            # rather than anything the store said. Checking done-ness instead
+            # of the exception type keeps a store that raises its own
+            # TimeoutError reported as the failure it is.
+            return {
+                "reachable": False,
+                "error": "TimeoutError",
+                "detail": f"probe exceeded {budget:g}s",
+            }
         message = str(exc).splitlines()[0] if str(exc) else ""
         return {
             "reachable": False,
             "error": type(exc).__name__,
             "detail": _redact(message)[:160],
         }
+    return {"reachable": True, **result}
 
 
 def _dependencies(store: SessionStore, metrics: MetricsStore) -> dict:
@@ -421,11 +519,19 @@ def health(
     present or absent, never by value: the clients are lazy, so a container
     with no keys starts up perfectly healthy and then fails every real
     request -- better to learn that from the deploy than from a user.
+
+    `machine` is FLY_MACHINE_ID, and it is what makes "the state is shared
+    across machines" demonstrable in two curls rather than by reading
+    `fly logs`: without it nothing in any response says which machine
+    answered. Empty string off Fly, never absent, so the shape is stable.
+    Not a secret -- Fly already exposes it in its own response headers and
+    accepts it as the fly-force-instance-id request header.
     """
     dependencies = _dependencies(store, metrics)
     degraded = [name for name, d in dependencies.items() if not d["reachable"]]
     return {
         "status": "ok",
+        "machine": os.environ.get("FLY_MACHINE_ID", ""),
         "dependencies": "degraded" if degraded else "ok",
         "unreachable": degraded,
         **dependencies,

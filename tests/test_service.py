@@ -7,6 +7,8 @@ only thing faked is the network.
 """
 
 import json
+import threading
+import time
 
 import anthropic
 import httpx
@@ -15,10 +17,10 @@ from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
 from test_memory_stores import FakeEmbedder
 
-from research_agent import graph, limits, service
-from research_agent.memory import InMemoryStore
-from research_agent.metrics import SQLiteMetricsStore
-from research_agent.sessions import SQLiteSessionStore
+from research_agent import db, graph, limits, service
+from research_agent.memory import InMemoryStore, PgVectorMemoryStore
+from research_agent.metrics import PostgresMetricsStore, SQLiteMetricsStore
+from research_agent.sessions import PostgresSessionStore, SQLiteSessionStore
 
 # The session read/delete routes fail closed, so every client the suite builds
 # needs a credential. Configuring it here -- and sending it as a default header
@@ -1065,6 +1067,175 @@ def test_a_probe_failure_does_not_leak_the_dsn(make_client):
     assert "***@host/db" in detail          # redacted, not merely truncated
     assert "more detail" not in detail      # only the first line
     assert len(detail) <= 160
+
+
+# --------------------------------------------------------------------------
+# The /health timing budget
+#
+# Two different bounds, and conflating them is the whole hazard:
+#
+#   health_probe_deadline  -- the GENERAL bound. A store that hangs forever is
+#                             reported unreachable when its wall clock runs
+#                             out, whatever the pool was doing.
+#   health_within_budget   -- the COLD-POOL bound only. Nothing is warm, so
+#                             every probe pays a checkout timeout and the
+#                             arithmetic happens to be PG_POOL_TIMEOUT-shaped.
+#                             It says nothing about a warm partitioned pool.
+# --------------------------------------------------------------------------
+
+
+def test_health_probe_deadline_bounds_a_store_that_never_answers(make_client, monkeypatch):
+    """The general bound, and the one that is not an arithmetic argument.
+
+    A warm pool behind a partition hands out a checkout in ~0 ms and then
+    blocks in libpq on a peer that has gone away: PG_POOL_TIMEOUT is already
+    spent, PG_CONNECT_TIMEOUT never applied to an established connection, and
+    a peer that keeps the socket alive while never answering is bounded by
+    nothing libpq offers. The store here is a deterministic stand-in for that
+    shape -- it blocks, with no network involved at all.
+
+    Remove the deadline from `_probe` and this test does not fail, it *hangs*.
+    That is what makes it falsifying rather than decorative.
+    """
+    monkeypatch.setenv("HEALTH_PROBE_BUDGET", "0.3")
+    released = threading.Event()
+
+    class _NeverAnswers:
+        path = "postgres://db.example.com/agent"
+
+        def count(self):
+            # The 30 s is a backstop, not the mechanism: the test releases the
+            # event in its `finally` so the abandoned worker finishes promptly
+            # rather than making the interpreter's atexit join wait it out.
+            released.wait(30)
+            return 0
+
+    client, _ = make_client()
+    service.app.dependency_overrides[service.get_sessions] = _NeverAnswers
+    try:
+        started = time.perf_counter()
+        response = client.get("/health")
+        elapsed = time.perf_counter() - started
+    finally:
+        released.set()
+        service._shutdown_probes()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dependencies"] == "degraded"
+    assert body["sessions"]["reachable"] is False
+    assert body["sessions"]["error"] == "TimeoutError"
+    assert "0.3" in body["sessions"]["detail"]
+    budget = 3 * 0.3 + 1.0
+    assert elapsed < budget, f"/health took {elapsed:.2f}s against a {budget:.2f}s ceiling"
+
+
+@pytest.fixture
+def unreachable_postgres_stores(monkeypatch):
+    """All three stores pointed at a blackhole address, cold.
+
+    10.255.255.1 swallows packets rather than refusing them, so a connect
+    hangs until it is bounded rather than failing instantly -- which is the
+    case worth measuring. min_size=0 keeps pool construction from starting a
+    background connect attempt whose disposal we would then wait on.
+
+    The DSN password is deliberately distinctive: one of these tests asserts
+    it never reaches the response body.
+    """
+    dsn = "postgresql://agent:sup3rsecret@10.255.255.1:5432/health_budget"
+    monkeypatch.setenv("PG_POOL_TIMEOUT", "0.5")
+    monkeypatch.setenv("PG_CONNECT_TIMEOUT", "1")
+    monkeypatch.setenv("PG_POOL_MIN_SIZE", "0")
+    # Large enough that the deadline is not what is being measured here: this
+    # test is about the cold-pool arithmetic, not about the general ceiling.
+    monkeypatch.setenv("HEALTH_PROBE_BUDGET", "5.0")
+
+    sessions = PostgresSessionStore(dsn=dsn)
+    metrics = PostgresMetricsStore(dsn=dsn)
+    notes = PgVectorMemoryStore(embedder=FakeEmbedder(), dsn=dsn, table="health_budget_notes")
+
+    def install() -> str:
+        """Redirect all three stores. Called AFTER make_client(), because the
+        factory installs its own SQLite overrides and would undo these."""
+        service.app.dependency_overrides[service.get_sessions] = lambda: sessions
+        service.app.dependency_overrides[service.get_metrics] = lambda: metrics
+        graph.set_memory(notes)
+        return dsn
+
+    try:
+        yield install
+    finally:
+        for store in (sessions, metrics, notes):
+            store.close()
+        db.close_all_pools()
+
+
+def test_health_within_budget_when_the_pool_is_cold(make_client, unreachable_postgres_stores):
+    """The COLD-POOL bound only. `health_probe_deadline` is the general one.
+
+    Nothing is warm, so each probe pays one checkout timeout and the cost is
+    3 x PG_POOL_TIMEOUT. The margin is deliberately below 3 x 2 x the timeout,
+    so a reintroduced retry of PoolTimeout -- which plan 11-01 removed
+    precisely because it doubled this -- fails the test rather than merely
+    slowing it.
+    """
+    client, _ = make_client()
+    unreachable_postgres_stores()
+
+    started = time.perf_counter()
+    response = client.get("/health")
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dependencies"] == "degraded"
+    assert sorted(body["unreachable"]) == ["memory", "metrics", "sessions"]
+    ceiling = 3 * 0.5 + 0.8            # 2.3s; a reintroduced retry would cost 3.0s
+    assert elapsed < ceiling, f"/health took {elapsed:.2f}s against a {ceiling:.2f}s ceiling"
+
+
+def test_a_pool_failure_does_not_leak_the_dsn_password(make_client, unreachable_postgres_stores):
+    """Not the same assertion as the redaction unit test above.
+
+    That one hands `_redact` a string we wrote. This one takes whatever
+    psycopg_pool actually says about a DSN it could not reach -- pool errors
+    can echo conninfo -- and checks the *whole serialised body*, because a
+    credential leaking through a field nobody thought to redact is exactly the
+    failure a per-field assertion misses.
+    """
+    client, _ = make_client()
+    dsn = unreachable_postgres_stores()
+    assert "sup3rsecret" in dsn        # non-vacuity: there is a secret to leak
+
+    body = client.get("/health").text
+
+    assert body.count("sup3rsecret") == 0
+
+
+# --------------------------------------------------------------------------
+# Which machine answered
+# --------------------------------------------------------------------------
+
+
+def test_health_names_the_machine_that_answered(make_client, monkeypatch):
+    """Without this, "the same session resolves on either machine" can only be
+    demonstrated by reading `fly logs`: nothing in any response body says which
+    machine served it."""
+    monkeypatch.setenv("FLY_MACHINE_ID", "78156d2c32d738")
+    client, _ = make_client()
+
+    assert client.get("/health").json()["machine"] == "78156d2c32d738"
+
+
+def test_health_machine_is_empty_rather_than_absent_off_fly(make_client, monkeypatch):
+    """A missing key and an empty one are different failures to a caller
+    parsing this, so the shape stays stable off Fly."""
+    monkeypatch.delenv("FLY_MACHINE_ID", raising=False)
+    client, _ = make_client()
+
+    body = client.get("/health").json()
+    assert "machine" in body
+    assert body["machine"] == ""
 
 
 # --------------------------------------------------------------------------
