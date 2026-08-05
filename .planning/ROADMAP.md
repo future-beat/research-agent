@@ -219,7 +219,9 @@ Plans:
 - [x] 12-03-PLAN.md — Wave 2: Postgres identity-keyed rate limit + reservation-based spend cap (advisory-lock)
 - [x] 12-04-PLAN.md — Wave 3: session ownership, 7-day derived expiry, dual-mode listing, 404-not-403, walker surgery
 - [x] 12-05-PLAN.md — Wave 4: owner-scoped notes + 7-day TTL across all four backends; owner threaded through the graph
-- [ ] 12-06-PLAN.md — Wave 5: ADR-0007 supersedes 0006, README fix, identity-aware page (criterion 6), live cutover
+- [x] 12-06-PLAN.md — Wave 5: ADR-0007 supersedes 0006, README fix, identity-aware page (criterion 6), live cutover
+      — **Tasks 1–3 only.** Task 4 (T-06-4, the `checkpoint:human-action` live cutover) is
+      deferred by the user and unstarted: no Fly secret set, no deploy, live service untouched.
 **UI hint**: yes
 
 **Notes for discuss-phase:**
@@ -333,7 +335,7 @@ capacity exists, they can overlap. Phases 15 → 16 → 17 are strictly sequenti
 | 10. ADRs and doc correctness | v1.1 | 5/5 | In Progress | All 5 plans executed; SC-1/2/3/4/6 green. Sign-off pending on SC-5 step 3 — `main` is 21 docs-only commits ahead of `origin/main`. No code differs; resolve with a push, not a deploy. |
 | 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 5/5 | Complete | Shipped as Fly release v4 on 2026-08-04; re-verified live 2026-08-05 (v4 healthy, `/`, `/health`, `/demo`, `/metrics` all 200) |
 | 11. Multi-machine state and pooled Postgres | v1.1 | 5/5 | Blocked | All 5 plans executed, but 11-05 Tasks 2–3 are blocked: `fly deploy` cannot answer its own volume-detach prompt non-interactively on flyctl v0.4.78. `fly.toml` is stateless and the guards pass, but production is still ONE machine on release v6 with the volume attached, so **SC-2's live half and SC-3 are unproven**. Needs an operator-run interactive deploy, then `fly scale count 2`. |
-| 12. Caller identity, session ownership, bounded stores | v1.1 | 5/6 | In Progress|  |
+| 12. Caller identity, session ownership, bounded stores | v1.1 | 6/6 | In Progress | All 6 plans executed and both suites green (526/47 plain, 572/1 armed), but **12-06 Task 4 — the live cutover — is deferred by the user and unstarted**. `IDENTITY_SIGNING_SECRET` is not set as a Fly secret, the phase is not deployed, and criterion 6 is proven statically against the served file rather than in a real browser. Until the cutover, the fleet mints per-process ephemeral identities (`/health` now reports `identity_signing: false`). `REQ-demo-authentication` and `REQ-store-lifecycle-and-ownership` stay Pending because both are deployed-behaviour requirements. |
 | 13. Embedding model migration | v1.1 | 0/TBD | Not started | - |
 | 14. Real cost accounting | v1.1 | 0/TBD | Not started | - |
 | 15. Answer-quality evals | v1.1 | 0/TBD | Not started | - |

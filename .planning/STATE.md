@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Completed 12-05-PLAN.md (Wave 4): notes scope to the caller and expire after 7 days, identically on all four backends; the cross-visitor injection path is closed end to end. SC-5 is literally true. Next: 12-06."
-last_updated: "2026-08-05T14:45:00.000Z"
-last_activity: "2026-08-05 — Executed 12-05: add(text, owner)/query(..., owner) plus a 7-day NOTE_TTL_DAYS across json/memory/chroma/pgvector, proven by a four-arm behavioural suite in which the chroma arm collects and passes; the owner threaded from the identity cookie through AgentState into researcher_node, closing the path by which one visitor's notes reached another visitor's critic. Suite 516/47 plain, 562/1 armed; README/OPERATIONS/.env.example corrected."
+stopped_at: "Executed 12-06-PLAN.md Tasks 1-3 (Wave 5): ADR-0007 supersedes ADR-0006 with explicit carry-forward, README's 'rate-limited, not authenticated' line corrected, the identity-aware demo page shipped, and criterion 6 frozen as nine static-file gates. Task 4 (the live cutover, checkpoint:human-action) is DEFERRED BY THE USER and unstarted — no Fly secret, no deploy, live service untouched. Next: 12-06 Task 4, then the phase PR."
+last_updated: "2026-08-05T16:30:00.000Z"
+last_activity: "2026-08-05 — Executed 12-06 Tasks 1-3: ADR-0007 (supersedes 0006, carrying forward SESSIONS_TOKEN-as-operator-credential with its fail-closed meaning inverted, the read/cap decomposition, the router grouping and DEMO_TOKEN-never-in-prod); README/OPERATIONS/.env.example corrected including the two items deferred here by waves 2-3; /health reports identity_signing; the demo page gained a footer identity sentence, a two-scope limits line, an owned-session list that is absent from the DOM until populated, a side-effect-free renderTurnCard() and a resume flow; nine criterion-6 gates, 24 of 25 mutations red. Suite 526/47 plain, 572/1 armed, no new skips."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 18
-  percent: 57
+  completed_plans: 19
+  percent: 58
 ---
 
 # Project State
@@ -26,14 +26,15 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTING**
-Plan: 5 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
-Status: Wave 4 complete (12-05). Notes are no longer communal or immortal. `add()` and `query()` take an `owner` on all four backends (json, memory, chroma, pgvector) with exact-match semantics — `owner=""` is a real value that matches nobody, so the two orphaned notes belong to no one from the moment this ships — and `NOTE_TTL_DAYS` (7, matching sessions) is enforced by a lazy filter plus a sweep on write. The owner is threaded from the identity cookie through `AgentState` and `initial_state`/`followup_state` into `researcher_node`, which scopes **both** recall and write: one visitor's untrusted note text can no longer reach another visitor's critic. **SC-5 is now literally true** — the shared contract suite runs `note_scoping` and `note_ttl` on all four arms, with the chroma arm collecting and passing rather than skipping. Criterion 5 is in.
-Last activity: 2026-08-05 — Executed 12-05 (commits 27e46bc, bb9e80f, 8a8582e).
+Plan: 6 of 6 executed (12-06 Tasks 1–3 of 4) · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
+Status: Wave 5 code and docs complete (12-06 Tasks 1–3). **ADR-0007 supersedes ADR-0006** with an explicit `### Carried forward` section — the convention forbids editing a superseded record's body, so the new record is the only honest place to say that `SESSIONS_TOKEN` survives as the *operator* credential with its fail-closed meaning **inverted**, and that 0006's parts 3 (guard stays off the reads) and 4 (structural router grouping) are reaffirmed rather than discarded. README's "rate-limited, not authenticated" bullet — deferred by four consecutive waves — is rewritten honestly, including the free-to-mint fairness ceiling. The demo page shows identity in exactly two muted text deltas and nothing else: an owned-session list that is **not in the document at all** until it has a row, a side-effect-free `renderTurnCard()` that omits absent badges instead of inventing `$0.0000`, and a resume flow. Criterion 6 is now nine machine-checked static gates including a frozen first-paint text baseline (the whole phase's markup delta is one run) and a frozen tag census.
+**Task 4 — the live cutover — is DEFERRED BY THE USER and unstarted.** No Fly secret was set, no `fly deploy` was run, the live service was not touched, nothing was pushed.
+Last activity: 2026-08-05 — Executed 12-06 Tasks 1–3 (commits ab54fb5, 1c79677, d7d06e2).
 
 **Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7.
 
 Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 12: [███████░░░] 4 of 6 plans — executing
+Phase 12: [██████████] 6 of 6 plans — executing (12-06 Task 4, the live cutover, deferred)
 
 **Carry into execution — what breaks the demo if wrong:**
 
@@ -75,7 +76,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
-| 12 | 5 of 6 (12-01, 12-02, 12-03, 12-04, 12-05) | 127min | 25min |
+| 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
 
 **Recent Trend:**
 
@@ -171,6 +172,14 @@ Recent decisions affecting current work:
 - [Phase 12-04]: **`client.cookies.set(name, value, domain="testserver")` silently does not send the cookie**; hand cookies to the `TestClient` constructor instead. 12-03's `test_delete_rate_limited_check_runs_after_the_token_check` used the broken form, so its stated premise ("carries the VICTIM'S cookie") was false while the test still passed.
 - [Phase 12-04]: **Pre-Phase-12 rows need no migration step.** `owner=''` matches no caller (identities are 32-hex uuids), so orphans resolve for nobody the moment the filter lands and are swept once past the seven-day line. Claim-by-nobody-and-expire: no manual deletion, no special case in code, and the operator can still inspect them until they age out.
 - [Phase 12-04]: **Baselines moved and are fully explained**: plain 493/41 → 506/45, armed 533/1 → 550/1, collected 534 → 551 (+17 in both arms). The four extra plain skips are exactly the postgres arms of the four new session-contract tests, so the **armed** run is what proves DB-clock expiry. README/OPERATIONS/.env.example corrected for ownership, expiry and `SESSIONS_TOKEN`; the "rate-limited, not authenticated" line at ~210 remains Wave 5's.
+- [Phase 12-06]: **A superseding ADR must carry an explicit `### Carried forward` section.** The convention forbids editing a superseded record's Context/Decision/Consequences, so a bare supersession leaves the parts that survived discoverable only by reading a record stamped "Superseded" and guessing which sentences still apply. ADR-0007 names all four of 0006's parts, and records `SESSIONS_TOKEN`'s survival as an **inversion** (it still fails closed; what changed is that failing closed now costs the operator's cross-owner view rather than every visitor's access) — "it survives" alone would be true and useless.
+- [Phase 12-06]: **Freeze a measured SET, never a count.** Adding a font size *raises* the number of `font-size:` declarations, so a count-based or `>= 1` gate stays green for exactly the change it exists to catch. The same applies to the escape hatches: the `font:` shorthand carries a size and a weight, and script-set styles bypass CSS entirely — both are gated, and both mutate red.
+- [Phase 12-06]: **Freeze the markup's tag census alongside its text.** A textless element — an empty `<button>`, a blank-summary `<details>` — contributes no text run and walks straight past a text-only first-paint gate, while being exactly the "new interactive element reachable before the first question" AC1 forbids. Found by mutating the text gate, not by reading it.
+- [Phase 12-06]: **Build-and-insert-when-populated beats declare-and-hide.** The owned-session list is constructed in script and inserted only while it has rows, so there is no empty state to get wrong and no first-paint delta. Consequence for gating: the plan's `grep '<details id="mine">'` **cannot** be satisfied honestly — the literal only exists if the element ships in the first-paint DOM (which criterion 6 forbids) or sits in a comment (which the grep would accept). The gate asserts the construction AND that no `<details` tag appears anywhere in the file.
+- [Phase 12-06]: **Badge on field PRESENCE (`in` / `typeof`), never truthiness.** `Number(payload.cost_usd || 0).toFixed(4)` renders a fabricated `$0.0000` for a stored turn that carries no cost, in the same styling as a measured fact; but a truthiness test would also drop a genuine `$0` and a genuine zero-revision run. The presence form is the only one that omits the absent without hiding the real.
+- [Phase 12-06]: **The twelfth vacuous gate, and the narrow lesson.** The fix for "the session list is appended unconditionally" searched the whole of `syncMine()` for `"rows &&"` — which the `else if (!rows && …)` branch satisfies, so the gate passed under the exact mutation it had just been written for. A substring gate over a *region* is unsafe whenever the region contains a **negation** of the thing being asserted; assert on the specific line.
+- [Phase 12-06]: **Never `git checkout` a file to revert a mutation while uncommitted work sits on it.** A mutation script failed silently (`python` is not on `PATH` in this environment — only `.venv/bin/python`), and the `git checkout --` that "reverted" it discarded a real uncommitted edit instead. Use a file copy as the restore point.
+- [Phase 12-06]: **12-06 Task 4 (the live cutover) is deferred by the user and unstarted.** Criterion 6 is therefore proven **statically** against the served file, not in a real browser against the deployed service; two-machine identity continuity is untested; and `IDENTITY_SIGNING_SECRET` is unset in production, so the fleet mints per-process ephemeral identities. `/health`'s new `credentials.identity_signing` is what makes that visible.
 
 ### Pending Todos
 
@@ -271,12 +280,53 @@ None yet.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Docs drift | `docs/OPERATIONS.md` still says the spend cap counts completed runs only and "this is not fixed" (12-03 closed it), describes `DEMO_RATE_LIMIT_PER_HOUR` as per-visitor-IP (12-03 rekeyed it to identity), and omits `DEMO_RESERVED_RUN_USD` from the env table | Open — 12-06 owns the phase doc pass | 12-04 |
+| Docs drift | `docs/OPERATIONS.md` still says the spend cap counts completed runs only and "this is not fixed" (12-03 closed it), describes `DEMO_RATE_LIMIT_PER_HOUR` as per-visitor-IP (12-03 rekeyed it to identity), and omits `DEMO_RESERVED_RUN_USD` from the env table | **CLOSED 2026-08-05 by 12-06 Task 1 (`ab54fb5`)** — all three corrected, plus `IDENTITY_SIGNING_SECRET` added, the `TRUST_FORWARDED_FOR` row marked log-only, and the same per-visitor-IP error found and fixed in `.env.example` | 12-04 |
+| Live cutover | **12-06 Task 4** — `fly secrets set IDENTITY_SIGNING_SECRET`, `fly deploy`, then verify `/health` `identity_signing: true` on BOTH machines, cross-machine cookie verification (record both `FLY_MACHINE_ID`s), and criterion 6 in a real cleared-storage browser with the `ra_id` cookie HttpOnly/Secure/SameSite=Lax | Open — **deferred by the user**; unstarted, nothing touched live | 12-06 |
 
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 12-05-PLAN.md — Wave 4 of Phase 12 is in.** Three commits on
+Stopped at: **Executed 12-06-PLAN.md Tasks 1–3 — Wave 5's code and docs are in; Task 4 is deferred.**
+Three commits on `gsd/phase-12-caller-identity`: `ab54fb5` (**ADR-0007**, `Accepted — supersedes
+ADR-0006`, `**Source:** Phase 12` — the reversal, the fairness ceiling, the cookie transport with its
+CSRF reasoning, 404-not-403, `TRUST_FORWARDED_FOR` demoted; and a `### Carried forward from ADR-0006`
+section naming all four surviving parts, with `SESSIONS_TOKEN` recorded as an **inversion** rather
+than a survival. ADR-0006: status line only, a 1-line diff. `docs/adr/README.md`: the 0007 row, both
+records' cells, and the "All six records are Accepted" sentence corrected. **README's "rate-limited,
+not authenticated" bullet**, deferred by waves 1–4, rewritten. `/health` reports
+`credentials.identity_signing`, presence never value. `.env.example` + `docs/OPERATIONS.md`:
+`IDENTITY_SIGNING_SECRET`, plus the two claims `deferred-items.md` assigned here and two more found
+alongside), `1c79677` (the demo page — footer sentence, a `#limits` line naming both scopes, an
+owned-session `<details>` **built in script and inserted only while it has rows**, a side-effect-free
+`renderTurnCard()` whose badges are conditional on field *presence* so a stored turn gets none rather
+than a fabricated `$0.0000`, and a resume flow that posts follow-ups to the existing
+`/sessions/{id}/ask/stream`), and `d7d06e2` (nine criterion-6 static gates).
+Suite: **526 passed / 47 skipped plain, 572 passed / 1 skipped armed** against 516/47 and 562/1 —
+**+10 in both arms and ZERO new skips**, the first wave of this phase with nothing to justify: 1 new
+health test + 9 page gates, all static-file or in-memory. `ruff` clean.
+**The two-delta claim is now measured.** The served markup's visible text runs were diffed against the
+pre-phase file: the whole phase's markup delta is **one run**, the footer sentence. That baseline is
+frozen in `page_first_paint_text_is_frozen`; the `#limits` delta is not a markup delta (the `<p>` ships
+empty and is filled from `/demo`) and is gated separately.
+**Falsified, not assumed — 25 mutations, 24 red**, tree byte-identical after each batch. Three of the
+plan's own gates were vacuous as specified and were fixed before commit: the session list could be
+appended unconditionally, `renderTurnCard` could go back to fabricating a cost, and a **textless**
+interactive element could be added before the first question — all three stayed green. Then the fix
+for the first was **itself** vacuous (searching all of `syncMine()` for `"rows &&"`, which the
+`else if (!rows && …)` branch satisfies): this project's **twelfth** vacuous gate and the first written
+by the wave that found it. The one mutation that stays green — changing an `--accent` value inside
+`:root` — is recorded as correctly green, since AC7 freezes which properties new rules use, not the
+palette's values; the falsifying mutation for that gate is *hardcoding* a colour, which is red.
+**Task 4 (T-06-4, `checkpoint:human-action`) is DEFERRED BY THE USER and unstarted.** No Fly secret
+set, no `fly deploy`, live service untouched, nothing pushed. Consequences: criterion 6 is proven
+**statically against the served file, not in a real browser**; two-machine identity continuity is
+untested; and with `IDENTITY_SIGNING_SECRET` unset the fleet mints per-process ephemeral identities,
+which `/health`'s new field now makes visible. Both `REQ-demo-authentication` and
+`REQ-store-lifecycle-and-ownership` therefore stay **Pending** — both are deployed-behaviour
+requirements, and 12-05 handed the second one here explicitly noting it depends on the first.
+Resume file: None
+
+Superseded — previous session: **Completed 12-05-PLAN.md — Wave 4 of Phase 12 is in.** Three commits on
 `gsd/phase-12-caller-identity`: `27e46bc` (`add(text, owner="")` / `query(..., owner="")` on the
 `MemoryStore` ABC and all four backends, with owner matching EXACT — `owner=""` retrieves only
 `owner=""` notes and never acts as a wildcard; `NOTE_TTL_DAYS` (7, deliberately the same number as
@@ -532,7 +582,31 @@ Resume file: None
   dict. And `research_notes`'s text column is `text`, not `content`. Both cost a failed probe in
   11-04.
 
-Next: **11-05** — remove `[[mounts]]` and the three `*_DB_PATH` vars, add the three backend pins,
+- **`addopts = "-q"` is already set in `pyproject.toml`.** Passing `-q` on the command line makes
+  pytest doubly quiet and it prints **no `N passed` summary line at all** — a run that looks like it
+  produced no result has produced every result except the one you were reading for. Run
+  `.venv/bin/pytest` with no `-q`.
+
+- **`python` is not on `PATH` in this environment; `.venv/bin/python` is.** A `python - <<'PY'`
+  heredoc fails with `command not found` and, in a `&&` chain, silently skips the step it was meant
+  to perform. This cost an uncommitted edit in 12-06 when the "revert" that followed a no-op mutation
+  was a `git checkout --`. Restore from a file copy, not from git, while work is uncommitted.
+
+- **The demo page now has a frozen first-paint baseline.** `tests/test_service.py` freezes the served
+  markup's visible text runs AND its tag census, plus the font-size/weight/shorthand sets and the
+  literal-colour set. Any future phase touching `src/research_agent/static/index.html` must update
+  those baselines deliberately — they are measured constants, and a failure is the gate working.
+
+Next: **12-06 Task 4** — the deferred live cutover. Generate the secret, `fly secrets set
+IDENTITY_SIGNING_SECRET=…` (app-wide, so both machines verify each other's cookies), `fly deploy`,
+then verify `/health` reports `identity_signing: true` on BOTH machines, that a cookie minted on one
+verifies on the other (record both `FLY_MACHINE_ID`s), and criterion 6 in a real cleared-storage
+browser. Only after that can `REQ-demo-authentication` and `REQ-store-lifecycle-and-ownership` be
+checked off. Then the phase PR — one PR for the whole phase, no direct push to `main`.
+Note the standing blocker below: `ANTHROPIC_API_KEY` is revoked in production, so a research run
+still cannot complete there regardless of this cutover.
+
+Superseded — Next was: **11-05** — remove `[[mounts]]` and the three `*_DB_PATH` vars, add the three backend pins,
 raise `min_machines_running` to 2 and `fly scale count 2`. This is the point of no return for
 per-machine state, and 11-04 has cleared its precondition: the database is reachable and proven.
 `tests/test_deploy_config.py` makes that a four-part change or it fails. Also owed there:
