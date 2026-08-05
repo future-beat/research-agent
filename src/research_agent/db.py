@@ -8,16 +8,48 @@ overnight, and the failure surfaces as the next request dying with
 "server closed the connection unexpectedly". So every statement runs through
 `cursor()`, which reconnects once and retries before giving up.
 
-One connection guarded by a lock, rather than a pool. A research run occupies
-a worker for tens of seconds while database calls take milliseconds, so
-serialising them costs nothing measurable -- and it keeps the concurrency
-story identical to the SQLite backends it sits alongside.
+**A pool, where this module used to hold one connection behind a lock.** That
+earlier choice was defensible while one machine ran: a research run occupies a
+worker for tens of seconds, database calls take milliseconds, so serialising
+them cost nothing measurable. The machine count rising is what reverses it.
+`fly.toml` sets `hard_limit = 16`, and two machines means up to **32 in-flight
+requests against one database** -- where before this phase they would all have
+queued behind a single serialised connection, and now across a ~5 ms network
+hop to an external provider rather than a local socket. /health, /ready,
+/metrics, /sessions and every run boundary contend on that one connection.
+The pool is justified by the machine count, not by taste.
 
-psycopg is imported lazily: a deployment on SQLite and a JSON store should not
-need a Postgres driver installed to start up.
+One pool per DSN, shared by every `Database` on it. Each store builds its own
+`Database`, so a naive port would give three pools per machine and triple the
+warm-connection floor across the fleet. `close()` releases this Database's
+claim; the pool is disposed when the last claim goes.
 
-    DATABASE_URL=postgresql://user:pass@host:5432/dbname
-    PG_CONNECT_TIMEOUT=3        seconds before a connection attempt gives up
+psycopg and psycopg_pool are imported lazily: a deployment on SQLite and a JSON
+store should not need a Postgres driver installed to start up.
+
+    DATABASE_URL=postgresql://user:pass@host:5432/dbname?sslmode=require
+    PG_CONNECT_TIMEOUT=3        seconds before one libpq connect attempt gives up
+    PG_POOL_MIN_SIZE=1          warm connections held open
+    PG_POOL_MAX_SIZE=5          ceiling; 2 machines x 5 = 10 of Nano's 60
+    PG_POOL_TIMEOUT=2.0         seconds a caller waits for a checkout
+    PG_STATEMENT_TIMEOUT=10000  ms a server-side statement may run (0 = no bound)
+    PG_TCP_USER_TIMEOUT=2000    ms of unACKed data before the socket is dropped
+
+The timeouts are three different things and confusing them is how a health
+check ends up unbounded:
+
+  * `PG_CONNECT_TIMEOUT` bounds **one libpq connect attempt**, now made by a
+    pool background worker rather than by the request thread. It says nothing
+    about how long a caller waits.
+  * `PG_POOL_TIMEOUT` bounds **how long a caller waits for a checkout**. This
+    is the number a /health probe actually feels.
+  * `PG_STATEMENT_TIMEOUT` and `PG_TCP_USER_TIMEOUT` bound what happens
+    **after a connection is in hand** -- a slow server and a peer that has
+    stopped ACKing, respectively. Neither of the first two applies there.
+
+The residual, named rather than hidden: a peer that keeps the socket alive and
+simply never answers is bounded by none of them. That is why /health carries
+its own wall-clock deadline per probe (plan 11-02) instead of trusting libpq.
 
 The connect timeout matters more than it looks. /health probes the database,
 and a provider that has paused an idle instance will accept the TCP connection
@@ -151,29 +183,150 @@ def _psycopg_pool():
     return psycopg_pool
 
 
+# -- the pool registry -----------------------------------------------------
+#
+# One pool per DSN, shared. `_pool_claims` counts the Databases holding each
+# pool so that `close()` can be a claim release rather than a disposal: the
+# service lifespan closes the sessions and metrics stores but never the memory
+# store, and the contract suite closes a store after every parametrised case.
+# A close() that disposed a shared pool would break the holders that remain --
+# and a ConnectionPool cannot be reopened once closed.
+
+_pools: dict = {}
+_pool_claims: dict = {}
+_pools_lock = threading.Lock()
+
+
+def _connect_kwargs() -> dict:
+    """libpq settings applied to every connection the pool opens."""
+    kwargs = {
+        # autocommit: every store here does single-statement writes, and an
+        # implicit transaction left open by an idle connection holds locks
+        # and pins vacuum for as long as the process lives.
+        "autocommit": True,
+        "connect_timeout": connect_timeout(),
+        # NOT optional. psycopg's default is 5, so server-side prepared
+        # statements begin on the *sixth* execution of a query -- meaning the
+        # breakage appears in production rather than in a smoke test, and only
+        # once traffic warms a connection up. Behind a transaction-mode pooler
+        # the prepared statement may not exist on whichever server session the
+        # next execution lands on. Disabling it unconditionally makes the
+        # choice of pooler endpoint stop being load-bearing.
+        "prepare_threshold": None,
+        # Keepalives plus tcp_user_timeout are the bound on a peer that has
+        # stopped ACKing: without them a query on a connection whose peer went
+        # away blocks on a socket with nothing to interrupt it.
+        "keepalives": 1,
+        "keepalives_idle": 10,
+        "keepalives_interval": 3,
+        "keepalives_count": 2,
+    }
+    statement_ms = statement_timeout_ms()
+    if statement_ms:
+        # Bounds the server-alive-but-slow case. It also bounds the advisory
+        # lock wait in _apply_schema, because SELECT pg_advisory_lock(...) is
+        # itself a statement -- that is desirable, not accidental: a loser that
+        # waits out the timeout raises QueryCanceled, ensure_schema suppresses
+        # it, and the schema block is retried on first use. Do not "fix" it.
+        kwargs["options"] = f"-c statement_timeout={statement_ms}"
+    tcp_ms = tcp_user_timeout_ms()
+    if tcp_ms:
+        kwargs["tcp_user_timeout"] = tcp_ms
+    return kwargs
+
+
+def _configure(conn) -> None:
+    """Runs once per connection the pool opens.
+
+    Supabase installs pgvector into the `extensions` schema, not `public`, so
+    memory.py's unqualified `vector(N)` column types and `%s::vector` casts do
+    not resolve on the default search_path. Harmless on CI's stock
+    pgvector/pgvector:pg16 image, where `extensions` does not exist -- Postgres
+    tolerates missing schemas in search_path.
+    """
+    conn.execute("SET search_path TO public, extensions")
+
+
+def _pool_for(dsn: str):
+    """The shared pool for `dsn`, building it on first use. Claims a share."""
+    psycopg_pool = _psycopg_pool()
+
+    with _pools_lock:
+        pool = _pools.get(dsn)
+        if pool is None:
+            pool = psycopg_pool.ConnectionPool(
+                dsn,
+                min_size=pool_min_size(),
+                max_size=pool_max_size(),
+                timeout=pool_timeout(),
+                max_lifetime=1800,   # 30 min, comfortably under any proxy idle cull
+                max_idle=300,
+                kwargs=_connect_kwargs(),
+                configure=_configure,
+                # open=True does NOT connect synchronously and does NOT raise
+                # when the database is down -- clients block and then fail with
+                # PoolTimeout. That is what keeps Database.__init__ free of I/O
+                # that can raise. Deliberately nothing here blocks until the
+                # pool is warm: blocking is the boot-blocks-on-database
+                # behaviour this codebase removed on purpose, and
+                # test_store_contract.py exists to defend that.
+                open=True,
+                name="research-agent",
+                # Deliberately NO `check=` liveness callback, which RESEARCH
+                # suggested. Such a check is itself a server
+                # round trip performed *during* checkout, and the pool's
+                # `timeout` does not interrupt an in-flight check -- so against
+                # a partitioned database it becomes an unbounded addition to
+                # every caller's wait, on the exact endpoint (/health) whose
+                # budget this phase is closing. Staleness is already covered by
+                # the retry-once arm in cursor(), which is the pre-existing
+                # contract. A silently dropped parameter reads as an oversight,
+                # so the reason lives here.
+            )
+            _pools[dsn] = pool
+            _pool_claims[dsn] = 0
+        _pool_claims[dsn] += 1
+        return pool
+
+
+def _release_pool(dsn: str) -> None:
+    """Drop one claim; dispose the pool when the last holder lets go."""
+    with _pools_lock:
+        if dsn not in _pools:
+            return
+        _pool_claims[dsn] -= 1
+        if _pool_claims[dsn] > 0:
+            return
+        pool = _pools.pop(dsn)
+        _pool_claims.pop(dsn, None)
+    with contextlib.suppress(Exception):  # disposal is best effort
+        pool.close()
+
+
+def close_all_pools() -> None:
+    """Dispose every registered pool. For the service lifespan's `finally`,
+    and for tests, which must not leak background reconnect workers between
+    cases."""
+    with _pools_lock:
+        pools = list(_pools.values())
+        _pools.clear()
+        _pool_claims.clear()
+    for pool in pools:
+        with contextlib.suppress(Exception):
+            pool.close()
+
+
 class Database:
-    """A reconnecting, lock-guarded Postgres connection."""
+    """A reconnecting Postgres handle over a shared per-DSN connection pool."""
 
     def __init__(self, dsn: str | None = None):
         self.dsn = dsn or database_url()
-        self._lock = threading.RLock()
-        self._conn = None
+        self._pool = _pool_for(self.dsn)
+        self._released = False
         self._schema_sql: str | None = None
         self._schema_applied = False
 
     # -- connection ------------------------------------------------------
-
-    def _connect(self):
-        psycopg = _psycopg()
-        # autocommit: every store here does single-statement writes, and an
-        # implicit transaction left open by an idle connection holds locks
-        # and pins vacuum for as long as the process lives.
-        return psycopg.connect(self.dsn, autocommit=True, connect_timeout=connect_timeout())
-
-    def _connection(self):
-        if self._conn is None or self._conn.closed:
-            self._conn = self._connect()
-        return self._conn
 
     @contextmanager
     def cursor(self, row_factory=None):
@@ -184,22 +337,13 @@ class Database:
         run twice.
         """
         psycopg = _psycopg()
-        with self._lock:
-            try:
-                conn = self._connection()
-                with conn.cursor(row_factory=row_factory) as cur:
-                    yield cur
-            except (psycopg.OperationalError, psycopg.InterfaceError):
-                # Stale or dropped. Rebuild and try exactly once more.
-                try:
-                    if self._conn is not None:
-                        self._conn.close()
-                except Exception:  # noqa: BLE001 - already failing; closing is best effort
-                    pass
-                self._conn = None
-                conn = self._connection()
-                with conn.cursor(row_factory=row_factory) as cur:
-                    yield cur
+        try:
+            with self._pool.connection() as conn, conn.cursor(row_factory=row_factory) as cur:
+                yield cur
+        except (psycopg.OperationalError, psycopg.InterfaceError):
+            # Stale or dropped. Take a fresh connection and try exactly once more.
+            with self._pool.connection() as conn, conn.cursor(row_factory=row_factory) as cur:
+                yield cur
 
     # -- schema ----------------------------------------------------------
 
@@ -257,10 +401,15 @@ class Database:
             return cur.fetchall()
 
     def close(self) -> None:
-        with self._lock:
-            if self._conn is not None and not self._conn.closed:
-                self._conn.close()
-            self._conn = None
+        """Release this Database's claim on the shared pool.
+
+        Idempotent on purpose: a second close() must not decrement twice and
+        pull the pool out from under the holders that remain.
+        """
+        if self._released:
+            return
+        self._released = True
+        _release_pool(self.dsn)
 
 
 def postgres_configured() -> bool:
