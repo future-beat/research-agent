@@ -277,6 +277,7 @@ Environment variables:
 | `DEMO_TOKEN` | When set, write endpoints need an `X-Demo-Token` header. Also accepted as a fallback for `SESSIONS_TOKEN` | *(unset)* |
 | `SESSIONS_TOKEN` | Operator credential, sent as `X-Demo-Token`: lists and deletes **every** owner's sessions. While unset, only the operator view is closed — callers still reach their own | *(unset)* |
 | `SESSION_TTL_DAYS` | A session stops resolving this long after its last turn, and is swept on the next run. Reads don't renew it | `7` |
+| `NOTE_TTL_DAYS` | A stored note stops being recalled this long after it was written, and is swept on the next `add()`. Same value and same mechanics as sessions, on all four vector backends | `7` |
 | `TRUST_FORWARDED_FOR` | Believe `X-Forwarded-For` for client IP | `false` |
 | `LOG_FORMAT` · `LOG_LEVEL` | `json` or `text`; level | `json` / `INFO` |
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is installed | `true` |
