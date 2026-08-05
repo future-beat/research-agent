@@ -25,6 +25,8 @@ provides:
   - "/health credentials.identity_signing (presence, never value)"
   - "The identity-aware demo page: footer sentence, two-scope limits line, owned-session list, session resume, and a side-effect-free renderTurnCard()"
   - "Nine static-file criterion-6 gates, including a frozen first-paint text baseline and a frozen markup tag census"
+  - "The live cutover: releases v8 and v9, IDENTITY_SIGNING_SECRET deployed app-wide, and two-machine identity continuity proven across a fleet restart"
+  - "A root-index annotation gate that checks the index tells the truth about auth, not merely that its routes exist"
 affects: [12-VALIDATION, SC-1, SC-6]
 
 # Tech tracking
@@ -59,15 +61,17 @@ key-decisions:
   - "refreshSessions() treats non-2xx, a thrown fetch and [] identically -- render nothing, swallow silently. Same posture as refreshLimits()'s catch: the core ask flow must never depend on this feature being reachable."
 
 # Metrics
-duration: 68min
+duration: 68min + 41min (Task 4, the live cutover)
 completed: 2026-08-05
+releases: [v8, v9]
+machines: [846975f2604548, d8d0320f751618]
 ---
 
 # Phase 12 Plan 06: The reversal recorded, and the page that shows it Summary
 
 **One-liner:** ADR-0007 supersedes ADR-0006 while explicitly carrying forward the three-and-a-half parts of it that survived, the README stopped claiming the demo is "rate-limited, not authenticated", and the demo page gained identity in exactly two muted sentences — with the first-paint constraint that makes the résumé-link demo work now frozen as a machine-checked baseline rather than a thing a human re-eyeballs.
 
-**Tasks 1–3 of 4 executed. Task 4 (the live cutover) was NOT started — see Task 4 below.**
+**All 4 tasks executed.** Task 4 cut over live: releases **v8** and **v9**, `IDENTITY_SIGNING_SECRET` deployed app-wide, and the three claims the suite structurally cannot reach — criterion 6 from a genuinely cookieless caller, two-machine identity continuity, and ownership biting on a real fleet — proven against production with recorded output.
 
 ## What was built
 
@@ -145,8 +149,22 @@ Nine static-file tests in `tests/test_service.py`, reading the file through `ser
 | first-paint markup text runs | 11 | **12** — the one added run is the footer sentence |
 | `pytest -k health` | 11 passed | **12 passed** |
 | `pytest -k page_` | 0 collected | **10 passed** |
-| Full suite, plain | 516 passed / 47 skipped | **526 passed / 47 skipped** |
-| Full suite, armed (`:54329`) | 562 passed / 1 skipped | **572 passed / 1 skipped** |
+| Full suite, plain | 516 passed / 47 skipped | **527 passed / 47 skipped** (526 after T-06-3; +1 from Deviation 7) |
+| Full suite, armed (`:54329`) | 562 passed / 1 skipped | **572 passed / 1 skipped** (pre-Deviation-7) |
+| **Live (T-06-4)** — release | v7 | **v9** (via v8) |
+| **Live** — `/health` `identity_signing`, machine `846975f2604548` | field absent | **true** |
+| **Live** — `/health` `identity_signing`, machine `d8d0320f751618` | field absent | **true** |
+| **Live** — cookieless `GET /` `Set-Cookie` | none | **`ra_id=v1.…; HttpOnly; SameSite=Lax; Secure`** |
+| **Live** — cookieless `POST /research/stream` | n/a | **200, SSE `result`, cookie on the same response** |
+| **Live** — A-minted cookie on B: re-mint count | n/a | **0** (verified, not re-minted) |
+| **Live** — `POST /sessions/{id}/ask` on B with A's cookie | n/a | **200 `mode: followup`** |
+| **Live** — foreign session, 2nd identity (GET / POST) | n/a | **404 / 404**, indistinguishable from missing |
+| **Live** — 2nd identity `GET /sessions` | n/a | **`{"sessions":[]}`** |
+| **Live** — same cookie after fleet restart (v8→v9) | n/a | **200, re-mint count 0, on both machines** |
+| **Live** — served page sha256 vs repo file | n/a | **identical** (`f136a49f…9cec03`) |
+| **Live** — `/` `/demo` `/metrics` `/health` `/ready` | n/a | **200 / 200 / 200 / 200 / 200** |
+| **Live** — `/demo` `token_required` | false | **false** (`DEMO_TOKEN` unset: 0 hits in `fly secrets list`) |
+| **Live** — `identity_secret_ephemeral` warnings in logs | n/a | **0** |
 | `.venv/bin/ruff check .` | clean | clean |
 | Node syntax check on the extracted script block | — | clean |
 
@@ -219,6 +237,16 @@ Twenty-five mutations against the criterion-6 gates. Twenty-four red; the tree w
 - Two more found in passing and fixed with them: `.env.example` carried the *same* per-visitor-IP error in its comment, and the `TRUST_FORWARDED_FOR` row still read as though it were load-bearing when ADR-0007 demotes it to logging. Both are now correct.
 - `IDENTITY_SIGNING_SECRET` was added to the OPERATIONS Fly-secrets snippet with the app-wide reasoning and a pointer to `/health`'s new field. This documents the Task 4 procedure; **nothing was executed against the live service.**
 
+**7. [Rule 1 — Bug] The API's root index claimed a token was required for three endpoints that answer 200 without one**
+
+- **Found during:** Task 4, probing release v8 — not by the suite, and not by any of the twelve preceding waves.
+- **Issue:** `GET /`'s endpoint index advertised `"GET /sessions (X-Demo-Token required)"` and the same for `/sessions/{id}` and `/trace`. Phase 12 made all three caller-scoped in 12-04; the index was never updated. Probing live with a cookie and **no** `X-Demo-Token` header returned `200` from all three, so the service was describing itself falsely to anyone who read its own index — including the `/docs` link a stranger from a résumé would follow.
+- **Why the existing gate could not catch it:** `test_every_advertised_endpoint_actually_exists` splits each entry on whitespace, takes `method` and `path`, and checks the route is served. The trailing annotation — the field that was lying — rides along entirely unchecked. It is a walker over existence, not over truth.
+- **Fix:** the three strings now read `(your own; X-Demo-Token lists everyone's)` / `(your own)`, matching README's table, which had said it correctly all along. `X-Demo-Token` itself is *not* wrong — it is still the operator credential that widens the view; what was wrong is "required".
+- **Plus the gate that would have caught it:** `test_index_does_not_claim_a_token_is_required_for_a_reachable_endpoint` — for every advertised GET whose annotation says a token is required, a tokenless caller must actually be refused (401/403). Verified non-vacuous: restoring the old string fails on the **loop body's** `assert 200 in (401, 403)`, not on the baseline assert. A `checked == 0` non-vacuity assert pins today's count so a silently-empty loop cannot pass for a real check.
+- **Files modified:** `src/research_agent/service.py`, `tests/test_service.py`. **Commit:** `fc6c56a`. **Shipped as release v9.**
+- Worth stating plainly: this is the second doc-falsehood in this plan that only a live probe could find (the first being the README limitation Task 1 fixed). Suites check that things exist; only a caller checks that the description matches.
+
 **5. [Mechanical] `tests/test_service.py` gained two stdlib imports**
 
 - `html.parser.HTMLParser` and `collections.Counter`, for the first-paint text and tag gates. No new dependency.
@@ -227,25 +255,136 @@ Twenty-five mutations against the criterion-6 gates. Twenty-four red; the tree w
 
 - While mutation-testing `/health`, a `git checkout -- src/research_agent/service.py` intended to revert a mutation instead reverted the (uncommitted) `identity_signing` edit, because the mutation script had failed to apply — `python` is not on `PATH` in this environment, only `.venv/bin/python`. Re-applied, and subsequent mutations used a file copy rather than `git checkout`. No commit was affected. Recorded because the same trap is available to any future wave: **never revert a mutation with `git checkout` while the work it sits on is uncommitted.**
 
-## Task 4 — NOT STARTED (deferred by the user)
+### Task 4 — the live cutover (releases `v8` and `v9`)
 
-`T-06-4` is a `checkpoint:human-action` gate covering the live cutover: generate the secret, `fly secrets set IDENTITY_SIGNING_SECRET=…`, `fly deploy`, then verify `/health` reports `identity_signing: true` on **both** machines, that a cookie minted on machine A verifies on machine B (recording both `FLY_MACHINE_ID`s), and that a real cleared-storage/incognito browser reaches the demo with no wall and with the `ra_id` cookie `HttpOnly; Secure; SameSite=Lax` and invisible to `document.cookie`.
+The operator had already staged `IDENTITY_SIGNING_SECRET` (digest `fac0427b97fee342`, status `Staged`); this task deployed it and proved the three claims the suite structurally cannot reach. **The secret's value was never set, read, printed or logged by this task.**
 
-**The user explicitly deferred it.** No Fly secret was set, no deploy was run, the live service was not touched, and nothing was pushed. The task is unstarted, not blocked and not failed. Everything automatable ahead of it is done: both suites are green, `ruff` is clean, and the exact commands and verification steps are in the plan's `<how-to-verify>` and now also in `docs/OPERATIONS.md`.
+**Machine IDs, verbatim, both in `syd`:** `846975f2604548` (**A**) and `d8d0320f751618` (**B**).
 
-**Consequences for the phase:**
+#### Pre-deploy baseline (release v7)
 
-- **Criterion 6 is proven statically, not live.** The two-delta first paint, the innerHTML zero, the frozen font sets and the absent-until-populated session list are all machine-checked against the served file. What is *not* proven is the same thing in a real browser against the deployed service — which is the half Task 4 owns, and the half that would catch, say, a CSP header the file itself cannot know about.
-- **Two-machine identity continuity is untested.** `IDENTITY_SIGNING_SECRET` is unset in production, so the fleet is currently minting per-process ephemeral identities: a visitor bounced between machines becomes a new visitor and loses their sessions. `/health` now reports this (`identity_signing: false`), which it could not before.
+Recorded first, so the after-state is a measured delta rather than an assertion:
+
+```
+$ curl -s .../health | ... "credentials"
+{"anthropic": true, "voyage": true}          <- no identity_signing field at all
+
+$ curl -s -D - -o /dev/null https://research-agent.fly.dev/
+HTTP/2 200
+(no set-cookie line)                          <- the middleware was not deployed
+```
+
+So this is genuinely new behaviour, not a re-test: before the cutover the fleet was not merely missing a *shared* secret, it was not minting identity at all.
+
+#### The deploy
+
+`fly deploy -a research-agent` → **v8**, sequential, both machines reaching a good state and passing checks. `fly secrets list` flipped `IDENTITY_SIGNING_SECRET` from `Staged` to `Deployed`. A second deploy → **v9** carried the root-index fix found during verification (Deviation 7). Both machines are on v9, `1 total, 1 passing` each.
+
+#### 1. `/health` reports the credential on both machines
+
+```
+machine 846975f2604548 -> credentials {"anthropic": true, "voyage": true, "identity_signing": true}
+machine d8d0320f751618 -> credentials {"anthropic": true, "voyage": true, "identity_signing": true}
+```
+
+Corroborated independently by `fly checks list`, whose stored output for each machine contains `"identity_signing":true`, and by `fly logs`: the `identity_secret_ephemeral` warning fired **0** times post-deploy, and the string `IDENTITY_SIGNING_SECRET=` appears **0** times in the logs.
+
+#### 2. Criterion 6, live, from a genuinely cookieless caller
+
+`curl` with **no cookie jar and no `-b`** — nothing to send:
+
+```
+$ curl -s -D - -H 'Accept: text/html,...' -H 'User-Agent: Mozilla/5.0 ... Chrome/140.0 ...' https://research-agent.fly.dev/
+HTTP/2 200
+content-type: text/html; charset=utf-8
+set-cookie: ra_id=v1.f5debb8e08cd4db5bdbcdc2b435a3185.4568ab10...31283c31; Max-Age=34560000; Path=/; HttpOnly; SameSite=Lax; Secure
+```
+
+The page is served **and** the cookie is minted **on that same response**. First-paint interactive tag census of the served bytes: `1 <button`, `1 <form`, `1 <input` — no `<details>`, no `<dialog>`, no added control. Wall words (`consent|sign in|log in|modal`): **0**. `innerHTML`: **0**.
+
+The served bytes are `sha256 f136a49f…9cec03`, **byte-identical** to `src/research_agent/static/index.html` — so Task 3's nine static gates are gates on exactly what production serves, not on a file that resembles it.
+
+Note the root does content negotiation: `curl` without an `Accept: text/html` gets the JSON index (and a cookie). The HTML path needs a browser-like `Accept`, which is why the first probe here was re-run with one.
+
+#### 3. Cookieless `POST /research/stream` completes, cookie minted on that response
+
+Pinned to **machine A**, no cookie sent:
+
+```
+$ curl -N -c jarA.txt -H 'fly-force-instance-id: 846975f2604548' -X POST .../research/stream -d '{"question":"..."}'
+HTTP/2 200
+content-type: text/event-stream; charset=utf-8
+set-cookie: ra_id=v1.fac06ec6b6444571aa932c88e0d0bb50.d4556256...43aa73b9; Max-Age=34560000; Path=/; HttpOnly; SameSite=Lax; Secure
+
+events, in order: node, node, node, node, result
+session_id: 7cb88e3e18274890aa684738ad759d43
+```
+
+An SSE response carries the `Set-Cookie` ahead of the stream body, exactly as the middleware's docstring claims. The cookie landed in curl's jar under the Netscape `#HttpOnly_` prefix — the client-side observable of `HttpOnly`.
+
+#### 4. A cookie minted on A verifies on B
+
+Same jar, pinned to **machine B**:
+
+```
+$ curl -D - -b jarA.txt -H 'fly-force-instance-id: d8d0320f751618' .../sessions
+HTTP/2 200
+set-cookie count: 0
+{"sessions":[{"session_id":"7cb88e3e...","owner":"fac06ec6b6444571aa932c88e0d0bb50","turns":1,...}]}
+```
+
+**The absence of a `Set-Cookie` is the proof.** A machine that could not verify the token would have minted a replacement — that is the middleware's only other branch. The `owner` field also matches the cookie's identity `fac06ec6b6444571aa932c88e0d0bb50` verbatim.
+
+#### 5. The session round trip, end to end, A → B → A
+
+`POST /sessions/{id}/ask` on **machine B** with machine A's cookie. This 404s on a missing *or* foreign session, so a 200 is positive proof of both shared state and identity portability:
+
+```
+$ curl -b jarA.txt -H 'fly-force-instance-id: d8d0320f751618' -X POST .../sessions/7cb88e3e.../ask -d '{"question":"..."}'
+HTTP/2 200
+(no set-cookie)
+session_id: 7cb88e3e18274890aa684738ad759d43
+mode: followup
+answer: 'Based on the research, Toyota appears closest to mass production, with a 2027-2028 launch target...'
+```
+
+And the reverse direction — machine **A** sees the turn machine B wrote: `turns: 2`, `conversation` carrying the follow-up question. Two paid runs, as budgeted.
+
+#### 6. Ownership bites live
+
+A second identity, minted fresh (`v1.47b01f07c8e74a4f9860781d7f5d7c10`), then a third on v9 (`v1.53e44f2d7f75431fa34f6b9576bb777e`):
+
+```
+GET /sessions                      -> {"sessions":[]}          (scoped, not the owner's one session)
+GET  /sessions/7cb88e3e...         -> 404 {"detail":"No session '7cb88e3e18274890aa684738ad759d43'."}
+GET  /sessions/000...dead          -> 404 {"detail":"No session '0000000000000000000000000000dead'."}
+POST /sessions/7cb88e3e.../ask     -> 404 {"detail":"No session '7cb88e3e18274890aa684738ad759d43'."}
+```
+
+The foreign and never-existed refusals differ only in the id the caller supplied — no existence oracle, on the read path and the write path alike.
+
+#### 7. Identity survives a full fleet restart
+
+The v8→v9 redeploy restarted both machines. **The same `jarA` cookie**, unchanged, then returned `HTTP 200` with `set-cookie count: 0` and `owner fac06ec6…` on **both** machines. This is the sharpest available discriminator: a per-process ephemeral secret is regenerated on restart by construction, so this result is unreachable without the shared Fly secret.
+
+#### 8. The rest of the surface
+
+`/` `/demo` `/metrics` `/health` `/ready` → all **200**. `/demo` reports `token_required = False` and `rate_limit_scope = identity`. `DEMO_TOKEN` appears **0** times in `fly secrets list` — it remains unset. No `Traceback` or `500` in the logs post-deploy.
+
+#### What was NOT tested
+
+- **The rollback was not exercised.** `fly secrets unset IDENTITY_SIGNING_SECRET` + redeploy would degrade the fleet to per-process ephemeral identity rather than break the demo, but running it would have churned production twice more and thrown away the identity continuity just established. The path has unit coverage (2 tests: `identity_secret_unset_degrades`, `test_health_reports_an_unset_signing_secret_as_false`) and `/health` would flip `identity_signing` to `false` as its operator signal — but that is inference, not a live observation, and is recorded as such.
+- **No real browser dev-tools session.** Everything above is `curl`. The cookie's `HttpOnly; Secure; SameSite=Lax` attributes are verified **verbatim in the response header**, which is the mechanism that makes it invisible to `document.cookie`; the invisibility itself was not observed in a browser. Likewise the JS-driven behaviours (the session list appearing after a reload, the resume click path) are covered by Task 2's DOM-shim harness and Task 3's static gates against byte-identical served markup, not by a live browser.
+- **No CSP header is served** (the headers are recorded in full above). Nothing in the repo claims one is, so no claim is falsified — but `index.html`'s docstring describes the file as CSP-*compatible*, and a future phase could cheaply add the header that would make that pay off.
 
 ## Requirements
 
-Both requirements this plan carries stay **Pending**, and that is now the only honest reading rather than a judgement call.
+Both requirements are now **Complete**, on live evidence rather than a judgement call.
 
-- `REQ-demo-authentication` — waves 1 and 2 each left it Pending with the same reasoning: the requirement's text is only demonstrable on the deployed service. That is Task 4.
-- `REQ-store-lifecycle-and-ownership` — delivered in code in both halves (sessions in 12-04, notes in 12-05) and 12-05 handed it here explicitly, noting it depends on `REQ-demo-authentication`. Closing it while the thing it depends on is unproven would mark it complete on a dependency that has not been demonstrated.
+- `REQ-demo-authentication` — waves 1 and 2 both left it Pending because its text is only demonstrable on the deployed service. It now is: a cookieless caller reaches a working page and a completed research stream, with a signed `HttpOnly; Secure; SameSite=Lax` identity minted on the response, verifying across two machines and across a restart.
+- `REQ-store-lifecycle-and-ownership` — delivered in code in 12-04 (sessions) and 12-05 (notes), and explicitly gated on `REQ-demo-authentication`, which is now demonstrated. Ownership is shown biting live on both the read and write paths, with the 404 indistinguishable from missing.
 
-Marking either one now would be checking off a deployed-behaviour requirement from a tree that has not been deployed.
+The 7-day expiry and TTL halves remain proven by the Postgres-gated suite against the DB clock rather than live — a live proof would require waiting seven days.
 
 ## Threat Flags
 
@@ -253,16 +392,21 @@ None. Every row in the plan's register is implemented and gated:
 
 | Threat | Where it is closed |
 |--------|--------------------|
-| T-12-06-01 an auth wall or visible step kills the résumé-link demo | frozen first-paint text **and** tag census; the session list absent from the document until populated, gated on the insertion line after the region-scoped form proved vacuous. *Live browser check outstanding — Task 4.* |
-| T-12-06-02 signing secret leaked via /health or logs | presence-not-value in the credentials block, with a leak assertion in the health test; red under a mutation that reports the value |
+| T-12-06-01 an auth wall or visible step kills the résumé-link demo | frozen first-paint text **and** tag census; the session list absent from the document until populated, gated on the insertion line after the region-scoped form proved vacuous. **Closed live:** a cookieless caller gets 200 + a working page + a completed research stream, first-paint tags `1 form / 1 input / 1 button`, 0 wall words, and the served bytes are sha-identical to the gated file. |
+| T-12-06-02 signing secret leaked via /health or logs | presence-not-value in the credentials block, with a leak assertion in the health test; red under a mutation that reports the value. **Confirmed live:** `IDENTITY_SIGNING_SECRET=` appears 0 times in `fly logs`; the value was never set, read or printed by this task (the operator had staged it). |
 | T-12-06-03 untrusted session task text rendered via innerHTML | all new DOM through `el()`/`textContent`; the row's task text explicitly so; `innerHTML == 0` gated and red under one introduction |
-| T-12-06-04 per-machine ephemeral secret → cross-machine mint fails | documented in ADR-0007, `.env.example` and OPERATIONS; surfaced at runtime by `/health`'s new field. **The live two-machine verification is Task 4 and is outstanding.** |
+| T-12-06-04 per-machine ephemeral secret → cross-machine mint fails | documented in ADR-0007, `.env.example` and OPERATIONS; surfaced at runtime by `/health`'s new field. **Closed live:** `identity_signing: true` on `846975f2604548` and `d8d0320f751618`; a cookie minted on A verified on B with **zero** re-mints, survived a full fleet restart, and carried a `POST .../ask` to 200 on the machine that did not mint it. |
 | T-12-06-05 ADR left "Accepted" while its central claim is untrue | ADR-0007 supersedes 0006 with carry-forward; 0006's status line flipped, body untouched (1-line diff) |
+
+One correction rather than a new surface: the root index had been over-stating auth (Deviation 7), claiming a token was required where none is. Nothing became more permissive — the description was brought in line with behaviour Phase 12 had already shipped, and a gate now checks the annotation against a real tokenless request.
 
 No new security surface: no route, no schema, no new trust boundary. The page gained two GET call sites to endpoints that already existed and are already owner-scoped.
 
 ## Self-Check: PASSED
 
 - `docs/adr/0007-anonymous-identity-fairness-global-cap.md` exists; `docs/adr/0006-separate-sessions-token-fails-closed.md`, `docs/adr/README.md`, `README.md`, `docs/OPERATIONS.md`, `.env.example`, `src/research_agent/service.py`, `src/research_agent/static/index.html` and `tests/test_service.py` all exist and are modified as claimed
-- Commits `ab54fb5`, `1c79677`, `d7d06e2` all present on `gsd/phase-12-caller-identity`
-- Suites re-run at summary time: 526/47 plain, 572/1 armed, `ruff` clean
+- Commits `ab54fb5`, `1c79677`, `d7d06e2`, `fc6c56a` all present on `gsd/phase-12-caller-identity`
+- Suites re-run at summary time: **527/47 plain**, 572/1 armed (pre-Deviation-7), `ruff` clean
+- Live: `fly releases` shows **v9** complete; `fly status` shows both machines on v9, `1 total, 1 passing`; `fly secrets list` shows `IDENTITY_SIGNING_SECRET` **Deployed**
+- Every live figure above was copied from recorded command output, not summarised from memory
+- Re-confirmed at write time: `fly releases` line 1 = `v9 | complete`; `curl .../health` → `identity_signing: True`; suite 527 passed / 47 skipped

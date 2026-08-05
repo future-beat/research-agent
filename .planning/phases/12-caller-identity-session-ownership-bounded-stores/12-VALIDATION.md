@@ -1,7 +1,7 @@
 ---
 phase: 12
 slug: caller-identity-session-ownership-bounded-stores
-status: draft
+status: executed
 nyquist_compliant: false
 wave_0_complete: false
 created: 2026-08-05
@@ -93,11 +93,12 @@ Automated Command after its gate has run.
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Two-machine identity continuity | REQ-demo-authentication | Needs both live Fly machines + a real browser cookie | Create a session on machine A (cookie minted); force a follow-up onto machine B; confirm it resolves and the cookie verifies on the machine that did not mint it. Record both `FLY_MACHINE_ID`s. |
-| Résumé-link first visit (criterion 6) | REQ-demo-authentication | Real browser, cleared storage | Open the live demo in a fresh/incognito profile; confirm the question form is usable with zero added step; run one question end-to-end; reload and confirm "Your recent research" now appears. |
-| Cookie attributes | REQ-demo-authentication | Real browser dev tools | Confirm the identity cookie is `HttpOnly`, `Secure`, `SameSite=Lax`, and rides both the fetch and the fetch-stream calls. |
+| Behavior | Requirement | Why Manual | Test Instructions | Status |
+|----------|-------------|------------|-------------------|--------|
+| Two-machine identity continuity | REQ-demo-authentication | Needs both live Fly machines + a real browser cookie | Create a session on machine A (cookie minted); force a follow-up onto machine B; confirm it resolves and the cookie verifies on the machine that did not mint it. Record both `FLY_MACHINE_ID`s. | ✅ **VERIFIED 2026-08-05, release v9.** Machines **`846975f2604548`** (A) and **`d8d0320f751618`** (B), both `syd`. Cookieless `POST /research/stream` pinned to A minted `ra_id=v1.fac06ec6b6444571aa932c88e0d0bb50.…` on the SSE response and created session `7cb88e3e18274890aa684738ad759d43`. The same jar pinned to B: `GET /sessions` → 200 listing that session with `owner: fac06ec6…`, **`set-cookie` count 0**; `POST /sessions/{id}/ask` → **200 `mode: followup`** (this route 404s on a missing *or* foreign session, so 200 is positive proof). Reverse direction: A then reported `turns: 2`. The zero re-mint is the discriminator — a machine that could not verify would have minted a replacement. |
+| Résumé-link first visit (criterion 6) | REQ-demo-authentication | Real browser, cleared storage | Open the live demo in a fresh/incognito profile; confirm the question form is usable with zero added step; run one question end-to-end; reload and confirm "Your recent research" now appears. | ⚠️ **VERIFIED LIVE VIA HTTP, NOT A BROWSER.** A genuinely cookieless `curl` (no jar, no `-b`) with a browser `Accept`/`User-Agent`: **200**, `content-type: text/html`, and `Set-Cookie` on that same response. First-paint interactive tag census of the **served bytes**: `1 <form`, `1 <input`, `1 <button` — no `<details>`, no `<dialog>`, no added control; wall words (`consent\|sign in\|log in\|modal`) **0**; `innerHTML` **0**. Cookieless `POST /research/stream` completed (`node×4`, `result`). Served page `sha256 f136a49f…9cec03` is **byte-identical** to `src/research_agent/static/index.html`, so Task 3's nine static gates gate exactly what production serves. **Not covered:** the JS-driven reload showing "Your recent research", observed in a real browser — that path has DOM-shim + static coverage only. |
+| Cookie attributes | REQ-demo-authentication | Real browser dev tools | Confirm the identity cookie is `HttpOnly`, `Secure`, `SameSite=Lax`, and rides both the fetch and the fetch-stream calls. | ⚠️ **ATTRIBUTES VERIFIED VERBATIM IN THE RESPONSE HEADER**, on both the page response and the SSE response: `ra_id=v1.…; Max-Age=34560000; Path=/; HttpOnly; SameSite=Lax; Secure`. curl stored it under the Netscape `#HttpOnly_` prefix. It rode a subsequent `POST .../ask` to a 200 on the other machine, so it rides both plain and stream call sites. **Not covered:** invisibility to `document.cookie` observed in dev tools — `HttpOnly` in the header is the mechanism that produces it, but the observation itself was not made. |
+| Rollback path | REQ-demo-authentication | Would require churning production | `fly secrets unset IDENTITY_SIGNING_SECRET` + redeploy; expect degradation to per-process ephemeral identity, not a broken demo. | ❌ **NOT TESTED.** Running it would have churned prod twice more and discarded the continuity just established. Unit coverage exists (`identity_secret_unset_degrades`, `test_health_reports_an_unset_signing_secret_as_false`) and `/health` would flip `identity_signing` to `false` as the operator signal — but that is inference, not observation. |
 
 **Note the research pitfall:** `TestClient` uses `http://testserver`; a `Secure` cookie needs
 `base_url="https://testserver"` or the cookie silently never sets in tests.
@@ -106,12 +107,33 @@ Automated Command after its gate has run.
 
 ## Validation Sign-Off
 
-- [ ] Every criterion has a runnable, baseline-stated gate
-- [ ] Contract suite runs **4** arms in CI (json, memory, chroma, pgvector) — all collect
-- [ ] Local skip count justified against the 34 baseline (chroma/PG gating only; not disarmed coverage)
-- [ ] CI green with real Postgres and chroma
-- [ ] Two-machine identity continuity verified live with both machine IDs recorded
-- [ ] Criterion 6 verified in a real browser from cleared storage
-- [ ] `nyquist_compliant: true` set
+- [x] Every criterion has a runnable, baseline-stated gate
+- [x] Contract suite runs **4** arms in CI (json, memory, chroma, pgvector) — all collect
+- [x] Local skip count justified against the 34 baseline (chroma/PG gating only; not disarmed coverage)
+- [x] CI green with real Postgres and chroma — 527 passed / 47 skipped plain; 572 / 1 armed (`:54329`); `ruff` clean
+- [x] **Two-machine identity continuity verified live with both machine IDs recorded** — `846975f2604548` and `d8d0320f751618`, release v9; zero re-mints across machines and across a full fleet restart
+- [~] **Criterion 6 verified live from a genuinely cookieless caller — over HTTP, not in a browser.** The claim that is fully closed: a caller with nothing to send gets a working page, a `Set-Cookie` on that same response, a completed research stream, and served bytes sha-identical to the statically gated file, with a first-paint tag census showing no added control. The claim that is **not**: the same experience observed in an incognito browser window, including the reload that reveals "Your recent research".
+- [ ] `nyquist_compliant: true` — left `false`; the Wave 0 checkboxes above were never ticked by their own waves and this plan does not own them
 
-**Approval:** pending
+**Approval:** **approved for the live-cutover rows, with two exceptions recorded rather than waived.**
+
+The three claims that were live-only are now evidenced with recorded command output in `12-06-SUMMARY.md`
+(§ Task 4), not with judgements about it:
+
+1. `/health` reports `identity_signing: true` on **both** machines, corroborated by `fly checks list`.
+2. A cookie minted on A verifies on B with **zero** re-mints, carries a `POST .../ask` to 200 on the
+   machine that did not mint it, and survives a full fleet restart — which a per-process ephemeral
+   secret cannot do by construction.
+3. Ownership bites: a second identity gets `{"sessions":[]}` and a 404 on the foreign session that is
+   byte-identical to the never-existed 404, on the read path and the write path alike.
+
+**The exceptions, stated plainly so nobody reads this as a browser sign-off:**
+
+- **No real browser was used.** Every live check was `curl`. Where a browser was the specified
+  instrument (cookie invisibility to `document.cookie`; the reload revealing the session list), the
+  row above says so and the claim is downgraded to the mechanism actually observed.
+- **The rollback was not exercised.**
+
+Neither gap blocks the phase: both concern observation instruments for behaviour whose mechanism is
+verified elsewhere. Both are recorded so a later phase can close them cheaply rather than inherit
+them as assumed-true.

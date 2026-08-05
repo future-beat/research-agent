@@ -53,14 +53,14 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 
 ### Identity and lifecycle
 
-- [ ] **REQ-demo-authentication**: Callers to the public demo authenticate to an identity,
+- [x] **REQ-demo-authentication**: Callers to the public demo authenticate to an identity,
   not a shared token; rate limit and rolling spend cap key on identity rather than visitor
   IP, so `TRUST_FORWARDED_FOR` is no longer load-bearing for fairness.
   *Reverses a deliberate scope choice* — "rate-limited, not authenticated" was a call that
   bounding spend was enough for a public portfolio demo. The demo must stay usable without
   friction that defeats its purpose.
 
-- [ ] **REQ-store-lifecycle-and-ownership**: Notes carry at least one bound (eviction, dedup,
+- [x] **REQ-store-lifecycle-and-ownership**: Notes carry at least one bound (eviction, dedup,
   or summarisation) and note deletion is consistent across JSON/memory/Chroma/pgvector;
   sessions carry an owner identity and an expiry, `/sessions` lists only the caller's
   sessions, and `/sessions/{id}` 403s or 404s for others.
@@ -123,8 +123,8 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 | REQ-live-endpoint-exposure | Phase 10.5 | Complete (Fly release v4, 2026-08-04) |
 | REQ-multi-machine-state | Phase 11 | Complete (Fly v7, two machines, 2026-08-05) |
 | REQ-connection-pool | Phase 11 | Complete (psycopg-pool, one shared pool per machine) |
-| REQ-demo-authentication | Phase 12 | Pending |
-| REQ-store-lifecycle-and-ownership | Phase 12 | Pending |
+| REQ-demo-authentication | Phase 12 | Complete — live on release v9, 2026-08-05 (12-06 T-06-4: cookieless caller reaches a working page + completed stream with a signed `HttpOnly; Secure; SameSite=Lax` identity minted on the response; verified across machines `846975f2604548`/`d8d0320f751618` and a fleet restart) |
+| REQ-store-lifecycle-and-ownership | Phase 12 | Complete — code in 12-04 (sessions) / 12-05 (notes), ownership demonstrated live on release v9 (second identity gets `{"sessions":[]}` and a 404 indistinguishable from missing, on read and write). 7-day expiry/TTL proven against the DB clock in the Postgres-gated suite, not live |
 | REQ-embedding-model-migration | Phase 13 | Pending |
 | REQ-real-cost-accounting | Phase 14 | Pending |
 | REQ-offline-eval-quality | Phase 15 | Pending |
