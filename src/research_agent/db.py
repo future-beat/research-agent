@@ -40,6 +40,85 @@ def connect_timeout() -> int:
         return 3
 
 
+# -- pool sizing -----------------------------------------------------------
+#
+# The numbers, and why they are these numbers:
+#   max_size=5   fleet worst case is 2 machines x 5 = 10 of Supabase Nano's 60
+#                connections (~17%), leaving room to raise it later without
+#                changing tier. fly.toml's hard_limit = 16 means up to 32
+#                in-flight requests fleet-wide; each store call is a few ms, so
+#                a queue of 16 drains well inside the checkout timeout.
+#   min_size=1   one warm, TLS-established connection so the first request
+#                after a quiet spell does not pay a handshake.
+#   timeout=2.0  what a *caller* waits for a checkout. Three sequential /health
+#                store probes therefore cost ~6s in the ordinary unreachable
+#                case -- with the hard ceiling coming from plan 11-02's
+#                per-probe deadline, not from this number.
+
+
+def pool_min_size() -> int:
+    """PG_POOL_MIN_SIZE -- warm connections kept open. Default 1, floor 0."""
+    try:
+        return max(0, int(os.environ.get("PG_POOL_MIN_SIZE", "1")))
+    except ValueError:
+        return 1
+
+
+def pool_max_size() -> int:
+    """PG_POOL_MAX_SIZE -- ceiling on connections. Default 5, floor 1.
+
+    Never below `pool_min_size()`: a pool asked for more warm connections than
+    it is allowed to hold is a configuration error, and psycopg raises on it.
+    Clamping up is the forgiving reading of a typo.
+    """
+    try:
+        configured = max(1, int(os.environ.get("PG_POOL_MAX_SIZE", "5")))
+    except ValueError:
+        configured = 5
+    return max(configured, pool_min_size())
+
+
+def pool_timeout() -> float:
+    """PG_POOL_TIMEOUT -- how long a caller waits for a checkout. Default 2.0s."""
+    try:
+        return max(0.1, float(os.environ.get("PG_POOL_TIMEOUT", "2.0")))
+    except ValueError:
+        return 2.0
+
+
+# The next two exist because PG_POOL_TIMEOUT bounds a *checkout*, not a
+# *statement*. Once a connection is in hand the pool timeout is spent and
+# irrelevant, and PG_CONNECT_TIMEOUT never applied to an established connection
+# at all -- so a query on a connection whose peer has gone away blocks on a
+# socket with nothing bounding it.
+#   statement_timeout   bounds the server-alive-but-slow case.
+#   tcp_user_timeout    plus keepalives bound the peer-stopped-ACKing case.
+# What they do NOT fix, stated rather than hidden: a peer that keeps the socket
+# alive and simply never answers is bounded by none of them. That is why plan
+# 11-02 puts a wall-clock deadline around each /health probe.
+
+
+def statement_timeout_ms() -> int:
+    """PG_STATEMENT_TIMEOUT -- server-side statement bound, ms. Default 10000.
+
+    Floor 0, and 0 carries libpq's own meaning of "no bound" rather than an
+    invented one.
+    """
+    try:
+        return max(0, int(os.environ.get("PG_STATEMENT_TIMEOUT", "10000")))
+    except ValueError:
+        return 10000
+
+
+def tcp_user_timeout_ms() -> int:
+    """PG_TCP_USER_TIMEOUT -- unACKed-data bound, ms. Default 2000, floor 0
+    (0 meaning "kernel default", again libpq's semantic)."""
+    try:
+        return max(0, int(os.environ.get("PG_TCP_USER_TIMEOUT", "2000")))
+    except ValueError:
+        return 2000
+
+
 def database_url() -> str:
     url = os.environ.get("DATABASE_URL", "").strip()
     if not url:
@@ -59,6 +138,17 @@ def _psycopg():
             "`pip install 'psycopg[binary]'`, or use the SQLite/JSON backends."
         ) from exc
     return psycopg
+
+
+def _psycopg_pool():
+    try:
+        import psycopg_pool
+    except ImportError as exc:  # pragma: no cover - depends on env
+        raise ImportError(
+            "The Postgres backends need psycopg-pool. Install it with "
+            "`pip install psycopg-pool`, or use the SQLite/JSON backends."
+        ) from exc
+    return psycopg_pool
 
 
 class Database:
