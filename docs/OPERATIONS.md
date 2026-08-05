@@ -70,37 +70,131 @@ CI still runs, but only after the fact.
 ## Going stateless
 
 One volume on one machine means downtime during host maintenance and up to 24h
-of data loss between snapshots. Moving state to Postgres removes both, and it's
-one variable:
+of data loss between snapshots. Moving state to Postgres removes both.
 
-```bash
-fly postgres create --name research-agent-db
-fly postgres attach research-agent-db -a research-agent   # sets DATABASE_URL
-fly deploy -a research-agent
+The database is an **external** managed Postgres, not a Fly one. Fly's CLI now
+prints that unmanaged Fly Postgres *"is not supported by Fly.io Support and
+users are responsible for operations, management, and disaster recovery"*, so
+the commands this runbook used to carry are a dead path. There is no attach
+step any more: `fly secrets set DATABASE_URL=…` is the whole wiring.
 
-fly ssh console -a research-agent -C "python -m research_agent.migrate --dry-run"
-fly ssh console -a research-agent -C "python -m research_agent.migrate"
-```
+### Why Supabase and not Neon
 
-Then delete the `[[mounts]]` block from `fly.toml` and `fly scale count 2`.
-Sessions, metrics, and notes all follow `DATABASE_URL`, so there's no second
-flag to forget.
+This is a design consequence, not a coin flip. `/health` is the liveness probe
+and deliberately queries all three stores; Fly runs it every 30s per machine,
+so with two machines the database is queried roughly four times a minute,
+forever. Neon's free plan meters compute at **100 CU-hours per project per
+month** — about 400 hours at 0.25 CU — and a compute that those probes keep
+permanently awake bills ~730 hours a month. The project would be suspended
+around day 16 of every month, which drops existing connections and refuses new
+ones. Neon's scale-to-zero can't rescue it: the probes are exactly what stops
+it firing. Supabase's free tier has **no compute meter**, and its only idle
+hazard — a pause after ~7 days of low activity — is *prevented* by the same
+probes. The design that disqualifies one provider is the design that keeps the
+other alive.
 
-**Always pass `-a` explicitly.** `fly postgres create` makes a separate,
-Fly-managed app; you attach to it, you never deploy into it.
+The cost of that choice is a networking wrinkle: Supabase's direct endpoint is
+IPv6-only on the free tier, so the DSN points at the **session-mode Supavisor
+pooler** (`aws-<n>-ap-southeast-2.pooler.supabase.com:5432`), which is IPv4.
+Session mode, not transaction mode (`:6543`) — transaction mode is for
+transient serverless clients and breaks prepared statements and session state,
+and this is a persistent backend holding its own pool.
 
-The migration is re-runnable — anything already copied is skipped — and it
-carries notes across with their existing embeddings rather than re-embedding
-them. `/health` reports which backend each store is using, so you can confirm
-the switch took.
+### The cutover, in order
 
-Postgres needs the `vector` extension for the pgvector notes backend. Most
-managed offerings ship it; `CREATE EXTENSION` is a no-op when it already exists.
+The order is load-bearing. A machine with neither a volume nor a reachable
+database is a broken machine, so the mount comes out only after the database
+has been proven serving live traffic.
+
+1. **Create the Supabase project**, region **Oceania (Sydney) `ap-southeast-2`**
+   — next to Fly's `syd`, because every store probe pays that hop. The project
+   region cannot be changed after creation.
+2. **Enable the `vector` extension** (Database → Extensions, or
+   `create extension vector`). Required for the pgvector notes backend.
+3. **Set the DSN as a secret.** This triggers a deploy on its own.
+   ```bash
+   fly secrets set -a research-agent \
+     DATABASE_URL='postgresql://postgres.<ref>:<pw>@aws-<n>-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require'
+   ```
+4. **Verify before going further.** `curl https://research-agent.fly.dev/health`
+   must show all three stores on their Postgres backends and
+   `dependencies: "ok"`. Create a session and read it back. The volume is still
+   mounted at this point and the SQLite data is intact underneath, just unused —
+   so this step is fully reversible with `fly secrets unset`.
+5. **Only now, remove the local-state config**, in a single edit: delete the
+   `[[mounts]]` block and the three `*_DB_PATH` vars, **and add the three
+   fail-closed pins** — `SESSION_BACKEND=postgres`, `METRICS_BACKEND=postgres`,
+   `VECTOR_STORE=pgvector` — in the same edit. Deploy. This is the point of no
+   return for per-machine state.
+6. **Confirm the volume survived**, unattached: `fly volumes list -a research-agent`.
+   A machine that does not require a volume never attaches itself to one.
+7. **Scale out.** Raise `min_machines_running` to `2` in `fly.toml`, then
+   `fly scale count 2 -a research-agent`.
+
+Steps 1–4 are reversible and leave production untouched.
+`tests/test_deploy_config.py` guards the pairing in both directions: with a
+mount it requires one machine and local paths under `/data`; without one it
+requires the three pins, no `*_DB_PATH` keys, and at least two machines. Neither
+arm skips, so deleting the mount cannot silently disarm them.
+
+**Do not destroy the volume.** Detaching is reversible — the volume still exists
+and can be re-attached by restoring the `[[mounts]]` block — and
+`fly volumes destroy` is not. It is not part of this procedure at any point;
+the volume is the backup.
+
+### Why the pins matter
+
+Removing the `*_DB_PATH` vars is not enough on its own. `sessions.py` defaults
+`SESSION_DB_PATH` to a file beside the module, and the backend selector returns
+`sqlite` whenever no DSN is configured. So a mount-less deploy with an unset or
+empty `DATABASE_URL` doesn't surface as a degraded `/health` — each machine
+falls back to its own container-local SQLite and JSON, `/health` reports
+`dependencies: "ok"` because SQLite is perfectly reachable, Fly's check passes,
+and the only visible difference is a backend class name that no automated check
+reads. You would find out when a user's follow-up 404s.
+
+With the pins set, the same situation raises at store construction and the app
+does not come up. The tradeoff, plainly: a missing DSN now takes the service
+down instead of quietly serving per-machine data that vanishes on restart. For
+a configuration error that is the intended behaviour.
+
+### Starting clean
+
+**This cutover starts against an empty database. There is no data migration.**
+What is knowingly given up is the cumulative `/metrics` history; the two
+orphaned notes and the old demo sessions are disposable. The volume is kept as
+the backup, so nothing is destroyed — it is simply left behind.
+
+`python -m research_agent.migrate` is therefore deliberately **not exercised**
+by this cutover. A later phase that needs a real migration must not assume that
+path is proven: it has not been run against this data, and it should be
+dry-run first.
+
+### Supabase specifics
+
+**`sslmode=require` is mandatory and nothing adds it for you.** libpq's default
+is `prefer`, which silently accepts a plaintext connection, and `db.py` passes
+the DSN through untouched — whatever is in the secret is what is used. A DSN
+copied from the dashboard may not carry it. Append it.
+
+**pgvector lives in the `extensions` schema on Supabase**, not `public`, so an
+unqualified `::vector` cast does not resolve by default. `db.py` sets a
+connection-level `search_path` that includes it.
+
+**A paused free-tier project** — the state Supabase enters after ~7 days of
+inactivity, which this deployment's health probes prevent — is restored
+manually from the dashboard and loses no data.
+
+**Connection budget.** `hard_limit = 16` × 2 machines = up to 32 in-flight
+requests against one database, but the app pool caps connections at
+`PG_POOL_MAX_SIZE` (5), so the fleet holds at most 10 of Supabase Nano's 60.
+Requests past that queue on a bounded checkout rather than opening an eleventh
+connection.
 
 ## CI
 
 ```
-lint · tests · evals            ruff, 364 tests, 12 offline eval cases
+lint · tests · evals            ruff, 470 tests, 12 offline eval cases
 image build · smoke test        docker build, boot the container, probe it
 ```
 
@@ -139,11 +233,16 @@ Environment variables:
 |---|---|---|
 | `ANTHROPIC_API_KEY` · `VOYAGE_API_KEY` | Required for real runs | — |
 | `DATABASE_URL` | Postgres DSN. **Setting it moves all three stores.** | *(unset)* |
-| `VECTOR_STORE` | `json`, `memory`, `chroma`, `pgvector` | follows `DATABASE_URL` |
-| `SESSION_BACKEND` · `METRICS_BACKEND` | `sqlite` or `postgres` | follows `DATABASE_URL` |
+| `VECTOR_STORE` | `json`, `memory`, `chroma`, `pgvector` | follows `DATABASE_URL` locally; **pinned to `pgvector` in production** |
+| `SESSION_BACKEND` · `METRICS_BACKEND` | `sqlite` or `postgres` | follows `DATABASE_URL` locally; **pinned to `postgres` in production** |
 | `VECTOR_STORE_PATH` · `SESSION_DB_PATH` · `METRICS_DB_PATH` | Local store locations | beside the code |
 | `PGVECTOR_TABLE` · `VECTOR_DIMENSIONS` | pgvector table and column width | `research_notes` / `1024` |
-| `PG_CONNECT_TIMEOUT` | Seconds before a connection attempt gives up | `3` |
+| `PG_CONNECT_TIMEOUT` | Bounds **one libpq connect attempt**, made by a pool background worker — no longer how long a caller waits | `3` |
+| `PG_POOL_MIN_SIZE` · `PG_POOL_MAX_SIZE` | Warm connections held open; ceiling per machine | `1` / `5` |
+| `PG_POOL_TIMEOUT` | Seconds a caller waits for a pool **checkout**, and nothing after it | `2.0` |
+| `PG_STATEMENT_TIMEOUT` | Server-side statement bound, ms; `0` disables | `10000` |
+| `PG_TCP_USER_TIMEOUT` | Milliseconds of unACKed data before the socket is dropped; `0` disables | `2000` |
+| `HEALTH_PROBE_BUDGET` | Wall-clock seconds one `/health` store probe may take, end to end | `3.0` |
 | `CHROMA_PATH` · `CHROMA_COLLECTION` | Chroma location and collection | `chroma_store` / `research_notes` |
 | `VOYAGE_EMBEDDING_MODEL` | Embedding model | `voyage-3.5` |
 | `AGENT_MAX_RUN_COST_USD` | Per-run spend cap; `0` disables | `1.00` |
@@ -156,6 +255,38 @@ Environment variables:
 | `TRUST_FORWARDED_FOR` | Believe `X-Forwarded-For` for client IP | `false` |
 | `LOG_FORMAT` · `LOG_LEVEL` | `json` or `text`; level | `json` / `INFO` |
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is installed | `true` |
+
+### The four Postgres timeouts are four different things
+
+They read like variations on one knob and they are not; each bounds a different
+segment of a request, and only one of them bounds a whole operation. In order:
+`PG_CONNECT_TIMEOUT` bounds a single libpq connect attempt, which since the
+pool landed is made by a **background worker**, so it no longer bounds how long
+a caller waits for anything. `PG_POOL_TIMEOUT` bounds how long a caller waits
+for a **checkout** — and nothing that happens after it. `PG_STATEMENT_TIMEOUT`
+and `PG_TCP_USER_TIMEOUT` bound what happens once a connection is in hand: a
+server that is slow, and a peer that stops ACKing, respectively.
+`HEALTH_PROBE_BUDGET` is the only one that bounds a probe **end to end**, and
+is therefore the source of `/health`'s guaranteed ceiling.
+
+That ceiling is **3 probes × 3.0s = 9s**, inside Fly's 15s check timeout, and
+it holds whether the pool is cold, warm or partitioned. The ordinary cold-pool
+cost is 3 × `PG_POOL_TIMEOUT` ≈ 6s, but that is a typical figure and not a
+bound — a warm pool holding a connection to a peer that has gone away returns
+from checkout instantly and then blocks on the socket, at which point the
+checkout timeout is already spent. The case none of the libpq bounds catch is a
+peer that keeps the socket alive and never answers: `statement_timeout` needs
+the server to be listening and `tcp_user_timeout` needs unACKed data. That case
+is why the wall-clock deadline exists. Measured: 0.32s against a store that
+never answers, versus 31.4s with the deadline removed.
+
+**Concurrency and the spend cap interact, and this is not fixed.** The rolling
+daily cap counts only *completed* runs, so runs already in flight don't yet show
+against it. With `hard_limit = 16` a burst can already overshoot
+`DEMO_DAILY_USD_CAP` by roughly 3×, and 32 concurrent requests across two
+machines roughly doubles that ceiling. Nothing here makes the race more likely
+per request; what changes is how far a single burst can exceed the cap before
+the cap notices. Tracked for Phase 12 under `REQ-store-lifecycle-and-ownership`.
 
 The two tokens are not interchangeable in production. `SESSIONS_TOKEN` guards
 `GET /sessions`, `/sessions/{id}`, `/{id}/trace` and `DELETE /sessions/{id}`,
