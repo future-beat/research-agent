@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 from research_agent import db, graph, limits
 from research_agent import usage as usage_accounting
 from research_agent.graph import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
+from research_agent.identity import IdentityMiddleware
 from research_agent.metrics import FAILED, MetricsStore, RunRecord, get_metrics_store
 from research_agent.observability import get_logger
 from research_agent.sessions import Session, SessionStore, get_session_store
@@ -189,6 +190,13 @@ app = FastAPI(
     summary="Supervisor-routed research pipeline with fact-checked reports and follow-ups.",
     lifespan=lifespan,
 )
+
+# A middleware rather than a dependency, because /research/stream, /ask/stream
+# and GET / return Response objects directly and FastAPI drops dependency-set
+# cookies on those -- the three routes a first-time visitor hits first. This
+# runs for every route, sets request.state.identity before any handler, and
+# never refuses anyone (see identity.py).
+app.add_middleware(IdentityMiddleware)
 
 
 def _http_error(exc: BaseException) -> HTTPException | None:

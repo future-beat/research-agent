@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
 from test_memory_stores import FakeEmbedder
 
-from research_agent import db, graph, limits, service
+from research_agent import db, graph, identity, limits, service
 from research_agent.memory import InMemoryStore, PgVectorMemoryStore
 from research_agent.metrics import PostgresMetricsStore, SQLiteMetricsStore
 from research_agent.sessions import PostgresSessionStore, SQLiteSessionStore
@@ -33,6 +33,19 @@ SESSIONS_TOKEN = "sessions-s3cret"
 # the money-spending routes; `require_sessions_token` fronts the session
 # read/delete group. A route under /sessions carrying neither is open.
 AUTH_DEPENDENCIES = {"guard", "require_sessions_token"}
+
+
+def mint_cookie(monkeypatch, secret="test-identity-secret"):
+    """A real signed identity token the middleware will accept.
+
+    IdentityMiddleware is not a dependency, so it cannot be overridden the way
+    the stores are -- and should not be: tests that need a fixed identity mint
+    a genuine token under a pinned secret and present it as the ra_id cookie,
+    exercising the real verify path. Later waves key limits and session
+    ownership on this.
+    """
+    monkeypatch.setenv("IDENTITY_SIGNING_SECRET", secret)
+    return identity.mint()
 
 
 def api_routes(app):
@@ -115,7 +128,16 @@ def make_client(tmp_path, monkeypatch):
         service.app.dependency_overrides[service.get_sessions] = lambda: store
         service.app.dependency_overrides[service.get_metrics] = lambda: metrics
 
-        client = TestClient(service.app, headers={"x-demo-token": SESSIONS_TOKEN})
+        # https, not TestClient's default http: the identity cookie is Secure
+        # (unconditionally -- no prod/test fork in a security attribute), and
+        # httpx's jar silently withholds a Secure cookie over http. Under the
+        # default base_url every request would re-mint a fresh identity and
+        # the per-identity tests would pass vacuously.
+        client = TestClient(
+            service.app,
+            base_url="https://testserver",
+            headers={"x-demo-token": SESSIONS_TOKEN},
+        )
         created.append((client, store, metrics))
         return client, fake
 
@@ -1367,3 +1389,136 @@ def test_the_guard_runs_before_anything_is_spent(make_client, monkeypatch):
 
     assert client.get("/sessions").json()["sessions"] == []
     assert client.get("/metrics").json()["runs"]["total"] == 0
+
+
+# --------------------------------------------------------------------------
+# Caller identity: mint-on-response, never 401
+# --------------------------------------------------------------------------
+#
+# The property that breaks the demo if it regresses: a first-time visitor with
+# no cookie hits POST /research/stream first, and that route returns a
+# StreamingResponse directly -- where a dependency-set cookie is silently
+# dropped. The middleware must carry the mint on every response shape the
+# service produces, and must never refuse anyone.
+
+
+def _cookie_header(response) -> str:
+    """The raw Set-Cookie header for ra_id, or '' if none was sent."""
+    for value in response.headers.get_list("set-cookie"):
+        if value.startswith(f"{identity.COOKIE_NAME}="):
+            return value
+    return ""
+
+
+def _assert_locked_attributes(header: str) -> None:
+    assert header, "no ra_id Set-Cookie on the response"
+    assert "HttpOnly" in header
+    assert "SameSite=Lax" in header
+    assert "Secure" in header
+    assert f"Max-Age={identity.COOKIE_MAX_AGE}" in header
+
+
+def test_mint_on_response_reaches_the_sse_stream(make_client):
+    """The load-bearing shape: headers go out at http.response.start, before
+    the stream body, so the SSE response can and must carry the cookie -- and
+    the stream itself still completes with its terminal event."""
+    make_client()
+    with TestClient(service.app, base_url="https://testserver") as cookieless:
+        response = cookieless.post("/research/stream", json={"question": "why?"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    names = [name for name, _ in sse_events(response)]
+    assert names[-1] == "result"  # the stream completed, body unaffected
+    _assert_locked_attributes(_cookie_header(response))
+
+
+def test_mint_on_response_reaches_the_demo_page(make_client):
+    """GET / with an html Accept returns a FileResponse directly -- the second
+    shape where a dependency-set cookie would vanish."""
+    make_client()
+    with TestClient(service.app, base_url="https://testserver") as cookieless:
+        response = cookieless.get("/", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    _assert_locked_attributes(_cookie_header(response))
+
+
+def test_mint_on_response_reaches_a_json_route(make_client):
+    """The ordinary shape, asserted so all three are proven, not two."""
+    make_client()
+    with TestClient(service.app, base_url="https://testserver") as cookieless:
+        response = cookieless.get("/health")
+
+    assert response.status_code == 200
+    _assert_locked_attributes(_cookie_header(response))
+
+
+def test_a_valid_cookie_is_not_reminted(make_client, monkeypatch):
+    """Mint only on absent-or-invalid: a caller presenting a good token keeps
+    it, otherwise every response would rotate the identity that later waves
+    key limits and ownership on."""
+    make_client()
+    token = mint_cookie(monkeypatch)
+    with TestClient(service.app, base_url="https://testserver") as holder:
+        holder.cookies.set(identity.COOKIE_NAME, token)
+        response = holder.get("/health")
+
+    assert response.status_code == 200
+    assert _cookie_header(response) == ""
+
+
+def test_a_returning_caller_keeps_the_identity_they_were_minted(make_client):
+    """The round trip through the client's own jar: first response mints, the
+    jar stores it (Secure, hence the https base_url), the second request
+    presents it back, and no new mint happens."""
+    make_client()
+    with TestClient(service.app, base_url="https://testserver") as visitor:
+        first = visitor.get("/health")
+        second = visitor.get("/health")
+
+    _assert_locked_attributes(_cookie_header(first))
+    assert _cookie_header(second) == ""
+
+
+def test_invalid_token_reminted_never_401(make_client, monkeypatch):
+    """A tampered cookie is treated as absent: the request succeeds -- 200,
+    explicitly not 401 -- and a fresh identity arrives on the response. An
+    attacker who forges a token gains a new empty identity, never an error
+    and never someone else's."""
+    make_client()
+    token = mint_cookie(monkeypatch)
+    version, ident, sig = token.split(".")
+    tampered = f"{version}.{ident}.{sig[:-1]}{'0' if sig[-1] != '0' else '1'}"
+
+    with TestClient(service.app, base_url="https://testserver") as forger:
+        forger.cookies.set(identity.COOKIE_NAME, tampered)
+        stream = forger.post("/research/stream", json={"question": "why?"})
+
+    assert stream.status_code != 401
+    assert stream.status_code == 200
+    assert [name for name, _ in sse_events(stream)][-1] == "result"
+    fresh = _cookie_header(stream)
+    _assert_locked_attributes(fresh)
+    assert tampered not in fresh  # a fresh mint, not the forgery echoed back
+
+
+def test_identity_state_is_populated_before_the_handler(monkeypatch):
+    """request.state.identity is the contract every later wave keys on, so it
+    must exist before any handler runs -- proven against the middleware
+    directly, since no current route echoes it."""
+    monkeypatch.setenv("IDENTITY_SIGNING_SECRET", "state-test-secret")
+    seen = {}
+
+    async def inner(scope, receive, send):
+        seen["identity"] = scope["state"]["identity"]
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    # No `with`: the context manager runs lifespan, which this bare stub does
+    # not speak. A plain request is all the property needs.
+    client = TestClient(identity.IdentityMiddleware(inner), base_url="https://testserver")
+    assert client.get("/anything").status_code == 200
+
+    assert len(seen["identity"]) == 32 and seen["identity"].isalnum()
