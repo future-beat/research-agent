@@ -24,6 +24,12 @@ Two backends behind one interface:
                               wrong host 404s on a session that exists.
 
 Defaults to postgres when DATABASE_URL is set, sqlite otherwise.
+
+Since Phase 12 a session also carries the identity that created it and expires
+seven days after its last *write*. Both are store-level facts rather than
+service-level ones so that neither can be forgotten by a new caller: a listing
+cannot accidentally be unscoped, and an expired session cannot accidentally
+still resolve.
 """
 
 from __future__ import annotations
@@ -49,14 +55,30 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at  REAL NOT NULL,
     task        TEXT NOT NULL,
     turns       INTEGER NOT NULL DEFAULT 1,
-    state       TEXT NOT NULL
+    state       TEXT NOT NULL,
+    owner       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS sessions_updated_at ON sessions (updated_at DESC);
 """
 
+# Created after the owner migration below, never in the block above: a database
+# written before Phase 12 already has the table, so `CREATE TABLE IF NOT EXISTS`
+# is a no-op there and an index over `owner` would run against a column that
+# does not exist yet.
+SQLITE_OWNER_INDEX = (
+    "CREATE INDEX IF NOT EXISTS sessions_owner ON sessions (owner, updated_at DESC)"
+)
+
 # JSONB, not TEXT: the state blob is genuinely a document, and JSONB lets a
 # future query reach into it (e.g. every session whose run was unapproved)
 # without a migration.
+#
+# The two trailing statements are the Phase 12 ownership migration. They are
+# idempotent and they run inside the same advisory-locked lazy DDL block as the
+# CREATE, so the live table migrates on the first post-deploy request with both
+# machines serialised -- no migration script, no downtime. Rows written before
+# Phase 12 land on owner='', which matches no caller (identities are 32-hex
+# uuids), so they resolve for nobody and age out on the TTL below.
 POSTGRES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT PRIMARY KEY,
@@ -67,7 +89,29 @@ CREATE TABLE IF NOT EXISTS sessions (
     state       JSONB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_updated_at ON sessions (updated_at DESC);
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS sessions_owner ON sessions (owner, updated_at DESC);
 """
+
+SESSION_TTL_DAYS_DEFAULT = 7.0
+
+
+def session_ttl_seconds() -> float:
+    """How long a session survives its last *write*, in seconds.
+
+    Seven days by default: this is a public demo, not a product, so the store
+    stays small and self-cleaning and a returning visitor loses week-old history.
+
+    Read per call rather than cached in a module constant, the same convention
+    the rest of the codebase uses for env-driven knobs -- tests flip it with
+    monkeypatch.setenv between cases.
+    """
+    raw = os.environ.get("SESSION_TTL_DAYS", "").strip()
+    try:
+        days = float(raw) if raw else SESSION_TTL_DAYS_DEFAULT
+    except ValueError:
+        days = SESSION_TTL_DAYS_DEFAULT
+    return max(days, 0.0) * 86400.0
 
 
 @dataclass(frozen=True)
@@ -78,6 +122,7 @@ class Session:
     task: str
     turns: int
     state: dict
+    owner: str = ""
 
     def summary(self) -> dict:
         """What a listing shows -- deliberately without the state blob, which
@@ -88,6 +133,7 @@ class Session:
             "updated_at": self.updated_at,
             "task": self.task,
             "turns": self.turns,
+            "owner": self.owner,
             "topic_type": self.state.get("topic_type", ""),
             "approved": bool(self.state.get("approved")),
         }
@@ -97,15 +143,36 @@ class SessionStore(ABC):
     """The contract every backend implements, and the whole of what the
     service depends on. `tests/test_store_contract.py` runs the same suite
     against each implementation, so "swappable" is a tested claim rather
-    than an aspiration."""
+    than an aspiration.
+
+    Two properties every backend owes since Phase 12:
+
+    **Ownership.** A session records the identity that minted it. `list(owner=)`
+    scopes to one owner; `owner=None` is the unscoped operator view. The store
+    does not decide *who may see what* -- that is the service's `_require` --
+    it only makes the question answerable.
+
+    **Derived expiry.** A session is live iff `updated_at > now - SESSION_TTL_DAYS`.
+    There is deliberately no expiry column: a second timestamp is a second
+    thing to keep in sync, and `append_turn` already renews `updated_at` for free.
+    ACTIVITY MEANS WRITES. `get()` and `list()` must never touch `updated_at` --
+    if a read renewed it, listing your own sessions would keep them alive forever
+    and "7 days after last activity" would quietly become "7 days after last
+    glance", which is a store that never shrinks.
+    """
 
     #: Human-readable location, shown by /health. Never a credential --
     #: a DSN carries a password, so Postgres reports host and database only.
     path: str
 
     @abstractmethod
-    def create(self, task: str, state: dict, session_id: str | None = None) -> str:
-        """Record a completed research run as a new session. Returns its id."""
+    def create(self, task: str, state: dict, session_id: str | None = None, owner: str = "") -> str:
+        """Record a completed research run as a new session. Returns its id.
+
+        Also sweeps expired sessions: a create is rare (one per completed run)
+        and already expensive, the DELETE is idempotent, and two machines
+        sweeping concurrently is harmless -- which a background timer per
+        machine is not."""
 
     @abstractmethod
     def append_turn(self, session_id: str, state: dict) -> None:
@@ -113,10 +180,13 @@ class SessionStore(ABC):
         Raises KeyError if the session does not exist."""
 
     @abstractmethod
-    def get(self, session_id: str) -> Session | None: ...
+    def get(self, session_id: str) -> Session | None:
+        """The session, or None if it is missing OR expired -- the caller must
+        not be able to tell those apart."""
 
     @abstractmethod
-    def list(self, limit: int = 50) -> list[Session]: ...
+    def list(self, limit: int = 50, owner: str | None = None) -> list[Session]:
+        """Live sessions, newest write first. `owner=None` is unscoped."""
 
     @abstractmethod
     def delete(self, session_id: str) -> bool:
@@ -148,23 +218,49 @@ class SQLiteSessionStore(SessionStore):
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SQLITE_SCHEMA)
+            self._add_owner_column()
+            self._conn.execute(SQLITE_OWNER_INDEX)
             # WAL lets a reader (GET /sessions) proceed while a run is being
             # written. Not available for in-memory databases.
             if path != ":memory:":
                 self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.commit()
 
+    def _add_owner_column(self) -> None:
+        """The SQLite half of the Phase 12 ownership migration.
+
+        SQLite has no `ADD COLUMN IF NOT EXISTS`, so the column list is probed
+        first. Idempotent, and cheap enough to run on every construction -- a
+        local checkout's `sessions.db` predates the column, and failing to
+        migrate it would 500 every read rather than merely losing history.
+
+        Caller holds the lock.
+        """
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(sessions)")}
+        if "owner" not in columns:
+            self._conn.execute("ALTER TABLE sessions ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
+
     # -- writes ------------------------------------------------------------
 
-    def create(self, task: str, state: dict, session_id: str | None = None) -> str:
-        """Record a completed research run as a new session."""
+    def create(self, task: str, state: dict, session_id: str | None = None, owner: str = "") -> str:
+        """Record a completed research run as a new session.
+
+        Single-machine backend by construction, so `time.time()` is the one
+        clock there is; the Postgres store compares against the database's own
+        clock instead. The contract suite pins identical observable behaviour.
+        """
         session_id = session_id or uuid.uuid4().hex
         now = time.time()
         with self._lock:
             self._conn.execute(
-                "INSERT INTO sessions (id, created_at, updated_at, task, turns, state) "
-                "VALUES (?, ?, ?, ?, 1, ?)",
-                (session_id, now, now, task, json.dumps(state)),
+                "INSERT INTO sessions (id, created_at, updated_at, task, turns, state, owner) "
+                "VALUES (?, ?, ?, ?, 1, ?, ?)",
+                (session_id, now, now, task, json.dumps(state), owner),
+            )
+            # Opportunistic sweep, on the rare expensive event rather than on a
+            # timer. Same statement on both backends.
+            self._conn.execute(
+                "DELETE FROM sessions WHERE updated_at <= ?", (now - session_ttl_seconds(),)
             )
             self._conn.commit()
         return session_id
@@ -195,16 +291,24 @@ class SQLiteSessionStore(SessionStore):
     # -- reads -------------------------------------------------------------
 
     def get(self, session_id: str) -> Session | None:
+        """No UPDATE here, and there must never be one: see the ABC docstring."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT * FROM sessions WHERE id = ?", (session_id,)
+                "SELECT * FROM sessions WHERE id = ? AND updated_at > ?",
+                (session_id, time.time() - session_ttl_seconds()),
             ).fetchone()
         return self._row_to_session(row) if row else None
 
-    def list(self, limit: int = 50) -> list[Session]:
+    def list(self, limit: int = 50, owner: str | None = None) -> list[Session]:
+        clause = "" if owner is None else " AND owner = ?"
+        params: tuple = (time.time() - session_ttl_seconds(),)
+        if owner is not None:
+            params += (owner,)
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM sessions WHERE updated_at > ?" + clause
+                + " ORDER BY updated_at DESC LIMIT ?",
+                params + (limit,),
             ).fetchall()
         return [self._row_to_session(row) for row in rows]
 
@@ -225,6 +329,7 @@ class SQLiteSessionStore(SessionStore):
             task=row["task"],
             turns=row["turns"],
             state=json.loads(row["state"]),
+            owner=row["owner"],
         )
 
 
@@ -244,13 +349,20 @@ class PostgresSessionStore(SessionStore):
 
     # -- writes ------------------------------------------------------------
 
-    def create(self, task: str, state: dict, session_id: str | None = None) -> str:
+    def create(self, task: str, state: dict, session_id: str | None = None, owner: str = "") -> str:
         session_id = session_id or uuid.uuid4().hex
         now = time.time()
         self.db.execute(
-            "INSERT INTO sessions (id, created_at, updated_at, task, turns, state) "
-            "VALUES (%s, %s, %s, %s, 1, %s)",
-            (session_id, now, now, task, json.dumps(state)),
+            "INSERT INTO sessions (id, created_at, updated_at, task, turns, state, owner) "
+            "VALUES (%s, %s, %s, %s, 1, %s, %s)",
+            (session_id, now, now, task, json.dumps(state), owner),
+        )
+        # Opportunistic sweep against the DATABASE's clock, so two machines
+        # agree on the cutoff even if their own clocks do not. Idempotent:
+        # concurrent sweeps just delete the same already-gone rows.
+        self.db.execute(
+            "DELETE FROM sessions WHERE updated_at <= EXTRACT(EPOCH FROM now()) - %s",
+            (session_ttl_seconds(),),
         )
         return session_id
 
@@ -272,12 +384,29 @@ class PostgresSessionStore(SessionStore):
     # -- reads -------------------------------------------------------------
 
     def get(self, session_id: str) -> Session | None:
-        row = self.db.fetchone("SELECT * FROM sessions WHERE id = %s", (session_id,))
+        """Expiry is evaluated against `now()` INSIDE the database.
+
+        Both machines therefore read the same cutoff from the same clock. A
+        `time.time()` cutoff computed in Python would make expiry mean something
+        slightly different on each machine -- the class of bug this store exists
+        to remove. And still no UPDATE: reads never renew.
+        """
+        row = self.db.fetchone(
+            "SELECT * FROM sessions "
+            "WHERE id = %s AND updated_at > EXTRACT(EPOCH FROM now()) - %s",
+            (session_id, session_ttl_seconds()),
+        )
         return self._row_to_session(row) if row else None
 
-    def list(self, limit: int = 50) -> list[Session]:
+    def list(self, limit: int = 50, owner: str | None = None) -> list[Session]:
+        clause = "" if owner is None else " AND owner = %s"
+        params: tuple = (session_ttl_seconds(),)
+        if owner is not None:
+            params += (owner,)
         rows = self.db.fetchall(
-            "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT %s", (limit,)
+            "SELECT * FROM sessions WHERE updated_at > EXTRACT(EPOCH FROM now()) - %s" + clause
+            + " ORDER BY updated_at DESC LIMIT %s",
+            params + (limit,),
         )
         return [self._row_to_session(row) for row in rows]
 
@@ -299,6 +428,7 @@ class PostgresSessionStore(SessionStore):
             # JSONB comes back already decoded; a TEXT column would not. Accept
             # both so the same code survives a column-type change.
             state=state if isinstance(state, dict) else json.loads(state),
+            owner=row["owner"],
         )
 
 

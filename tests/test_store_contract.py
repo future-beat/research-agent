@@ -241,6 +241,122 @@ def test_session_path_never_leaks_a_password(sessions):
     assert "sup3rsecret" not in sessions.path
 
 
+# -- ownership and expiry (Phase 12) ---------------------------------------
+#
+# These run on BOTH session backends deliberately. The two stores compute the
+# expiry cutoff from different clocks -- Python's for SQLite, the database's own
+# for Postgres -- and the whole point of deriving expiry that way is that the
+# *observable* behaviour is identical. A test that only ran on SQLite would
+# leave the multi-machine backend, the one that actually serves the deployment,
+# unproven.
+
+
+def _rewind(sessions, session_id: str, seconds: float) -> None:
+    """Drag a session's last-write time `seconds` into the past.
+
+    Reaching past the store's API on purpose: the alternative is sleeping for
+    seven days. `updated_at` is a plain epoch column on both backends, so this
+    produces exactly the row an idle week produces.
+    """
+    if isinstance(sessions, PostgresSessionStore):
+        sessions.db.execute(
+            "UPDATE sessions SET updated_at = updated_at - %s WHERE id = %s",
+            (seconds, session_id),
+        )
+    else:
+        with sessions._lock:
+            sessions._conn.execute(
+                "UPDATE sessions SET updated_at = updated_at - ? WHERE id = ?",
+                (seconds, session_id),
+            )
+            sessions._conn.commit()
+
+
+def test_expiry_lazy_and_reads_do_not_renew(sessions, monkeypatch):
+    """Idle past the TTL stops resolving; a read does not push the line back.
+
+    Both halves matter and only together. Expiry alone is satisfiable by a
+    store whose reads renew `updated_at`, which is the failure mode that makes
+    "7 days after last activity" mean "7 days after last glance" and leaves the
+    table growing forever. So the renewal half is asserted on a LIVE session
+    before the expiry half is asserted on an idle one.
+    """
+    monkeypatch.setenv("SESSION_TTL_DAYS", "7")
+
+    live = sessions.create("live one", finished_state(), owner="alice")
+    before = sessions.get(live).updated_at
+    for _ in range(3):
+        assert sessions.get(live) is not None
+        assert sessions.list(owner="alice")
+    assert sessions.get(live).updated_at == before, "a read renewed updated_at"
+
+    # Eight days idle: past the seven-day line, still physically present.
+    _rewind(sessions, live, 8 * 86400)
+    assert sessions.count() == 1, "the row is still there; only the filter should hide it"
+    assert sessions.get(live) is None
+    assert sessions.list() == []
+    assert sessions.list(owner="alice") == []
+
+    # The TTL is a knob, not a constant: widen it and the same row is live
+    # again, which proves the filter is reading the setting rather than a
+    # hardcoded seven.
+    monkeypatch.setenv("SESSION_TTL_DAYS", "30")
+    assert sessions.get(live) is not None
+
+
+def test_sweep_deletes_expired(sessions, monkeypatch):
+    """A create() bounds the table: the expired row is gone, not merely hidden.
+
+    Asserted on count(), which is unfiltered -- against get()/list() a lazy
+    filter alone would look identical to a sweep, and only one of them keeps
+    the store from growing without limit.
+    """
+    monkeypatch.setenv("SESSION_TTL_DAYS", "7")
+
+    stale = sessions.create("old", finished_state(), owner="alice")
+    orphan = sessions.create("pre-phase-12", finished_state())  # owner='' by default
+    _rewind(sessions, stale, 8 * 86400)
+    _rewind(sessions, orphan, 8 * 86400)
+    assert sessions.count() == 2  # non-vacuity: there is something to sweep
+
+    fresh = sessions.create("new", finished_state(), owner="bob")
+
+    assert sessions.count() == 1, "the sweep on create() did not remove the expired rows"
+    assert [s.id for s in sessions.list()] == [fresh]
+    assert sessions.get(stale) is None
+    assert sessions.get(orphan) is None
+
+
+def test_list_scopes_to_an_owner_and_none_is_unscoped(sessions):
+    """The data path behind the dual-mode listing.
+
+    `owner=None` is the operator's unscoped view, a string is one caller's.
+    Exact match, never "empty means all": the pre-Phase-12 rows carry owner=''
+    and must resolve for nobody.
+    """
+    mine = sessions.create("mine", finished_state(), owner="alice")
+    theirs = sessions.create("theirs", finished_state(), owner="bob")
+    orphan = sessions.create("orphaned", finished_state())
+
+    assert [s.id for s in sessions.list(owner="alice")] == [mine]
+    assert [s.id for s in sessions.list(owner="bob")] == [theirs]
+    assert sorted(s.id for s in sessions.list()) == sorted([mine, theirs, orphan])
+
+    # owner='' is a real owner value, not a wildcard.
+    assert [s.id for s in sessions.list(owner="")] == [orphan]
+    assert sessions.list(owner="carol") == []
+
+
+def test_owner_round_trips_and_defaults_to_empty(sessions):
+    """A session remembers who minted it, and a caller-less create is claimed
+    by nobody rather than by everybody."""
+    owned = sessions.get(sessions.create("q", finished_state(), owner="alice"))
+    assert owned.owner == "alice"
+    assert owned.summary()["owner"] == "alice"
+
+    assert sessions.get(sessions.create("q", finished_state())).owner == ""
+
+
 # --------------------------------------------------------------------------
 # Metrics store contract
 # --------------------------------------------------------------------------
