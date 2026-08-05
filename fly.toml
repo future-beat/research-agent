@@ -13,8 +13,12 @@
 # tests/test_deploy_config.py now fails the build on both. Take any value you
 # want from such a PR by hand; don't merge the file.
 #
-# primary_region is pinned to the volume: changing it means destroying
-# agent_data and losing whatever is in it.
+# primary_region was pinned to the volume. Once the mount goes it becomes a
+# choice rather than a constraint: 'syd' sits next to the database's region
+# (ap-southeast-2, Sydney), and every /health store probe pays that hop 120
+# times an hour. Changing region is out of scope for this phase -- the
+# provider's project region cannot be changed after creation either, so the
+# two would have to move together.
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -52,11 +56,23 @@ primary_region = 'syd'
   force_https = true
   # One machine while the stores are on a per-machine volume: a second would
   # hold its own database, so a follow-up could land on a machine that has
-  # never heard of the session. Safe to raise once DATABASE_URL is set.
+  # never heard of the session.
+  #
+  # Raising this to 2 is safe only once ALL THREE of the following hold, in
+  # this order -- DATABASE_URL is set and /health shows three Postgres-backed
+  # stores; the [[mounts]] block and the three *_DB_PATH vars are gone; the
+  # three backend pins are in [env]. Raising it earlier, or with the mount
+  # still in place, gives two machines two independent databases again.
+  # tests/test_deploy_config.py asserts both directions of that pairing.
   auto_stop_machines = 'suspend'
   auto_start_machines = true
   min_machines_running = 1
 
+  # These numbers are why the connection pool is sized the way it is:
+  # hard_limit 16 x 2 machines = up to 32 in-flight requests against one
+  # database. PG_POOL_MAX_SIZE defaults to 5, so the fleet holds at most 10
+  # of the provider tier's 60 connections; requests past that queue on a
+  # checkout bounded by PG_POOL_TIMEOUT rather than opening connection 33.
   [http_service.concurrency]
     type = 'requests'
     hard_limit = 16
@@ -67,9 +83,29 @@ primary_region = 'syd'
   # database that is down. Never point this at /ready -- that returns 503 when
   # a store is unreachable, which here would mean a restart loop.
   #
-  # The timeout allows for three store probes each bounded by
-  # PG_CONNECT_TIMEOUT (3s), so a fully unreachable database still answers
-  # inside the window instead of timing the check out.
+  # The 15s timeout covers three sequential store probes. Two numbers, and
+  # only the second is a bound:
+  #
+  #   * typical, pool empty and database unreachable:
+  #       3 x PG_POOL_TIMEOUT (2.0s) ~= 6s. This describes the COLD pool
+  #       only. A warm pool holding a connection to a peer that has gone
+  #       away returns from checkout instantly and then blocks on a socket,
+  #       so the checkout timeout bounds nothing in that case.
+  #   * ceiling, and the number that matters:
+  #       3 x HEALTH_PROBE_BUDGET (3.0s) = 9s, enforced by the per-probe
+  #       wall-clock deadline added in plan 11-02. Holds whether the pool is
+  #       cold, warm or partitioned. Measured at 0.32s against a store that
+  #       never answers, versus 31.4s with the deadline removed.
+  #
+  # The deadline exists because statement_timeout and tcp_user_timeout bound
+  # a slow server and a peer that stops ACKing, but not one that keeps the
+  # socket alive and never answers.
+  #
+  # This comment previously claimed the window allowed "three probes each
+  # bounded by PG_CONNECT_TIMEOUT (3s)". That was wrong by a factor of two:
+  # the pre-pool cursor() made two 3s connect attempts per probe, so three
+  # probes could cost 18s against a 15s timeout -- the check would expire
+  # and both machines would restart for a fault a restart cannot fix.
   [[http_service.checks]]
     interval = '30s'
     timeout = '15s'
@@ -84,15 +120,46 @@ primary_region = 'syd'
   cpus = 1
   memory_mb = 1024
 
-# --- Going stateless (Phase 8) ------------------------------------------
+# --- Going stateless (Phase 11) -----------------------------------------
 #
-#   fly postgres create --name research-agent-db
-#   fly postgres attach <db-app> -a research-agent
-#   fly deploy -a research-agent
-#   fly ssh console -a research-agent -C "python -m research_agent.migrate --dry-run"
+# This footer used to document the unmanaged Fly Postgres commands. Fly's own
+# CLI now prints that unmanaged Fly Postgres is not supported by Fly.io
+# Support and that users are responsible for operations, management and
+# disaster recovery, so the database is an EXTERNAL provider (Supabase,
+# ap-southeast-2) reached over DATABASE_URL. There is no attach step:
+# `fly secrets set` is what sets the variable, and nothing is a deploy target
+# but this app.
 #
-# Always pass -a explicitly. `fly postgres attach` sets DATABASE_URL as a
-# secret on the AGENT app; the database app is managed by Fly and is never a
-# deploy target.
+# The order below is load-bearing, because a machine with neither a volume
+# nor a reachable database is a broken machine.
 #
-# Then remove the [[mounts]] block above and: fly scale count 2
+#   1. Create the Supabase project in ap-southeast-2 (Oceania/Sydney) and
+#      enable the `vector` extension. The project region cannot be changed
+#      afterwards.
+#   2. fly secrets set -a research-agent DATABASE_URL='postgresql://postgres.<ref>:<pw>@aws-<n>-ap-southeast-2.pooler.supabase.com:5432/postgres?sslmode=require'
+#      The SESSION-mode pooler host, port 5432 -- it is IPv4-reachable, while
+#      the direct endpoint is IPv6-only on the free tier. sslmode=require is
+#      not optional: libpq defaults to `prefer`, which silently accepts
+#      plaintext, and db.py passes the DSN through untouched.
+#      This triggers a deploy on its own.
+#   3. fly deploy -a research-agent   (if the secret did not already)
+#   4. Verify: curl https://research-agent.fly.dev/health -- three
+#      Postgres-backed stores, dependencies ok. Create a session and read it
+#      back. Do not proceed until this passes.
+#   5. Only then: remove the [[mounts]] block and the three *_DB_PATH vars
+#      above, AND add SESSION_BACKEND='postgres', METRICS_BACKEND='postgres',
+#      VECTOR_STORE='pgvector' to [env] in the same edit. The pins make a
+#      missing DSN fail closed instead of silently falling back to
+#      container-local SQLite. Deploy.
+#   6. Raise min_machines_running to 2 and: fly scale count 2
+#
+# Steps 1-4 are reversible (`fly secrets unset`, delete the project) and
+# production is untouched throughout. Step 5 is the point of no return for
+# per-machine state.
+#
+# KEEP THE VOLUME. Detaching is reversible -- an unattached agent_data still
+# exists and a machine that does not require a volume never attaches itself
+# to one -- and destroying is not. `fly volumes destroy` is not part of this
+# procedure at any point.
+#
+# docs/OPERATIONS.md carries the same sequence with the operator detail.

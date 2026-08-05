@@ -198,6 +198,30 @@ def test_the_database_url_is_not_committed(fly):
     )
 
 
+def test_the_runbook_names_no_unsupported_command():
+    """`fly.toml`'s footer is a runbook, and a runbook is followed under time
+    pressure by someone who is not reading critically.
+
+    It documented `fly postgres create` / `fly postgres attach` for two
+    phases. Fly now prints that unmanaged Fly Postgres is not supported by
+    Fly.io Support and that users own operations, management and disaster
+    recovery -- so following the footer meant provisioning an unsupported
+    database. The replacement is an external provider reached over a
+    `DATABASE_URL` secret.
+
+    Asserted on the file text rather than the parsed table, because a
+    comment is exactly what this guards and tomllib discards comments.
+    """
+    text = FLY_TOML.read_text()
+    for command in ("fly postgres create", "fly postgres attach"):
+        assert command not in text, (
+            f"fly.toml's comments still tell an operator to run `{command}`, "
+            "which provisions unmanaged Fly Postgres -- unsupported by Fly. "
+            "The database is external; `fly secrets set DATABASE_URL=...` "
+            "replaces the attach step."
+        )
+
+
 def test_the_image_runs_as_a_non_root_user(dockerfile):
     assert re.search(r"^USER\s+(?!root)", dockerfile, re.M)
 
