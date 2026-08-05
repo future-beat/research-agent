@@ -21,6 +21,7 @@ import pytest
 from test_memory_stores import FakeEmbedder
 
 from research_agent import db
+from research_agent import recall_golden as golden
 from research_agent.metrics import RunRecord, SQLiteMetricsStore
 from research_agent.migrate import main, migrate_notes, migrate_runs, migrate_sessions
 from research_agent.sessions import SQLiteSessionStore
@@ -31,6 +32,8 @@ HAS_POSTGRES = db.postgres_configured()
 # with hand-picked owners and timestamps, and sharing a table with the
 # behavioural suite would make each one's fixtures the other's noise.
 LEGACY_NOTES_TABLE = "migration_test_notes_legacy"
+COPY_SOURCE_TABLE = "migration_test_notes_old"
+COPY_TARGET_TABLE = "migration_test_notes_new"
 FAKE_DIMENSIONS = len(FakeEmbedder.VOCAB)
 
 # Fixed, distinct, and nonzero: an assertion that the migrated created_at is
@@ -264,3 +267,209 @@ def test_migrate_legacy_roundtrip(tmp_path, notes_json, legacy_table, capsys):
         )
         handle.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
         handle.close()
+
+
+# --------------------------------------------------------------------------
+# `embeddings copy`: the same corpus, a new table, and provably the same recall
+# --------------------------------------------------------------------------
+#
+# What makes this hard is what is NOT asserted here. The store searches through
+# an HNSW index, which is approximate by design and whose build is not
+# guaranteed deterministic, so "recall is byte-identical after the copy" cannot
+# honestly be asked of the index -- it would be asking whether an approximation
+# agreed with itself twice. The claim is decomposed instead:
+#
+#   test_copy_fidelity          the vectors are the same bytes (a SQL join)
+#   test_copy_recall_identical  the golden queries agree, under EXACT SCAN
+#   test_index_sanity           the indexed path agrees as a *set*, separately,
+#                               and only at this corpus size
+#
+# Only the middle one is an equality-of-recall claim, and it never touches the
+# index. See recall_golden.py's module docstring.
+
+
+@pytest.fixture
+def handle():
+    conn = db.Database()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def copy_tables(handle):
+    """Dedicated old/new tables, dropped before and after (Pitfall 7).
+
+    Dropped on setup as well as teardown: a killed previous run could have left
+    a table of a different vector width behind, and the store's
+    `CREATE TABLE IF NOT EXISTS` would then quietly keep the wrong one.
+    """
+    for table in (COPY_SOURCE_TABLE, COPY_TARGET_TABLE):
+        handle.execute(f"DROP TABLE IF EXISTS {table}")
+    try:
+        yield COPY_SOURCE_TABLE, COPY_TARGET_TABLE
+    finally:
+        for table in (COPY_SOURCE_TABLE, COPY_TARGET_TABLE):
+            handle.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+@pytest.fixture
+def seeded(handle, copy_tables):
+    """The golden corpus in the source table. Returns (old, new, embedder)."""
+    source, target = copy_tables
+    embedder = FakeEmbedder()
+    golden.seed(handle, source, embedder, FAKE_DIMENSIONS)
+    return source, target, embedder
+
+
+def _owner_texts(owner):
+    return {note["text"] for note in golden.GOLDEN_NOTES if note["owner"] == owner}
+
+
+def _fingerprint(handle, table):
+    """Every column that matters, as a comparable set -- embeddings included.
+
+    A row count is green against a table whose contents were replaced, so the
+    non-destructive assertions compare this instead.
+    """
+    return {
+        (row["text"], row["owner"], row["created_at"], row["embedding"])
+        for row in handle.fetchall(
+            f"SELECT text, owner, created_at, embedding::text AS embedding FROM {table}"
+        )
+    }
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_golden_set_tie_free_and_owner_scoped(handle, seeded):
+    """The golden set is usable: uniquely ordered, and it can see tenancy.
+
+    Tie-freedom is not a nicety. The production ORDER BY has no tiebreak, so
+    two rows at the same distance come back in an arbitrary order and every
+    ordered comparison built on them measures the query executor rather than
+    the migration. Distinct vocabulary sets do not buy this -- similarity
+    depends only on (overlap, size), so {chroma,retry} and {chroma,voyage} sit
+    at exactly the same distance from "chroma".
+    """
+    source, _target, embedder = seeded
+
+    golden.assert_tie_free(handle, source, embedder)
+
+    # Owner isolation. "chroma retry" is stored under BOTH alice and bob, so a
+    # copy or a query that lost `owner` merges their neighbourhoods.
+    alice = golden.exact_scan_results(handle, source, embedder, "chroma retry", "alice", 3, 0.3)
+    bob = golden.exact_scan_results(handle, source, embedder, "chroma retry", "bob", 3, 0.3)
+    assert alice and bob
+    assert alice != bob
+    assert {text for text, _ in alice} <= _owner_texts("alice")
+    assert {text for text, _ in bob} <= _owner_texts("bob")
+    # The shared text is the only overlap; everything else is one owner's own.
+    assert {t for t, _ in alice} & {t for t, _ in bob} == {"chroma retry"}
+
+    # The unowned bucket sees only its own notes...
+    unowned = golden.exact_scan_results(handle, source, embedder, "supervisor", "", 3, 0.3)
+    assert unowned
+    assert {text for text, _ in unowned} <= _owner_texts("")
+    # ...and nothing at all for a query whose words nobody unowned ever used.
+    assert golden.exact_scan_results(handle, source, embedder, "chroma retry", "", 3, 0.3) == []
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_copy_fidelity(handle, seeded, capsys):
+    """Same rows, same vectors, same key -- and the source never written to."""
+    source, target, _embedder = seeded
+    before = _fingerprint(handle, source)
+    source_count = len(before)
+    assert source_count == len(golden.GOLDEN_NOTES)
+
+    assert main(["embeddings", "copy", "--from", source, "--to", target]) == 0
+
+    counts = handle.fetchone(
+        f"SELECT (SELECT count(*) FROM {source}) AS old_n, "
+        f"(SELECT count(*) FROM {target}) AS new_n"
+    )
+    assert (counts["old_n"], counts["new_n"]) == (source_count, source_count)
+
+    # The join that is the actual byte-identity claim. Keyed on
+    # (text, owner, created_at) because `id` is BIGSERIAL and not copied.
+    joined = handle.fetchone(
+        f"SELECT count(*) AS n FROM {source} o "
+        f"JOIN {target} n USING (text, owner, created_at)"
+    )["n"]
+    unmatched = handle.fetchone(
+        f"SELECT count(*) AS n FROM {source} o "
+        f"LEFT JOIN {target} n USING (text, owner, created_at) WHERE n.text IS NULL"
+    )["n"]
+    byte_diff = handle.fetchone(
+        f"SELECT count(*) AS n FROM {source} o "
+        f"JOIN {target} n USING (text, owner, created_at) "
+        f"WHERE o.embedding::text IS DISTINCT FROM n.embedding::text"
+    )["n"]
+    assert unmatched == 0
+    assert byte_diff == 0
+    # Not implied by the two above: a duplicate key fans the join out, so every
+    # number measured over it is measured over the wrong row set (RESEARCH A3).
+    assert joined == source_count
+
+    # Idempotent: the second run copies nothing and duplicates nothing.
+    assert main(["embeddings", "copy", "--from", source, "--to", target]) == 0
+    assert handle.fetchone(f"SELECT count(*) AS n FROM {target}")["n"] == source_count
+
+    # Non-destructive, asserted rather than grepped for: a grep for the absence
+    # of DROP is green against a command that DELETEs, TRUNCATEs or UPDATEs.
+    # This compares the source's full contents, embeddings included.
+    assert _fingerprint(handle, source) == before
+
+    capsys.readouterr()
+    assert main(["embeddings", "copy", "--from", source, "--to", target, "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "DRY RUN — nothing will be written" in out
+    assert "to copy    0 row(s)" in out
+    assert _fingerprint(handle, source) == before
+    assert handle.fetchone(f"SELECT count(*) AS n FROM {target}")["n"] == source_count
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_copy_recall_identical(handle, seeded):
+    """SC-5's copy half: zero golden delta, measured with the index turned off.
+
+    Ordered and score-bearing, because a migration that returned the same notes
+    in a different order, or at different similarities, has changed recall.
+    """
+    source, target, embedder = seeded
+    assert main(["embeddings", "copy", "--from", source, "--to", target]) == 0
+
+    old = golden.run_golden(handle, source, embedder)
+    new = golden.run_golden(handle, target, embedder)
+
+    # Anti-vacuity: two empty result sets are also "identical". The golden set
+    # deliberately contains one query that must return nothing, so this asserts
+    # that the others return something before the comparison is trusted.
+    answered = [key for key, rows in old.items() if rows]
+    assert len(answered) >= len(golden.GOLDEN_QUERIES) - 1
+    assert sum(len(rows) for rows in old.values()) >= 12
+
+    assert golden.recall_delta(old, new) == []
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_index_sanity(handle, seeded):
+    """The indexed path agrees with the exact scan -- as a SET, at this size.
+
+    Deliberately weaker than the test above and deliberately in its own test.
+    HNSW is approximate: pgvector's README says it can miss results, and
+    `hnsw.ef_search` defaults to 40. This corpus is a dozen rows, far below
+    that, so the search effectively explores everything and set-equality is
+    what should be expected. It is NOT a general ANN guarantee, it does not
+    scale, and it must never be promoted into the equality-of-recall claim --
+    which is exactly why the assertion is on sets rather than on order.
+    """
+    source, target, embedder = seeded
+    assert main(["embeddings", "copy", "--from", source, "--to", target]) == 0
+
+    exact = golden.run_golden(handle, target, embedder)
+    indexed = golden.run_golden(handle, target, embedder, runner=golden.indexed_results)
+    assert set(indexed) == set(exact)
+    for key, rows in exact.items():
+        assert set(indexed[key]) == set(rows), key
