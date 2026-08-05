@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Completed 11-04-PLAN.md — production is on Supabase Postgres (Fly release v5), fully reversible. Next: 11-05 (drop the mount, pin the backends, scale to 2). BLOCKED SEPARATELY: ANTHROPIC_API_KEY is revoked, so no research run completes."
-last_updated: "2026-08-05T07:10:00.000Z"
-last_activity: "2026-08-05 — Executed 11-04: cut production over to Supabase ap-southeast-2 in one fly deploy (release v5). All three stores report Postgres/pgvector classes, /health 0.27–0.43s, store probes 2.8–3.4ms p50 against a 3000ms budget, pg_stat_activity 15–16, zero prepared-statement errors over 74 responses. Volume still mounted with its SQLite data byte-intact. Found: ANTHROPIC_API_KEY returns 401 from Anthropic — pre-existing, unrelated to the cutover, and invisible to /health"
+stopped_at: "11-05 PARTIAL — Tasks 1 and 4 done and committed; Tasks 2 and 3 BLOCKED. fly.toml declares the stateless two-machine topology with the three fail-closed backend pins and both deploy guards pass on their stateless arm, but `fly deploy` cannot answer its own volume-detach prompt non-interactively on flyctl v0.4.78 (three attempts: -y ignored, pty+yes panics flyctl, pty+expect hangs). Production is UNCHANGED and healthy on release v6, one machine, volume attached. NEXT ACTION IS THE OPERATOR'S: run `fly deploy -a research-agent` from a real terminal and answer y, then `fly scale count 2`, then prove SC-3."
+last_updated: "2026-08-05T08:55:00.000Z"
+last_activity: "2026-08-05 — Executed 11-05 partially. fly.toml went stateless (mount out, three *_DB_PATH out, SESSION_BACKEND/METRICS_BACKEND/VECTOR_STORE pinned, min_machines_running 2); the pins proved fail-closed at runtime (absent DSN exits 1 with RuntimeError naming DATABASE_URL); 11-03's guards ran their stateless arm for the first time — 12 passed, 0 skipped. 11-VALIDATION.md reconciled (real task IDs and waves, two comment-blind config gates and one vacuous SC-6 gate replaced, three stale criteria rewritten, skip count 28→34 recorded, anti-pattern guards labelled). Measured latency recorded in OPERATIONS. BLOCKED: the mount-removal deploy needs an interactive terminal, so SC-2's live half and SC-3 are unproven and no machine ids exist."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,9 +25,43 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **EXECUTING**
-Plan: 4 of 5 executed in current phase
-Status: 11-04 complete. **Production runs on external Postgres.** Fly release v5 carries waves 1–3
+Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **EXECUTING (11-05 BLOCKED)**
+Plan: 5 of 5 started; 11-05 Tasks 1 and 4 complete, Tasks 2 and 3 blocked
+Status: **The repository is in its stateless end state; production is not.** `fly.toml` has no
+`[[mounts]]`, no `*_DB_PATH` vars, the three Postgres backend pins, and `min_machines_running = 2`.
+The fail-closed mechanism is proved at runtime: with `DATABASE_URL` absent and
+`SESSION_BACKEND=postgres`, store construction exits 1 with a `RuntimeError` naming `DATABASE_URL`.
+Both of 11-03's two-armed guards ran their stateless arm for the first time — **12 passed, 0
+skipped**. `11-VALIDATION.md` is reconciled and `docs/OPERATIONS.md` carries the measured latency.
+
+**BLOCKED, and it is the phase's headline claim.** Removing `[[mounts]]` makes `fly deploy` stop
+and ask *"Do you still want to continue and detach the volume? This will replace the machine.
+(y/N)"*. flyctl v0.4.78 accepts `-y` and then ignores it on that path; driving it through a pty
+either panics flyctl (`machines.go:321`, nil pointer, when stdin is flooded) or accepts the
+keystroke and then hangs indefinitely (900s, no output, no release). Three attempts, then stopped —
+escalating to `fly machine destroy` was outside this plan's authorisation and is the one nearby
+step that touches the volume's attachment.
+
+**Production is untouched and healthy:** release **v6**, ONE machine `78156d2c32d738`, volume
+`vol_vdegz1021w669gx4` still ATTACHED, all three Postgres backends, `dependencies: ok`, all four
+endpoints 200, `/demo` `token_required: false`, `DEMO_TOKEN` absent, `SESSIONS_TOKEN` present.
+`fly volumes destroy` was never run. **SC-2's live half and SC-3 are unproven — there are no
+machine ids to record, because only one machine exists.**
+
+**Operator action required to unblock:** run `fly deploy -a research-agent` from a real terminal
+and answer `y`; then `fly scale count 2 -a research-agent`; then prove SC-3 over HTTP with
+`fly-force-instance-id` and the `X-Demo-Token` header, recording both machine ids and the session
+id; then check `pg_stat_activity` (expect ~21–26 of 60); then tick README's Phase 11 line and flip
+`11-VALIDATION.md`'s two blocked rows and its Approval.
+
+**An edit to publicly reported numbers, recorded deliberately:** the operator deleted the single
+`AuthenticationError` run row from the production metrics table, with consent, on the grounds that
+it recorded a credential outage rather than a pipeline failure. `/metrics` moved from
+`failure_rate 1.0` to `failure_rate 0.0`. `ANTHROPIC_API_KEY` has been rotated (digest
+`9704aee92910b5e7`) and a full research run has since completed on Postgres —
+session `f14905b2fce8438eb716842c9a3b6c92`, $0.204266. See 11-05-SUMMARY.md.
+
+Previously (11-04): **Production runs on external Postgres.** Fly release v5 carries waves 1–3
 plus the staged `DATABASE_URL`; `/health` reports `PostgresSessionStore`, `PostgresMetricsStore`
 and `PgVectorMemoryStore` with `dependencies: ok`, `unreachable: []` and
 `machine: 78156d2c32d738`, at 0.27–0.43s across eleven samples. The Fly-syd → Supabase-syd hop is
@@ -36,7 +70,7 @@ and `PgVectorMemoryStore` with `dependencies: ok`, `unreachable: []` and
 Zero `prepared statement` errors over 74 probe-triggering responses. **Nothing irreversible
 happened:** `[[mounts]]` present, one machine, volume attached, and `/data` still holds 1 session,
 3 runs and 3 notes — exactly the pre-cutover counts.
-Last activity: 2026-08-05 — Executed 11-04-PLAN.md (Task 1 pre-done by the operator; Task 2 verified).
+Last activity: 2026-08-05 — Executed 11-05-PLAN.md partially (Tasks 1 and 4 committed; Tasks 2 and 3 blocked on an interactive `fly deploy`).
 
 **11-02 ran the Postgres-gated suite for real.** Docker was unavailable, so PostgreSQL 17 +
 pgvector were installed via Homebrew and run on port 54329 (stopped and data dir deleted after;
@@ -50,7 +84,7 @@ held it open is satisfied and `REQ-adr-promotion` is complete.
 Progress: [██████░░░░] 59% (10 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
 Phase 10:   [██████████] 5 of 5 plans — complete (PR #4 merged)
-Phase 11:   [████████░░] 4 of 5 plans — executing
+Phase 11:   [████████░░] 4 of 5 plans — 11-05 partial, BLOCKED on an interactive deploy
 
 **Carry into execution — the four findings the plans are built around:**
 
