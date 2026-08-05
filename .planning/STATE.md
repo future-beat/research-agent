@@ -47,7 +47,7 @@ held it open is satisfied and `REQ-adr-promotion` is complete.
 Progress: [██████░░░░] 59% (10 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
 Phase 10:   [██████████] 5 of 5 plans — complete (PR #4 merged)
-Phase 11:   [████░░░░░░] 2 of 5 plans — executing
+Phase 11:   [██████░░░░] 3 of 5 plans — executing
 
 **Carry into execution — the four findings the plans are built around:**
 
@@ -141,6 +141,12 @@ Recent decisions affecting current work:
 - [Phase 10-05]: Two edits were made to `10-VALIDATION.md` prose that the verify block forced, and neither weakens a gate: the `⬜ pending` token was dropped from the status legend (nothing is pending, so the key entry was dead), and the sign-off item `` `nyquist_compliant: true` set in frontmatter`` was reworded to "Frontmatter marks the phase Nyquist-compliant" so the literal token appears exactly once, in the frontmatter that owns it.
 - [Phase 10-05]: `ruff` is not on `PATH` in this environment; `.venv/bin/ruff` is the working invocation, matching the `.venv/bin/pytest` convention. Recorded so a future phase does not read a bare `ruff check .` failure as a lint regression.
 - [Phase 10-05]: The non-vacuity control is now four probes, not one — the zero-occurrence search, the file counter, the link resolver and the `Status` gate were each shown to fail on input that must fail. This repo has shipped five vacuous gates across two phases; a gate that has only ever passed is treated as unproven.
+- [Phase 11-03]: **A guard that skips is a guard that config deletion disarms.** Two deploy tests `pytest.skip()`d whenever `[[mounts]]` was absent, so removing the mount would have made them no-ops with CI still green. Both are now two-armed — they assert in *both* topologies and skip in neither. The old guard was fed the same scratch file as the new one and returned `Skipped` where the new one raises. Any future mount-conditional or DSN-conditional check should be written this way from the start.
+- [Phase 11-03]: **Removing the `*_DB_PATH` vars does not close the SQLite fallback; the pins do.** `sessions.py` defaults its path to a file beside the module and the backend selector returns `sqlite` with no DSN, so a mount-less machine with an unset `DATABASE_URL` boots on container-local SQLite, `/health` reports `dependencies: "ok"` because SQLite is perfectly reachable, and the only difference on the wire is a class name nothing reads. `SESSION_BACKEND`/`METRICS_BACKEND`/`VECTOR_STORE` pinned makes it fail closed at store construction instead. This is the gate `-k fails_closed` deliberately does not provide.
+- [Phase 11-03]: **Assert on the parsed `[env]` table, never the file text, when one key name is a substring of another.** `grep -c 'VECTOR_STORE' fly.toml` returns 1 on a file with no `VECTOR_STORE` key at all, because `VECTOR_STORE_PATH` contains it. The inverse also applies: the `-k runbook` guard deliberately *does* read the text, because a comment is precisely what it guards and `tomllib` discards comments.
+- [Phase 11-03]: **A test that is red until an edit lands belongs in the task that makes the edit.** The runbook-staleness guard was written in Task 2, not Task 1, because Task 1's verify runs the whole file and would have ended red. Recording the red observation against `git show HEAD:fly.toml` is what makes an absence-asserting gate falsifiable.
+- [Phase 11-03]: **Two more vacuous gates caught before running** — bringing this repo to eight across four phases. `PG_CONNECT_TIMEOUT >= 1` and `SESSION_BACKEND >= 1` in `docs/OPERATIONS.md` both already passed on the untouched tree. Replaced with prose-only greps (`grep -v '^|'`), an old-text-is-gone check, a same-paragraph co-occurrence check, and a same-line tie to `pin|cutover`. The rule: state the *measured* baseline in the gate, and if it is not zero, the `>= 1` form proves nothing.
+- [Phase 11-03]: **Line-oriented gates need line-oriented prose.** `grep 'X' file | grep -c 'Y'` requires both tokens on one *physical* line, and 80-column reflow kept separating them. The sentence was rewritten to suit the gate rather than the gate weakened to suit the sentence.
 - [Phase 11-01]: `check=ConnectionPool.check_connection` is **deliberately not used**, against RESEARCH's own Pattern 1. The check is a server round trip performed *during* checkout and the pool's `timeout` does not interrupt one in flight, so on a partitioned database it adds an unbounded cost to every checkout — on `/health`, the exact endpoint this phase is bounding. Staleness stays covered by the retry-once arm. Gated by `grep -c 'check_connection' src/research_agent/db.py` returning 0, with the reason in a comment so the omission does not read as an oversight.
 - [Phase 11-02]: **A local Postgres was built to run the gated suite**, because Docker was unavailable and this phase's plans state explicitly that a green local run is not evidence. It found three `db.py` bugs, two of which no fake could have caught. The rule this establishes: for a phase whose claims are server-shaped, "the Postgres tests skipped locally" is an unverified result, not a pass.
 - [Phase 11-02]: **The retry discriminator is the SQLSTATE, not the exception class.** Both obvious rules are wrong. "Any `OperationalError`" retries `QueryCanceled` (57014) and doubles the statement timeout that just fired. "Has a SQLSTATE means the server is alive" refuses to retry `AdminShutdown` (57P01), which is exactly what `pg_terminate_backend` sends. The second rule shipped and was caught only by the real server. `_connection_was_lost()` now retries SQLSTATE `None`, class `08`, and `57P01/02/03`.
@@ -231,7 +237,32 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 11-01-PLAN.md — `db.py` is pooled.** Three tasks, three commits
+Stopped at: **Completed 11-03-PLAN.md — the deploy guards are armed and the runbook is honest.**
+Three tasks, three commits (`9b4afe6`, `53fb6a0`, `1991f7d`). Both mount-conditional guards in
+`tests/test_deploy_config.py` used to `pytest.skip()` when `[[mounts]]` was absent, so 11-05's
+mount removal would have silenced them with CI green; both now assert in **both** topologies and
+`grep -c 'pytest.skip'` is `1` (the `fly` fixture's legitimate no-`fly.toml` skip), down from `3`.
+The stateless arm requires more than the absence of the `*_DB_PATH` keys — it requires
+`SESSION_BACKEND=postgres`, `METRICS_BACKEND=postgres`, `VECTOR_STORE=pgvector`, asserted on the
+parsed `[env]` table because `VECTOR_STORE_PATH` contains the string `VECTOR_STORE`. Two new
+guards: `DATABASE_URL` must not appear in the committed `[env]`, and a `-k runbook` test keeps
+`fly postgres create`/`attach` out of `fly.toml` (recorded red against `git show HEAD:fly.toml`).
+Four falsification checks run against scratch files, all four observed failing, plus a passing
+control; check 1 was also fed to the old guard, which returned `Skipped` where the new one raises
+`AssertionError` — the disarm-by-deletion demonstrated rather than argued.
+`fly.toml`'s footer, health-budget, `auto_stop_machines`, `primary_region` and concurrency
+comments were rewritten for the external-Supabase path, and `docs/OPERATIONS.md` carries the
+ordered cutover, the fail-closed pins, the start-clean tradeoff, the kept volume and SC-6's
+four-way timeout semantics. **Every `fly.toml` change is a comment** — `git diff -U0 fly.toml`
+shows no changed non-comment line, and `tomllib` confirms `min_machines_running == 1`, `mounts`
+present and `SESSION_DB_PATH` in `[env]`. Suite **436 passed, 34 skipped** (+2 tests, skip count
+unchanged); `ruff` clean.
+**Owed to 11-05:** removing `[[mounts]]` is now a four-part change or the tests fail — the three
+`*_DB_PATH` vars out, the three pins in, `min_machines_running` ≥ 2. And `11-VALIDATION.md`'s
+skip-count invariant still says 28; it is 34.
+Resume file: None
+
+Superseded — previous session: **Completed 11-01-PLAN.md — `db.py` is pooled.** Three tasks, three commits
 (`8c7a145`, `9e46158`, `5df970b`). `psycopg-pool==3.3.1` pinned and installed; five new env
 readers (`PG_POOL_MIN_SIZE`, `PG_POOL_MAX_SIZE`, `PG_POOL_TIMEOUT`, `PG_STATEMENT_TIMEOUT`,
 `PG_TCP_USER_TIMEOUT`); one `ConnectionPool` per DSN behind a claim-refcounted registry, shared
