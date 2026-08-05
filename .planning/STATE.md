@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Completed 12-01-PLAN.md (Wave 0): chroma is the fourth collecting contract arm, Database.transaction() + CAP_LOCK_KEY exist and are proven against real Postgres. Next: 12-02."
-last_updated: "2026-08-05T11:30:00.000Z"
-last_activity: "2026-08-05 — Executed 12-01: chromadb into the dev extra (composed, pin unchanged), 4-arm notes fixture, Database.transaction() with xact-scoped advisory-lock tests. Suite 443/37 plain, 479/1 armed; README 470 -> 480."
+stopped_at: "Completed 12-02-PLAN.md (Wave 1): signed HMAC identity token + mint-on-response IdentityMiddleware landed; all three response shapes carry the cookie, never 401. Next: 12-03."
+last_updated: "2026-08-05T11:50:00.000Z"
+last_activity: "2026-08-05 — Executed 12-02: identity.py (stdlib HMAC mint/verify, degrade-when-unset secret), IdentityMiddleware registered, make_client on https://testserver, mint_cookie seam. Suite 467/37 plain, 503/1 armed; README 480 -> 504."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 14
-  percent: 56
+  completed_plans: 15
+  percent: 57
 ---
 
 # Project State
@@ -26,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTING**
-Plan: 1 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
-Status: Wave 0 complete (12-01). The 4-arm contract suite and Database.transaction() are the foundations the rest of the phase stands on; both are in and proven against real Postgres (:54329).
-Last activity: 2026-08-05 — Executed 12-01 (commits 0dbf46f, ea1bb8f, 1cd461f).
+Plan: 2 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
+Status: Wave 1 complete (12-02). Every caller now gets a signed `ra_id` identity cookie minted on the response — proven on the SSE stream, the FileResponse demo page and JSON routes, never a 401. `request.state.identity` is guaranteed for every later wave; the test seam (https base_url + `mint_cookie()`) is in place.
+Last activity: 2026-08-05 — Executed 12-02 (commits ea204cd, f7e2494, 39ea349, a828ef1).
 
 **Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7.
 
 Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 12: [█▓░░░░░░░░] 1 of 6 plans — executing
+Phase 12: [███▓░░░░░░] 2 of 6 plans — executing
 
 **Carry into execution — what breaks the demo if wrong:**
 
@@ -75,7 +75,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
-| 12 | 1 of 6 (12-01) | 13min | 13min |
+| 12 | 2 of 6 (12-01, 12-02) | 33min | 17min |
 
 **Recent Trend:**
 
@@ -147,6 +147,11 @@ Recent decisions affecting current work:
 - [Phase 12-01]: **`CAP_LOCK_KEY` (11165997) is a different advisory-lock key from `SCHEMA_LOCK_KEY` (3895545195)**, and the inequality test is deliberately not Postgres-gated so a keyless local run still catches a collapsed-constants edit. A shared key would serialise cap accounting against schema DDL.
 - [Phase 12-01]: **The xact-lock test's held-half is what makes it falsifiable.** `pg_advisory_xact_lock` on an autocommit connection degenerates to a one-statement lock, so a `transaction()` that silently stopped opening a transaction would still pass an after-the-block acquisition check. The test therefore also asserts a rival connection is REFUSED the lock while the block is open. `transaction()` mirrors `cursor()`'s PoolTimeout/PoolClosed-before-OperationalError ordering.
 - [Phase 12-01]: **The full-suite baselines moved and are fully explained**: plain 436/34 → 443/37 (+6 chroma-arm, +1 key-inequality; +3 Postgres-gated transaction skips), armed 469/1 → 479/1. README's "470 tests, ~10s" was falsified by this wave and updated to "480 tests, ~25s" in the same wave — the chroma client's startup is most of the wall-clock growth.
+- [Phase 12-02]: **The HMAC gate is falsifiable by construction, not by presence.** One test mints under secret A and asserts verify returns the id under A AND None under B on the same token. A `grep -c compare_digest` gate alone proves wiring, not rejection.
+- [Phase 12-02]: **Tests authenticate through the real path.** `IdentityMiddleware` is not dependency-overridable, so `mint_cookie(monkeypatch, secret=...)` mints genuine tokens under a pinned `IDENTITY_SIGNING_SECRET` and tests present them as the `ra_id` cookie. Later waves (limits, ownership, note scoping) key on this seam.
+- [Phase 12-02]: **`Secure` is unconditional; the tests adapt, never the attribute.** `make_client` uses `base_url="https://testserver"` because httpx's jar withholds a Secure cookie over http — under the default base_url every request silently re-mints and per-identity tests pass vacuously. Do not fork the cookie attributes on env.
+- [Phase 12-02]: **A bare ASGI stub cannot sit inside `with TestClient(...)`** — the context manager drives lifespan, which the stub answers with http messages and Starlette asserts. Raw-middleware tests use the client without the context manager.
+- [Phase 12-02]: **README's identity narrative is left to the wave that owns it.** "guardrails … don't identify callers" stays true until Wave 3 rekeys the limits; Wave 5 owns the deployed-identity story. Only the falsified test count (480 → 504) was corrected in-wave.
 
 ### Pending Todos
 
@@ -246,7 +251,22 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 12-01-PLAN.md — Wave 0 of Phase 12 is in.** Three commits on
+Stopped at: **Completed 12-02-PLAN.md — Wave 1 of Phase 12 is in.** Four commits on
+`gsd/phase-12-caller-identity`: `ea204cd` (17 failing identity unit tests, TDD RED observed at
+collection), `f7e2494` (`identity.py` — stdlib-HMAC `v1.<uuid4hex>.<sha256>` mint/verify with
+`compare_digest`, never-raise verify, per-call `IDENTITY_SIGNING_SECRET` with a cached
+per-process ephemeral degrade and one warning, `set_cookie_value` with the LOCKED attributes,
+and the pure-ASGI `IdentityMiddleware`), `39ea349` (`app.add_middleware(IdentityMiddleware)`;
+`make_client` on `base_url="https://testserver"`; `mint_cookie()` seam; 7 API tests proving the
+mint lands on the SSE stream, the FileResponse demo page and a JSON route, that a valid cookie
+is never re-minted, that a tampered cookie gets 200-not-401 plus a fresh mint, and that
+`request.state.identity` is populated before any handler), and `a828ef1` (README 480 → 504).
+Suite: 467 passed / 37 skipped plain, 503 passed / 1 skipped armed — +24 in both runs, every one
+named (17 unit + 7 API), skip counts unchanged. `ruff` clean. Zero JS changes; nothing deployed;
+no push. `REQ-demo-authentication` stays Pending until the Wave 5 cutover proves it deployed.
+Resume file: None
+
+Superseded — previous session: **Completed 12-01-PLAN.md — Wave 0 of Phase 12 is in.** Three commits on
 `gsd/phase-12-caller-identity`: `0dbf46f` (chromadb into the dev extra by composing the existing
 chroma extra, pin unchanged; the notes fixture parametrizes json/memory/chroma/pgvector and the
 chroma arm passes all 6 note contract tests locally), `ea1bb8f` (`Database.transaction()` — one
