@@ -417,6 +417,22 @@ class ChromaMemoryStore(MemoryStore):
         return f"{len(self)} note(s) in Chroma collection at {self.path}"
 
 
+def validate_table_name(table: str) -> str:
+    """The one rule for a notes table name, in the one place that owns it.
+
+    Table names are interpolated into DDL and into every query, because
+    identifier quoting is not available through psycopg's parameter binding --
+    so they must not be attacker-controlled and they are validated rather than
+    trusted. The name normally comes from an env var set by whoever runs the
+    service; since Phase 13 the migration CLI also takes one from operator
+    argv, which is why this moved out of the constructor: two callers, and a
+    second hand-typed copy of the rule is how the two drift apart.
+    """
+    if not table.replace("_", "").isalnum():
+        raise ValueError(f"PGVECTOR_TABLE {table!r} must be alphanumeric or underscores.")
+    return table
+
+
 class PgVectorMemoryStore(MemoryStore):
     """Notes in Postgres, retrieved by an indexed cosine search.
 
@@ -441,13 +457,7 @@ class PgVectorMemoryStore(MemoryStore):
     ):
         self.embedder = embedder or VoyageEmbedder()
         self.dimensions = dimensions
-        # Interpolated into DDL, so it must not be attacker-controlled. It
-        # comes from an env var set by whoever runs the service, but identifier
-        # quoting is not available for CREATE TABLE names in psycopg's
-        # parameter binding, so validate rather than trust.
-        if not table.replace("_", "").isalnum():
-            raise ValueError(f"PGVECTOR_TABLE {table!r} must be alphanumeric or underscores.")
-        self.table = table
+        self.table = validate_table_name(table)
         self.db = database or db.Database(dsn)
         self._ensure_schema()
 
