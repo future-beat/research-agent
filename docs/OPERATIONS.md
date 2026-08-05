@@ -132,6 +132,30 @@ has been proven serving live traffic.
    `fly scale count 2 -a research-agent`.
 
 Steps 1–4 are reversible and leave production untouched.
+
+**Measured Fly-syd → Supabase-ap-southeast-2 round trip** (release v5, from inside
+the machine, against the real DSN): `connect+TLS 119.2 ms, query p50 2.73 ms,
+p95 6.37 ms`. The three `/health` store probes cost 2.84 / 3.23 / 3.39 ms at the
+p50, worst observed 6.90 ms — against a `HEALTH_PROBE_BUDGET` of 3000 ms, roughly
+435× headroom at the worst sample. Doubling the fleet does not threaten that
+arithmetic; there is no need to re-derive the `/health` budget before scaling.
+
+The one number worth carrying is **connect+TLS at 119.2 ms**, two orders of
+magnitude above the query cost. That is the pooler handshake, and it is why
+`PG_POOL_MIN_SIZE=1` holding a warm connection matters — a cold checkout pays
+119 ms before it runs anything. Sizing the pool to zero would make that term
+dominate.
+
+**The rollback is untested.** `fly secrets unset DATABASE_URL -a research-agent`
+is the documented escape hatch and it has never been exercised — reverting a
+working cutover to prove a mechanism was judged not worth it. Everything it
+depends on is verified (the volume exists, its SQLite data is intact at the row
+level), but do not describe it as a proven path. Note also that rolling back is
+a **four-part** change: restore `[[mounts]]`, restore the three `*_DB_PATH` vars,
+**delete the three pins**, and `fly scale count 1`. Restoring the mount while
+leaving the pins in place gives a machine that still refuses to boot without a
+DSN.
+
 `tests/test_deploy_config.py` guards the pairing in both directions: with a
 mount it requires one machine and local paths under `/data`; without one it
 requires the three pins, no `*_DB_PATH` keys, and at least two machines. Neither
