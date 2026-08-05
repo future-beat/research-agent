@@ -55,6 +55,26 @@
 
   .limits { color: var(--muted); font-size: .82rem; margin: 0 0 2rem; }
 
+  /* The caller's own sessions. Muted by default and deliberately quieter than
+     the question form: someone arriving from a link is here to ask something,
+     not to browse. Every value below is an existing custom property or an
+     existing size (.9rem is the stage-row size), so dark mode works with no
+     new @media rule and the page's type ramp gains nothing. */
+  #mine { margin: 0 0 1.5rem; }
+  #mine summary { color: var(--muted); font-size: .9rem; cursor: pointer; }
+  .session-row {
+    display: flex; width: 100%; text-align: left; gap: .6rem;
+    background: none; color: var(--fg); border: 0; border-radius: 0;
+    border-bottom: 1px solid var(--line); padding: .5rem .25rem;
+    /* `font: inherit` resets the weight the `button` rule sets to 600 -- these
+       are text, not buttons, and the page's weight ramp stays {600, 700}. */
+    font: inherit; font-size: .9rem; cursor: pointer;
+  }
+  .session-row .task { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-row .age { color: var(--muted); flex: none; }
+  .session-row:hover .task, .session-row:focus-visible .task { color: var(--accent); }
+  .session-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+
   .stage {
     display: flex; align-items: baseline; gap: .6rem; padding: .3rem 0;
     color: var(--muted); font-size: .9rem;
@@ -111,6 +131,10 @@
   <div id="out"></div>
 
   <footer>
+    <!-- The entire visible footprint of caller identity. Static text, no JS,
+         no icon, no dismiss control: the cookie is minted silently on the
+         first response, and a visitor who never reads this loses nothing. -->
+    <div>Your sessions and notes are private to this browser and expire after 7 days of inactivity.</div>
     <span class="mono">
       <a href="/docs">/docs</a> ·
       <a href="/metrics">/metrics</a> ·
@@ -137,6 +161,9 @@ const LABELS = {
   responder: "answering from the stored notes",
   critic: "fact-checking against the notes",
 };
+
+const FOLLOWUP_PLACEHOLDER = "Follow up on that — answered from its notes, no new search";
+const MAX_SESSION_ROWS = 10;   // a demo, not an archive: no pagination
 
 let session = null;   // set once a research run completes
 let busy = false;
@@ -222,34 +249,68 @@ function nodeDetail(node, payload) {
   return null;
 }
 
-function result(payload, isFollowup) {
+/* One completed turn, rendered. Side-effect free by construction: it reads
+   `turn`, returns a fragment, and touches nothing else -- no `session`, no
+   placeholder, no input. That matters because resuming a session renders N
+   turns, and the things `result()` does after rendering must happen once per
+   resume, not once per turn.
+
+   Every badge is conditional on its field being *present*, tested with `in`
+   and `typeof` rather than truthiness, so an absent field renders no badge
+   instead of a fabricated one. A live run's payload carries all of them and
+   looks exactly as it did before; a stored turn carries only a question and an
+   answer, so it gets no badges at all -- which is honest. Inventing "$0.0000"
+   and "undefined revision(s)" for a turn whose cost the server never sent is
+   the specific thing this function exists not to do.
+
+   The stage line is drawn only when the turn brings its own question. A live
+   run already drew one from the text the caller typed, before the stream
+   opened, so its payload (which has `task`, not `question`) draws none. */
+function renderTurnCard(turn, isFollowup) {
+  const frag = document.createDocumentFragment();
+
+  if (turn.question) {
+    frag.appendChild(el("div", "stage",
+      (isFollowup ? "Follow-up: " : "Question: ") + turn.question));
+  }
+
   const card = el("div", "card");
   const badges = el("div", "badges");
 
-  if (payload.approved) {
-    badges.appendChild(el("span", "badge ok", "critic approved"));
-  } else {
-    badges.appendChild(el("span", "badge warn",
-      "NOT approved — " + (payload.forced_stop_reason || "unknown")));
+  if ("approved" in turn) {
+    badges.appendChild(turn.approved
+      ? el("span", "badge ok", "critic approved")
+      : el("span", "badge warn",
+          "NOT approved — " + (turn.forced_stop_reason || "unknown")));
   }
-  if (payload.topic_type && !isFollowup) {
-    badges.appendChild(el("span", "badge", payload.topic_type));
+  if (turn.topic_type && !isFollowup) {
+    badges.appendChild(el("span", "badge", turn.topic_type));
   }
-  badges.appendChild(el("span", "badge",
-    "$" + Number(payload.cost_usd || 0).toFixed(4)));
-  badges.appendChild(el("span", "badge",
-    payload.revision_count + " revision(s)"));
-  badges.appendChild(el("span", "badge",
-    (payload.usage && payload.usage.calls || 0) + " model calls"));
-  card.appendChild(badges);
+  if (typeof turn.cost_usd === "number") {
+    badges.appendChild(el("span", "badge", "$" + turn.cost_usd.toFixed(4)));
+  }
+  if (typeof turn.revision_count === "number") {
+    badges.appendChild(el("span", "badge", turn.revision_count + " revision(s)"));
+  }
+  if (turn.usage && typeof turn.usage.calls === "number") {
+    badges.appendChild(el("span", "badge", turn.usage.calls + " model calls"));
+  }
+  if (badges.childNodes.length) card.appendChild(badges);
 
   const body = el("div", "report");
-  renderReport(payload.answer || "(no answer produced)", body);
+  renderReport(turn.answer || "(no answer produced)", body);
   card.appendChild(body);
-  out.appendChild(card);
+  frag.appendChild(card);
+  return frag;
+}
 
+function result(payload, isFollowup) {
+  out.appendChild(renderTurnCard(payload, isFollowup));
+
+  // The side effects, deliberately out here rather than in the shared
+  // renderer: this is what makes the run just finished the follow-up target.
   session = payload.session_id;
-  input.placeholder = "Follow up on that — answered from its notes, no new search";
+  input.placeholder = FOLLOWUP_PLACEHOLDER;
   input.value = "";
 }
 
@@ -339,20 +400,127 @@ async function run(question) {
   busy = false;
   go.disabled = false;
   refreshLimits();
+  refreshSessions();   // the run just finished is one of the caller's now
 }
 
 async function refreshLimits() {
   try {
     const d = await (await fetch("/demo")).json();
     const bits = [];
-    if (d.rate_limit_per_hour) bits.push(`${d.rate_limit_per_hour} requests/hour per visitor`);
+    // Both scopes named, because they are genuinely different scopes and
+    // saying so is the honest version: the hourly allowance is yours alone,
+    // the money is everyone's. Reads only fields /demo already returned, so
+    // an older API answering a newer page still populates the line.
+    if (d.rate_limit_per_hour) bits.push(`${d.rate_limit_per_hour} requests/hour for this browser`);
     if (d.daily_cap_usd) {
-      bits.push(`$${Number(d.spent_24h_usd).toFixed(2)} of $${Number(d.daily_cap_usd).toFixed(2)} spent in the last 24h`);
+      bits.push(`$${Number(d.spent_24h_usd).toFixed(2)} of $${Number(d.daily_cap_usd).toFixed(2)} spent by all visitors in the last 24h`);
     }
     if (d.token_required) bits.push("a demo token is required");
     document.getElementById("limits").textContent =
       bits.length ? "Shared demo — " + bits.join(" · ") : "";
   } catch { /* the page works without it */ }
+}
+
+/* --- The caller's own sessions ------------------------------------------ */
+
+/* Built here rather than in the markup, and never appended until it has a row.
+   An empty disclosure element sitting in the document would render a stray
+   triangle on a first visit -- so "you have no sessions" and "this feature
+   exists" would be distinguishable, which is the added friction a stranger
+   arriving from a link must not pay. Not being in the document is the only
+   version of "render nothing" with no edge cases, and it is why the markup
+   above declares no element with this id: a test asserts that, because a
+   grep for the literal tag would be satisfied by this very comment. */
+const mine = el("details");
+mine.id = "mine";
+const mineSummary = el("summary");
+mine.appendChild(mineSummary);
+
+function relativeAge(seconds) {
+  const delta = Date.now() / 1000 - Number(seconds || 0);
+  if (delta < 60) return "just now";
+  if (delta < 3600) return Math.floor(delta / 60) + "m ago";
+  if (delta < 86400) return Math.floor(delta / 3600) + "h ago";
+  return Math.floor(delta / 86400) + "d ago";
+}
+
+function sessionRow(summary) {
+  const row = el("button", "session-row");
+  row.type = "button";   // inside no form, but explicit: never a submit
+  // The task is a stranger's text on somebody else's screen when the operator
+  // is looking, so it goes in as text like every other untrusted string here.
+  row.appendChild(el("span", "task", String(summary.task || "").split("\n")[0]));
+  row.appendChild(el("span", "age", relativeAge(summary.updated_at)));
+  row.addEventListener("click", () => resume(summary.session_id, row));
+  return row;
+}
+
+// In the document exactly while it has rows, and the count kept truthful.
+function syncMine() {
+  const rows = mine.querySelectorAll(".session-row").length;
+  mineSummary.textContent = `Your recent research (${rows})`;
+  if (rows && !mine.parentNode) out.parentNode.insertBefore(mine, out);
+  else if (!rows && mine.parentNode) mine.remove();
+}
+
+async function refreshSessions() {
+  let sessions = [];
+  try {
+    const response = await fetch("/sessions");
+    if (response.ok) sessions = (await response.json()).sessions || [];
+  } catch { /* same posture as refreshLimits: the ask flow never depends on it */ }
+
+  while (mine.lastChild !== mineSummary) mine.removeChild(mine.lastChild);
+  for (const summary of sessions.slice(0, MAX_SESSION_ROWS)) {
+    mine.appendChild(sessionRow(summary));
+  }
+  syncMine();
+}
+
+/* Resume: render the stored conversation into the transcript and point the
+   next question at that session. The page is append-only by design, so nothing
+   is cleared -- the resumed thread lands under whatever is already there. */
+async function resume(id, row) {
+  if (busy) return;   // same guard the form uses
+
+  let response;
+  try {
+    response = await fetch(`/sessions/${encodeURIComponent(id)}`);
+  } catch (err) {
+    showError("Could not reach the service", String(err));
+    return;
+  }
+
+  if (response.status === 403 || response.status === 404) {
+    // Expired, or never the caller's. The server answers both with the same
+    // 404 on purpose, and so the page says the same thing for both.
+    showError("That session has expired",
+      "Sessions are kept for 7 days after their last activity. Ask a new question to start fresh.");
+    row.remove();
+    syncMine();
+    return;   // deliberately does NOT set session
+  }
+  if (!response.ok) {
+    let detail = "";
+    try { detail = (await response.json()).detail || ""; } catch { /* non-JSON body */ }
+    showError(`Request refused (HTTP ${response.status})`, detail);
+    return;
+  }
+
+  const detail = await response.json();
+  /* A session that has only ever been researched carries an empty
+     `conversation` -- its single turn lives in `task` + `latest_answer`. Once
+     it has been followed up, `conversation` holds every turn including the
+     latest, so reading both would render the last one twice. */
+  const turns = (detail.conversation && detail.conversation.length)
+    ? detail.conversation
+    : [{ question: detail.task, answer: detail.latest_answer }];
+  turns.forEach((turn, i) => out.appendChild(renderTurnCard(turn, i > 0)));
+
+  session = id;
+  input.placeholder = FOLLOWUP_PLACEHOLDER;
+  mine.open = false;
+  input.focus();
 }
 
 form.addEventListener("submit", (e) => {
@@ -362,6 +530,7 @@ form.addEventListener("submit", (e) => {
 });
 
 refreshLimits();
+refreshSessions();
 </script>
 </body>
 </html>
