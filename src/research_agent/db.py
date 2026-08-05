@@ -66,6 +66,7 @@ from __future__ import annotations
 import contextlib
 import os
 import threading
+import zlib
 from contextlib import contextmanager
 
 # zlib.crc32(b"research_agent.schema"). ONE key for all three schema blocks,
@@ -74,6 +75,15 @@ from contextlib import contextmanager
 # transaction-scoped variant: under autocommit=True there is no transaction for
 # a transaction-scoped lock to hang on.
 SCHEMA_LOCK_KEY = 3895545195
+
+# The key the spend-cap reservation takes with pg_advisory_xact_lock inside
+# Database.transaction() -- transaction-scoped, so a caller that crashes
+# mid-reservation releases it at ROLLBACK instead of pinning it on a connection
+# already handed back to the pool. DELIBERATELY a different key from
+# SCHEMA_LOCK_KEY: sharing one would serialise cap accounting against schema
+# DDL, two things with nothing to coordinate. test_db_transaction.py asserts
+# the inequality so an edit collapsing them fails loudly.
+CAP_LOCK_KEY = zlib.crc32(b"research_agent.spendcap")
 
 
 def connect_timeout() -> int:
@@ -413,6 +423,42 @@ class Database:
             except (psycopg.OperationalError, psycopg.InterfaceError):
                 # Stale or dropped at checkout. One fresh connection, once.
                 conn = stack.enter_context(self._pool.connection())
+            yield stack.enter_context(conn.cursor(row_factory=row_factory))
+
+    @contextmanager
+    def transaction(self, row_factory=None):
+        """A cursor inside one real transaction on one pooled connection.
+
+        The pool opens every connection autocommit=True (see _connect_kwargs),
+        so ordinarily there is no transaction at all -- each statement commits
+        as it runs. That is right for single-statement stores and exactly wrong
+        for check-then-write: the spend-cap reservation must read the day's
+        total and insert its row under `pg_advisory_xact_lock`, and a
+        transaction-SCOPED lock needs a transaction to hang on. psycopg's
+        `conn.transaction()` provides it even on an autocommit connection, and
+        gives commit-on-clean-exit / rollback-on-raise for free -- which is
+        also what releases the lock, on either path, before the connection goes
+        back to the pool. Lock and work share one connection by construction,
+        the same single-connection invariant _apply_schema's docstring defends.
+
+        The checkout mirrors cursor(): PoolTimeout/PoolClosed SUBCLASS
+        psycopg.OperationalError, so their pass-through arm must come first --
+        without it the retry arm below would re-wait a checkout timeout and
+        double the worst-case stall on an unreachable database. The wait has
+        already happened; a second one buys nothing.
+        """
+        psycopg = _psycopg()
+        psycopg_pool = _psycopg_pool()
+        self._apply_schema()
+        with contextlib.ExitStack() as stack:
+            try:
+                conn = stack.enter_context(self._pool.connection())
+            except (psycopg_pool.PoolTimeout, psycopg_pool.PoolClosed):
+                raise  # see the docstring: re-raise BEFORE the retry arm
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                # Stale or dropped at checkout. One fresh connection, once.
+                conn = stack.enter_context(self._pool.connection())
+            stack.enter_context(conn.transaction())
             yield stack.enter_context(conn.cursor(row_factory=row_factory))
 
     def _read(self, sql: str, params, many: bool):
