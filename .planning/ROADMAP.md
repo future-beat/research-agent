@@ -214,7 +214,7 @@ Plans:
   5. Notes have at least one enforced bound — eviction, dedup, or summarisation — and note deletion behaves the same across json, memory, chroma, and pgvector, proven by the shared behavioural suite.
   6. A stranger following a link from a résumé can still reach a working demo without abandoning at an auth wall.
 **Plans**: 6 plans
-- [ ] 12-01-PLAN.md — Wave 0: chromadb joins the dev extra + 4-arm contract suite; Database.transaction() helper
+- [x] 12-01-PLAN.md — Wave 0: chromadb joins the dev extra + 4-arm contract suite; Database.transaction() helper
 - [ ] 12-02-PLAN.md — Wave 1: signed HMAC identity token + mint-on-response IdentityMiddleware (never 401)
 - [ ] 12-03-PLAN.md — Wave 2: Postgres identity-keyed rate limit + reservation-based spend cap (advisory-lock)
 - [ ] 12-04-PLAN.md — Wave 3: session ownership, 7-day derived expiry, dual-mode listing, 404-not-403, walker surgery
@@ -333,7 +333,7 @@ capacity exists, they can overlap. Phases 15 → 16 → 17 are strictly sequenti
 | 10. ADRs and doc correctness | v1.1 | 5/5 | In Progress | All 5 plans executed; SC-1/2/3/4/6 green. Sign-off pending on SC-5 step 3 — `main` is 21 docs-only commits ahead of `origin/main`. No code differs; resolve with a push, not a deploy. |
 | 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 5/5 | Complete | Shipped as Fly release v4 on 2026-08-04; re-verified live 2026-08-05 (v4 healthy, `/`, `/health`, `/demo`, `/metrics` all 200) |
 | 11. Multi-machine state and pooled Postgres | v1.1 | 5/5 | Blocked | All 5 plans executed, but 11-05 Tasks 2–3 are blocked: `fly deploy` cannot answer its own volume-detach prompt non-interactively on flyctl v0.4.78. `fly.toml` is stateless and the guards pass, but production is still ONE machine on release v6 with the volume attached, so **SC-2's live half and SC-3 are unproven**. Needs an operator-run interactive deploy, then `fly scale count 2`. |
-| 12. Caller identity, session ownership, bounded stores | v1.1 | 0/TBD | Not started | - |
+| 12. Caller identity, session ownership, bounded stores | v1.1 | 1/6 | In Progress|  |
 | 13. Embedding model migration | v1.1 | 0/TBD | Not started | - |
 | 14. Real cost accounting | v1.1 | 0/TBD | Not started | - |
 | 15. Answer-quality evals | v1.1 | 0/TBD | Not started | - |

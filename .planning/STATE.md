@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: planned
-stopped_at: "Phase 12 planned on branch gsd/phase-12-caller-identity — 6 plans, 6 waves. Checker: 0 blockers, 3 warnings fixed. Next: /gsd:execute-phase 12."
-last_updated: "2026-08-05T08:55:00.000Z"
-last_activity: "2026-08-05 — Phase 12 planned: auto-issued signed-cookie identity, Postgres-backed identity-keyed limits with race-free cap reservation, 7-day session+note expiry, owner-scoped notes across four backends (chroma joins CI), ADR-0007 supersedes 0006. UI keeps criterion 6 (no auth wall)."
+status: executing
+stopped_at: "Completed 12-01-PLAN.md (Wave 0): chroma is the fourth collecting contract arm, Database.transaction() + CAP_LOCK_KEY exist and are proven against real Postgres. Next: 12-02."
+last_updated: "2026-08-05T11:30:00.000Z"
+last_activity: "2026-08-05 — Executed 12-01: chromadb into the dev extra (composed, pin unchanged), 4-arm notes fixture, Database.transaction() with xact-scoped advisory-lock tests. Suite 443/37 plain, 479/1 armed; README 470 -> 480."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,15 +25,15 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **PLANNED, not started**
-Plan: 0 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
-Status: Planned and verified. UI spec passed the ui-checker after one fix. Plan-checker: 0 blockers, 3 warnings, all fixed in one revision.
-Last activity: 2026-08-05 — Phase 12 planned.
+Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTING**
+Plan: 1 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
+Status: Wave 0 complete (12-01). The 4-arm contract suite and Database.transaction() are the foundations the rest of the phase stands on; both are in and proven against real Postgres (:54329).
+Last activity: 2026-08-05 — Executed 12-01 (commits 0dbf46f, ea1bb8f, 1cd461f).
 
 **Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7.
 
 Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 12: [░░░░░░░░░░] 0 of 6 plans — planned
+Phase 12: [█▓░░░░░░░░] 1 of 6 plans — executing
 
 **Carry into execution — what breaks the demo if wrong:**
 
@@ -75,6 +75,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
+| 12 | 1 of 6 (12-01) | 13min | 13min |
 
 **Recent Trend:**
 
@@ -142,6 +143,10 @@ Recent decisions affecting current work:
 - [Phase 11-04]: **The HTTP round trip and the database round trip are separable, and worth separating when one is blocked.** Every HTTP write path runs the model first, so a dead model key blocks the session round trip through `/research`. Proving it at the store layer over `fly ssh console` — same classes, same pool, same DSN, same `::vector` cast — discharged the database claim honestly, with the gap (FastAPI's dependency wiring, already covered by `/health`) named rather than papered over.
 - [Phase 11-04]: **`fly ssh console -C` takes no shell**, so RESEARCH's `python - <<'PY'` heredoc never reaches Python, and the container has no `curl`. base64-encode the script locally and run `python -c "import base64;exec(base64.b64decode('...'))"`. This also keeps credentials inside the machine — the script reads `os.environ['DATABASE_URL']` and never prints it.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
+- [Phase 12-01]: **The dev extra composes `research-agent[chroma]` rather than repeating the pin.** chromadb==1.4.1 stays pinned once, in the chroma extra; a SQLite/JSON deploy installing `[service]` alone still never pulls it. The contract fixture's chroma arm skips ONLY on a genuinely missing chromadb import — never on HAS_POSTGRES — so CI (which installs dev) collects and runs it.
+- [Phase 12-01]: **`CAP_LOCK_KEY` (11165997) is a different advisory-lock key from `SCHEMA_LOCK_KEY` (3895545195)**, and the inequality test is deliberately not Postgres-gated so a keyless local run still catches a collapsed-constants edit. A shared key would serialise cap accounting against schema DDL.
+- [Phase 12-01]: **The xact-lock test's held-half is what makes it falsifiable.** `pg_advisory_xact_lock` on an autocommit connection degenerates to a one-statement lock, so a `transaction()` that silently stopped opening a transaction would still pass an after-the-block acquisition check. The test therefore also asserts a rival connection is REFUSED the lock while the block is open. `transaction()` mirrors `cursor()`'s PoolTimeout/PoolClosed-before-OperationalError ordering.
+- [Phase 12-01]: **The full-suite baselines moved and are fully explained**: plain 436/34 → 443/37 (+6 chroma-arm, +1 key-inequality; +3 Postgres-gated transaction skips), armed 469/1 → 479/1. README's "470 tests, ~10s" was falsified by this wave and updated to "480 tests, ~25s" in the same wave — the chroma client's startup is most of the wall-clock growth.
 
 ### Pending Todos
 
@@ -241,7 +246,19 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 11-04-PLAN.md — production is on Supabase, and every step is still
+Stopped at: **Completed 12-01-PLAN.md — Wave 0 of Phase 12 is in.** Three commits on
+`gsd/phase-12-caller-identity`: `0dbf46f` (chromadb into the dev extra by composing the existing
+chroma extra, pin unchanged; the notes fixture parametrizes json/memory/chroma/pgvector and the
+chroma arm passes all 6 note contract tests locally), `ea1bb8f` (`Database.transaction()` — one
+pooled connection, `conn.transaction()`, cursor on that same connection; `CAP_LOCK_KEY` exported
+for Wave 2; 4 tests proving commit-visible, rollback-absent, and the advisory lock held against a
+rival while open then taken freely afterwards, run green against local Postgres :54329), and
+`1cd461f` (README 470 → 480 tests, ~10s → ~25s). Suite: 443 passed / 37 skipped plain,
+479 passed / 1 skipped armed — every delta from the 436/34 and 469/1 baselines named. `ruff`
+clean. Nothing deployed; no push.
+Resume file: None
+
+Superseded — previous session: **Completed 11-04-PLAN.md — production is on Supabase, and every step is still
 reversible.** Task 1 (provisioning) was done by the operator beforehand and was verified, not
 redone. One `fly deploy -a research-agent` landed the branch code and the staged `DATABASE_URL` in
 **release v5** — deliberately *not* `fly secrets deploy`, which would have put the new DSN on the
