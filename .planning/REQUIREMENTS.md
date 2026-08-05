@@ -69,12 +69,12 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 
 ### Scaling and data
 
-- [ ] **REQ-multi-machine-state**: `DATABASE_URL` is set in production, `[[mounts]]` is gone
+- [x] **REQ-multi-machine-state**: `DATABASE_URL` is set in production, `[[mounts]]` is gone
   from `fly.toml`, machine count is greater than 1, and sessions resolve identically from
   any machine.
   *Not a reversal* — DEC-15 and OPERATIONS already document this path; this executes it.
 
-- [ ] **REQ-connection-pool**: A pool with configurable min/max size replaces the single
+- [x] **REQ-connection-pool**: A pool with configurable min/max size replaces the single
   lock-guarded Postgres connection, preserving reconnect-on-failure and lazy schema
   application.
   *Reverses a sizing judgement, mildly.* The single connection is described as "right when
@@ -90,7 +90,7 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 
 ## Cross-cutting requirement
 
-- [ ] **REQ-adr-promotion**: The five load-bearing architectural decisions exist as numbered
+- [x] **REQ-adr-promotion**: The five load-bearing architectural decisions exist as numbered
   ADRs under `docs/adr/` with explicit `Status` fields, so each subsequent reversal
   supersedes a record rather than silently contradicting prose.
   Derived from INGEST-CONFLICTS WARNING 3, user-approved 2026-08-04. Not sourced from the
@@ -119,10 +119,10 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-adr-promotion | Phase 10 | Pending — the ADR set is built and gate-verified (six records, `Status` fields, Nygard sections, bidirectional DESIGN.md traceability). Held open only by SC-5 step 3: `main` is 21 docs-only commits ahead of `origin/main`. A push closes it; no deploy needed. |
+| REQ-adr-promotion | Phase 10 | Complete (PR #4 merged, both checks green, 2026-08-05) |
 | REQ-live-endpoint-exposure | Phase 10.5 | Complete (Fly release v4, 2026-08-04) |
-| REQ-multi-machine-state | Phase 11 | Pending |
-| REQ-connection-pool | Phase 11 | Pending |
+| REQ-multi-machine-state | Phase 11 | Complete (Fly v7, two machines, 2026-08-05) |
+| REQ-connection-pool | Phase 11 | Complete (psycopg-pool, one shared pool per machine) |
 | REQ-demo-authentication | Phase 12 | Pending |
 | REQ-store-lifecycle-and-ownership | Phase 12 | Pending |
 | REQ-embedding-model-migration | Phase 13 | Pending |

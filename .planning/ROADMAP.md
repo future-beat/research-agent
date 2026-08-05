@@ -50,9 +50,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ### 🚧 v1.1 Closing the limitations list (Phases 10–17)
 
-- [ ] **Phase 10: ADRs and doc correctness** - Promote the load-bearing five to numbered ADRs; fix verified-false docs; redeploy so live matches `main`
+- [x] **Phase 10: ADRs and doc correctness** - Promote the load-bearing five to numbered ADRs; fix verified-false docs; redeploy so live matches `main`
 - [x] **Phase 10.5: Close the live endpoint exposure (hotfix)** - Guard the unauthenticated session read/delete paths and stop leaking exception text; ship immediately
-- [ ] **Phase 11: Multi-machine state and pooled Postgres** - Take the `DATABASE_URL` path, run more than one machine, replace the single connection with a pool
+- [x] **Phase 11: Multi-machine state and pooled Postgres** - Take the `DATABASE_URL` path, run more than one machine, replace the single connection with a pool
 - [ ] **Phase 12: Caller identity, session ownership, bounded stores** - The demo identifies callers; sessions have owners and expiry; notes stop growing forever
 - [ ] **Phase 13: Embedding model migration** - A real, reversible path when the embedding model or dimension changes
 - [ ] **Phase 14: Real cost accounting** - Discounts and `inference_geo` so reported cost approximates the invoice
@@ -189,7 +189,7 @@ Plans:
 **Depends on**: Phase 10
 **Requirements**: REQ-multi-machine-state, REQ-connection-pool
 **Success Criteria** (what must be TRUE):
-  1. `DATABASE_URL` is set in production, `research_agent.migrate` has been run dry-run then real, and `/health` reports Postgres-backed stores.
+  1. `DATABASE_URL` is set in production against an external managed Postgres and `/health` reports Postgres-backed stores. **Amended 2026-08-05:** originally "…`research_agent.migrate` has been run dry-run then real…". The user decided the phase starts against an empty database with no data migration, keeping the volume as a backup, so the migrate step is deliberately **not** exercised. What is knowingly given up is the cumulative `/metrics` history. `research_agent.migrate` therefore remains an unproven path — a later phase needing a real migration must not assume otherwise.
   2. `[[mounts]]` is gone from `fly.toml` and more than one machine is running.
   3. A session created against one machine resolves identically from another — the "404 on a session that demonstrably exists" failure is gone.
   4. Postgres access goes through a pool with configurable min/max size; reconnect-on-failure still works and no DDL runs at construction time.
@@ -326,7 +326,7 @@ capacity exists, they can overlap. Phases 15 → 16 → 17 are strictly sequenti
 | 9.1 Package reorganisation | v1.0 | — | Complete | pre-GSD |
 | 10. ADRs and doc correctness | v1.1 | 5/5 | In Progress | All 5 plans executed; SC-1/2/3/4/6 green. Sign-off pending on SC-5 step 3 — `main` is 21 docs-only commits ahead of `origin/main`. No code differs; resolve with a push, not a deploy. |
 | 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 5/5 | Complete | Shipped as Fly release v4 on 2026-08-04; re-verified live 2026-08-05 (v4 healthy, `/`, `/health`, `/demo`, `/metrics` all 200) |
-| 11. Multi-machine state and pooled Postgres | v1.1 | 0/TBD | Not started | - |
+| 11. Multi-machine state and pooled Postgres | v1.1 | 5/5 | Blocked | All 5 plans executed, but 11-05 Tasks 2–3 are blocked: `fly deploy` cannot answer its own volume-detach prompt non-interactively on flyctl v0.4.78. `fly.toml` is stateless and the guards pass, but production is still ONE machine on release v6 with the volume attached, so **SC-2's live half and SC-3 are unproven**. Needs an operator-run interactive deploy, then `fly scale count 2`. |
 | 12. Caller identity, session ownership, bounded stores | v1.1 | 0/TBD | Not started | - |
 | 13. Embedding model migration | v1.1 | 0/TBD | Not started | - |
 | 14. Real cost accounting | v1.1 | 0/TBD | Not started | - |

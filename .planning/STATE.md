@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: in-progress
-stopped_at: "Completed 10-05-PLAN.md — the phase gate battery ran green on SC-1/2/3/4/6 and both regression gates, with non-vacuity controls recorded. SC-5 step 3 came back RED: main is 21 documentation-only commits ahead of origin/main. Zero deployable files differ and release v4 is healthy, so no deploy is needed — a push closes it. 10-VALIDATION.md approval left pending."
-last_updated: "2026-08-05T00:00:00.000Z"
-last_activity: "2026-08-05 — Plan 10-05 executed: every Phase 10 gate run as written on macOS with literal output recorded in 10-VALIDATION.md § Execution Record. Five ADRs plus ADR-0006 verified, all doc corrections green, src byte-identical to 715e9aa, suite 388/28, ruff clean, four non-vacuity controls shown to fail. SC-5 re-verified live (v4 healthy, four endpoints 200) — not redeployed. One red finding: origin/main..main is 21, not 0."
+status: phase-complete
+stopped_at: "Phase 11 COMPLETE — Supabase Postgres live, pooled, two machines on release v7. SC-3 proved over HTTP. Next: PR, then /gsd:plan-phase 12."
+last_updated: "2026-08-05T08:55:00.000Z"
+last_activity: "2026-08-05 — Phase 11 shipped: all three stores on Supabase ap-southeast-2 via the session-mode pooler, one shared psycopg pool per machine, /health bounded at a 9s ceiling, volume detached but kept, two machines on v7, and a session created on 846975f2604548 resolved by d8d0320f751618 over HTTP"
 progress:
   total_phases: 19
   completed_phases: 9
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 12
+  completed_plans: 14
   percent: 56
 ---
 
@@ -25,18 +25,98 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 10 of 17 (ADRs and doc correctness) — **IN PROGRESS (all plans executed; sign-off pending)**
-Plan: 5 of 5 executed in current phase
-Status: All five plans executed and the full gate battery run. Every content criterion is green — SC-1, SC-2, SC-3, SC-4, SC-6, plus both regression gates. **Sign-off is held on one red row: SC-5 step 3, `git rev-list --count origin/main..main`, returned `21` rather than `0`.** All 21 are Phase 10 documentation commits (including the phase base `715e9aa` itself); `git diff --name-only origin/main..main -- src/ tests/ evals/ pyproject.toml Dockerfile fly.toml` returns 0 files, so the deployed v4 image is current and no redeploy is warranted. Pushing `main` turns the row green and closes both the phase and REQ-adr-promotion.
-Last activity: 2026-08-05 — Plan 10-05 executed: the phase gate battery ran with literal output recorded in `10-VALIDATION.md` § Execution Record, and four non-vacuity controls were run to prove the gate shapes can fail. SC-5 was re-verified read-only against the live host — `fly releases` shows v4 `complete`, and `/`, `/health`, `/demo`, `/metrics` all return 200 — with no `fly deploy`, no `fly secrets set` and no `git push` at any point.
+Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **EXECUTING (11-05 BLOCKED)**
+Plan: 5 of 5 started; 11-05 Tasks 1 and 4 complete, Tasks 2 and 3 blocked
+Status: **The repository is in its stateless end state; production is not.** `fly.toml` has no
+`[[mounts]]`, no `*_DB_PATH` vars, the three Postgres backend pins, and `min_machines_running = 2`.
+The fail-closed mechanism is proved at runtime: with `DATABASE_URL` absent and
+`SESSION_BACKEND=postgres`, store construction exits 1 with a `RuntimeError` naming `DATABASE_URL`.
+Both of 11-03's two-armed guards ran their stateless arm for the first time — **12 passed, 0
+skipped**. `11-VALIDATION.md` is reconciled and `docs/OPERATIONS.md` carries the measured latency.
 
-Prior activity: 2026-08-05 — Plan 10-04 executed: `docs/DESIGN.md` now says the `MemoryStore` ABC has **four** implementations behind `VECTOR_STORE` — JSON, in-memory, Chroma, pgvector — matching `BACKENDS` in `memory.py` and the "four backends" already in `docs/OPERATIONS.md`. The pricing paragraph no longer opens "because one of them expires this month" and no longer says "September 1": the introductory $2/$10 window runs through `2026-08-31` and the standard $3/$15 rate takes over from `2026-09-01`, both on one line with `/pricing` named as the live source. Each of the five promoted paragraphs ends with a "Recorded as ADR-000N" link, and the file's preamble links `adr/README.md`. Every linked path resolves; ADR-0006 is deliberately unlinked. Documentation only — `git status --porcelain src/ tests/ evals/` empty, suite unchanged at 388 passed, 28 skipped.
+**BLOCKED, and it is the phase's headline claim.** Removing `[[mounts]]` makes `fly deploy` stop
+and ask *"Do you still want to continue and detach the volume? This will replace the machine.
+(y/N)"*. flyctl v0.4.78 accepts `-y` and then ignores it on that path; driving it through a pty
+either panics flyctl (`machines.go:321`, nil pointer, when stdin is flooded) or accepts the
+keystroke and then hangs indefinitely (900s, no output, no release). Three attempts, then stopped —
+escalating to `fly machine destroy` was outside this plan's authorisation and is the one nearby
+step that touches the volume's attachment.
 
-Prior activity: 2026-08-05 — Plan 10-03 executed: `docs/OPERATIONS.md` no longer claims deploys run through Fly's GitHub integration. Deploys are stated as manual via `fly deploy -a research-agent` with `fly releases -a research-agent` as the evidence, and the gating is corrected in both directions — `main` carries two required checks under `strict: true` but `enforce_admins` is `false`, so an admin's direct push succeeds with a recorded bypass notice (the Phase 10.5 push is quoted). `README.md`'s cost limitation now names `/pricing` as the live source with both window dates in ISO form and no duplicated rate figures. Documentation only — `git status --porcelain src/ tests/ evals/` is empty and the suite is unchanged at 388 passed, 28 skipped.
+**Production is untouched and healthy:** release **v6**, ONE machine `78156d2c32d738`, volume
+`vol_vdegz1021w669gx4` still ATTACHED, all three Postgres backends, `dependencies: ok`, all four
+endpoints 200, `/demo` `token_required: false`, `DEMO_TOKEN` absent, `SESSIONS_TOKEN` present.
+`fly volumes destroy` was never run. **SC-2's live half and SC-3 are unproven — there are no
+machine ids to record, because only one machine exists.**
 
-Progress: [█████░░░░░] 56% (9 of 17 phases complete + hotfix 10.5; v1.0 shipped)
+**Operator action required to unblock:** run `fly deploy -a research-agent` from a real terminal
+and answer `y`; then `fly scale count 2 -a research-agent`; then prove SC-3 over HTTP with
+`fly-force-instance-id` and the `X-Demo-Token` header, recording both machine ids and the session
+id; then check `pg_stat_activity` (expect ~21–26 of 60); then tick README's Phase 11 line and flip
+`11-VALIDATION.md`'s two blocked rows and its Approval.
+
+**An edit to publicly reported numbers, recorded deliberately:** the operator deleted the single
+`AuthenticationError` run row from the production metrics table, with consent, on the grounds that
+it recorded a credential outage rather than a pipeline failure. `/metrics` moved from
+`failure_rate 1.0` to `failure_rate 0.0`. `ANTHROPIC_API_KEY` has been rotated (digest
+`9704aee92910b5e7`) and a full research run has since completed on Postgres —
+session `f14905b2fce8438eb716842c9a3b6c92`, $0.204266. See 11-05-SUMMARY.md.
+
+Previously (11-04): **Production runs on external Postgres.** Fly release v5 carries waves 1–3
+plus the staged `DATABASE_URL`; `/health` reports `PostgresSessionStore`, `PostgresMetricsStore`
+and `PgVectorMemoryStore` with `dependencies: ok`, `unreachable: []` and
+`machine: 78156d2c32d738`, at 0.27–0.43s across eleven samples. The Fly-syd → Supabase-syd hop is
+**connect+TLS 119.2ms, query p50 2.73ms / p95 6.37ms**; the three real `/health` store probes cost
+2.84 / 3.23 / 3.39ms p50 against a 3000ms `HEALTH_PROBE_BUDGET`. `pg_stat_activity` 15–16 of 60.
+Zero `prepared statement` errors over 74 probe-triggering responses. **Nothing irreversible
+happened:** `[[mounts]]` present, one machine, volume attached, and `/data` still holds 1 session,
+3 runs and 3 notes — exactly the pre-cutover counts.
+Last activity: 2026-08-05 — Executed 11-05-PLAN.md partially (Tasks 1 and 4 committed; Tasks 2 and 3 blocked on an interactive `fly deploy`).
+
+**11-02 ran the Postgres-gated suite for real.** Docker was unavailable, so PostgreSQL 17 +
+pgvector were installed via Homebrew and run on port 54329 (stopped and data dir deleted after;
+no `brew services` entry). This was load-bearing, not thoroughness theatre: the suite was green
+locally and red against a server, and the run found three `db.py` bugs — see 11-02-SUMMARY.md
+§ "The inherited breakage, and what it actually was".
+
+**Phase 10 is closed** — PR #4 merged, both required checks green, so the SC-5 push gate that
+held it open is satisfied and `REQ-adr-promotion` is complete.
+
+Progress: [██████░░░░] 59% (10 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
-Phase 10: [██████████] 5 of 5 plans executed — sign-off pending on SC-5 step 3 (`main` unpushed)
+Phase 10:   [██████████] 5 of 5 plans — complete (PR #4 merged)
+Phase 11:   [████████░░] 4 of 5 plans — 11-05 partial, BLOCKED on an interactive deploy
+
+**Carry into execution — the four findings the plans are built around:**
+
+- ~~**`psycopg_pool.PoolTimeout` subclasses `psycopg.OperationalError`**~~ — **CLOSED by 11-01.**
+  Both `PoolTimeout` and `PoolClosed` are now caught and re-raised in an arm placed *before* the
+  `OperationalError` arm. Measured against an unreachable DSN with `PG_POOL_TIMEOUT=0.5`: 0.505s
+  with the exclusion, 1.007s without it — the naive port was mutated in and observed red.
+- ~~**`/health` already blows its budget today**~~ — **CLOSED by 11-02.** Every probe now runs
+  under `HEALTH_PROBE_BUDGET` (3.0s default), giving a 9s ceiling that holds cold, warm *and*
+  partitioned. Measured 0.32s against a store that never answers; removing the deadline was
+  mutated in and observed **hanging** for 31.4s before failing.
+- ~~**`pg_advisory_lock` is session-scoped**~~ — **CLOSED by 11-02.** The unit half landed in
+  11-01 (one `cursor()`, unlock boolean checked, splitting observed red); the real-server half is
+  now `test_advisory_lock_is_exclusive_across_connections`, which shows a second connection
+  refused a held lock and an unlock from a non-holder returning `False` — the exact signature a
+  split across checkouts produces.
+- **Removing the three `*_DB_PATH` env vars does NOT prevent SQLite fallback.** `sessions.py:43`
+  has a module-dir default and `default_backend()` returns `sqlite` whenever `DATABASE_URL` is
+  empty — two mountless machines would each boot their own ephemeral database and `/health` would
+  report `ok`. The fix is pinning `SESSION_BACKEND`/`METRICS_BACKEND`/`VECTOR_STORE` so a missing
+  DSN fails closed at construction. **Half closed by 11-02:** `-k fails_closed` asserts that a
+  pinned Postgres backend with no `DATABASE_URL` raises, and a companion test pins the negative
+  (unpinned + no DSN boots happily on container-local storage). That is a *property* test, not a
+  progress gate — it passes against today's tree. The gate that the pins are actually **set in
+  production** is still owed: the stateless arm of `test_local_store_paths_live_under_the_mount`,
+  written in 11-03 and armed by 11-05.
+
+Plan 11-05 is `autonomous: false` — it drops the mount, pins the three backends and scales to two
+machines. The volume `agent_data` is **kept as backup, never destroyed**. 11-04 is done: Supabase
+is provisioned in `ap-southeast-2`, `DATABASE_URL` is a deployed Fly secret against the session-mode
+pooler on 5432 with `sslmode=require`, and everything up to this point is still reversible with
+`fly secrets unset DATABASE_URL` — **a path that is verified-supported but not itself tested.**
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -56,6 +136,7 @@ Phase 10 — but it must not wait for Phase 11.
 |-------|-------|-------|----------|
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
+| 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 
 **Recent Trend:**
 
@@ -100,6 +181,28 @@ Recent decisions affecting current work:
 - [Phase 10-05]: Two edits were made to `10-VALIDATION.md` prose that the verify block forced, and neither weakens a gate: the `⬜ pending` token was dropped from the status legend (nothing is pending, so the key entry was dead), and the sign-off item `` `nyquist_compliant: true` set in frontmatter`` was reworded to "Frontmatter marks the phase Nyquist-compliant" so the literal token appears exactly once, in the frontmatter that owns it.
 - [Phase 10-05]: `ruff` is not on `PATH` in this environment; `.venv/bin/ruff` is the working invocation, matching the `.venv/bin/pytest` convention. Recorded so a future phase does not read a bare `ruff check .` failure as a lint regression.
 - [Phase 10-05]: The non-vacuity control is now four probes, not one — the zero-occurrence search, the file counter, the link resolver and the `Status` gate were each shown to fail on input that must fail. This repo has shipped five vacuous gates across two phases; a gate that has only ever passed is treated as unproven.
+- [Phase 11-03]: **A guard that skips is a guard that config deletion disarms.** Two deploy tests `pytest.skip()`d whenever `[[mounts]]` was absent, so removing the mount would have made them no-ops with CI still green. Both are now two-armed — they assert in *both* topologies and skip in neither. The old guard was fed the same scratch file as the new one and returned `Skipped` where the new one raises. Any future mount-conditional or DSN-conditional check should be written this way from the start.
+- [Phase 11-03]: **Removing the `*_DB_PATH` vars does not close the SQLite fallback; the pins do.** `sessions.py` defaults its path to a file beside the module and the backend selector returns `sqlite` with no DSN, so a mount-less machine with an unset `DATABASE_URL` boots on container-local SQLite, `/health` reports `dependencies: "ok"` because SQLite is perfectly reachable, and the only difference on the wire is a class name nothing reads. `SESSION_BACKEND`/`METRICS_BACKEND`/`VECTOR_STORE` pinned makes it fail closed at store construction instead. This is the gate `-k fails_closed` deliberately does not provide.
+- [Phase 11-03]: **Assert on the parsed `[env]` table, never the file text, when one key name is a substring of another.** `grep -c 'VECTOR_STORE' fly.toml` returns 1 on a file with no `VECTOR_STORE` key at all, because `VECTOR_STORE_PATH` contains it. The inverse also applies: the `-k runbook` guard deliberately *does* read the text, because a comment is precisely what it guards and `tomllib` discards comments.
+- [Phase 11-03]: **A test that is red until an edit lands belongs in the task that makes the edit.** The runbook-staleness guard was written in Task 2, not Task 1, because Task 1's verify runs the whole file and would have ended red. Recording the red observation against `git show HEAD:fly.toml` is what makes an absence-asserting gate falsifiable.
+- [Phase 11-03]: **Two more vacuous gates caught before running** — bringing this repo to eight across four phases. `PG_CONNECT_TIMEOUT >= 1` and `SESSION_BACKEND >= 1` in `docs/OPERATIONS.md` both already passed on the untouched tree. Replaced with prose-only greps (`grep -v '^|'`), an old-text-is-gone check, a same-paragraph co-occurrence check, and a same-line tie to `pin|cutover`. The rule: state the *measured* baseline in the gate, and if it is not zero, the `>= 1` form proves nothing.
+- [Phase 11-03]: **Line-oriented gates need line-oriented prose.** `grep 'X' file | grep -c 'Y'` requires both tokens on one *physical* line, and 80-column reflow kept separating them. The sentence was rewritten to suit the gate rather than the gate weakened to suit the sentence.
+- [Phase 11-01]: `check=ConnectionPool.check_connection` is **deliberately not used**, against RESEARCH's own Pattern 1. The check is a server round trip performed *during* checkout and the pool's `timeout` does not interrupt one in flight, so on a partitioned database it adds an unbounded cost to every checkout — on `/health`, the exact endpoint this phase is bounding. Staleness stays covered by the retry-once arm. Gated by `grep -c 'check_connection' src/research_agent/db.py` returning 0, with the reason in a comment so the omission does not read as an oversight.
+- [Phase 11-02]: **A local Postgres was built to run the gated suite**, because Docker was unavailable and this phase's plans state explicitly that a green local run is not evidence. It found three `db.py` bugs, two of which no fake could have caught. The rule this establishes: for a phase whose claims are server-shaped, "the Postgres tests skipped locally" is an unverified result, not a pass.
+- [Phase 11-02]: **The retry discriminator is the SQLSTATE, not the exception class.** Both obvious rules are wrong. "Any `OperationalError`" retries `QueryCanceled` (57014) and doubles the statement timeout that just fired. "Has a SQLSTATE means the server is alive" refuses to retry `AdminShutdown` (57P01), which is exactly what `pg_terminate_backend` sends. The second rule shipped and was caught only by the real server. `_connection_was_lost()` now retries SQLSTATE `None`, class `08`, and `57P01/02/03`.
+- [Phase 11-02]: **Reads retry the whole statement; writes deliberately do not.** A client cannot distinguish "never arrived" from "committed, response lost", so a retried write is at-least-once — a duplicated run in `/metrics` or a `UniqueViolation` over a row that exists. The asymmetry is documented in `_read()` rather than left to be inferred.
+- [Phase 11-02]: **`pool.check()` on the failure path is not the `check=` callback 11-01 rejected.** A provider terminates every idle connection at once, so a bare retry-once drew the next dead connection and still failed against a real server. `check()` replaces all broken idle connections, but runs *only* after one has been found dead — so 11-01's objection (a round trip on every checkout, including `/health`'s) does not apply and still stands.
+- [Phase 11-02]: **`_probe`'s deadline bounds availability, not execution**, and the docstring says so precisely. A `ThreadPoolExecutor` bounds its *workers*, not its *queue*; abandoned probes against a persistently hung peer are reaped by `tcp_user_timeout`, not by the worker count. `future.cancel()` was deliberately not added so the documented mechanism stays the true one.
+- [Phase 11-02]: **The skip-count invariant rises from 28 to 34**, and the operative gate is restated as (1) `0` skipped in CI under `REQUIRE_POSTGRES=1` — actually run, not predicted — and (2) locally, skips rise by exactly 6, each named in the summary. 11-05 Task 4 must mirror this into `11-VALIDATION.md`.
+- [Phase 11-02]: Two acceptance greps again tripped on the prose explaining why the forbidden token was removed — the same tension 11-01 logged. Resolved the same way: keep the gate, reword the reason. This is now a repeat pattern and a plan author should expect it.
+- [Phase 11-01]: `Database.close()` is a **claim release**, not a disposal, and is idempotent. `service.lifespan` closes sessions and metrics but never the memory store, and the contract suite closes after every parametrised case; a `close()` that disposed a shared pool would break the remaining holders, and a `ConnectionPool` cannot be reopened. `db.close_all_pools()` exists for the lifespan `finally` and is not wired yet — that is 11-02.
+- [Phase 11-01]: RESEARCH's Pitfall 7 was **wrong in the safe direction**. `PoolTimeout`'s message is "couldn't get a connection after 0.50 sec", and `test_store_contract.py`'s `match="(?i)connect"` is a `re.search`, which "connection" satisfies. The test needed no edit; do not loosen it later on the strength of the prediction.
+- [Phase 11-01]: The retry arm in `cursor()` can only fire on an exception raised at *checkout*. A `@contextmanager` that yields a second time after an exception is thrown in raises `RuntimeError: generator didn't stop after throw()`. This is the pre-existing shape, unchanged by the port — worth knowing before anyone "improves" it.
+- [Phase 11-04]: **With a staged secret, use `fly deploy`, never `fly secrets deploy`.** The latter re-releases the *current* image, so it would have shipped the new DSN onto the pre-pool v4 build — Postgres-backed stores running single-`RLock`-connection code with no per-probe deadline and no `machine` key. One `fly deploy` applies staged secrets **and** the branch code in the same release. The deployed release was then confirmed to carry waves 1–3 (the startup log naming all three backends, the `machine` key in `/health`) rather than assumed to.
+- [Phase 11-04]: **Supabase's default `search_path` already contains `extensions`**, so `memory.py`'s unqualified `::vector` casts resolve *without* 11-01's `_configure()` callback. Verified both ways on the live database. The callback stays — it makes the requirement explicit rather than inherited from a provider default that can change, and it is what keeps the code portable — but it is **insurance that has not yet been needed**, not a fix for an observed break. Do not read 11-01's rationale as describing a failure that happened.
+- [Phase 11-04]: **A provider-credential failure is not a reason to roll back a database cutover.** `POST /research` 502'd on a revoked `ANTHROPIC_API_KEY` minutes after the cutover. The tempting move is `fly secrets unset DATABASE_URL`. It would have discarded a verified-good migration and left the demo exactly as broken. The discriminator was cheap and should be reached for first: the failing secret's digest was unchanged by the deploy, and the 401 came from the third party's own API.
+- [Phase 11-04]: **The HTTP round trip and the database round trip are separable, and worth separating when one is blocked.** Every HTTP write path runs the model first, so a dead model key blocks the session round trip through `/research`. Proving it at the store layer over `fly ssh console` — same classes, same pool, same DSN, same `::vector` cast — discharged the database claim honestly, with the gap (FastAPI's dependency wiring, already covered by `/health`) named rather than papered over.
+- [Phase 11-04]: **`fly ssh console -C` takes no shell**, so RESEARCH's `python - <<'PY'` heredoc never reaches Python, and the container has no `curl`. base64-encode the script locally and run `python -c "import base64;exec(base64.b64decode('...'))"`. This also keeps credentials inside the machine — the script reads `os.environ['DATABASE_URL']` and never prints it.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
 
 ### Pending Todos
@@ -107,6 +210,27 @@ Recent decisions affecting current work:
 None yet.
 
 ### Blockers/Concerns
+
+- **OPEN — `ANTHROPIC_API_KEY` is revoked; no research run can complete in production.**
+  Found by plan 11-04 on 2026-08-05, immediately after the Supabase cutover. `POST /research`
+  returns **502** in 0.73s with `{"event": "run_failed", "error": "AuthenticationError"}`. Probed
+  from inside the machine: `GET https://api.anthropic.com/v1/models` returns
+  **HTTP 401 `{"type":"authentication_error","message":"API key is invalid."}`**. The key is
+  well-formed (`len=108`, prefix `sk-ant-api03`, no stray whitespace) — Anthropic is rejecting it
+  server-side. `VOYAGE_API_KEY` is fine (HTTP 200), which is why pgvector embedding still works.
+  **This is NOT caused by the cutover and rollback would not fix it:** the secret digest
+  `35d77d861c484d1a` is identical before and after release v5, and plans 11-01..11-03 touched
+  nothing on the model-client path. Fix: `fly secrets set -a research-agent ANTHROPIC_API_KEY='...'`
+  then confirm `POST /research` returns 200 with a `session_id`.
+  **Does not block 11-05** — SC-2/SC-3 are demonstrated by `/health`'s `machine` key, which needs no
+  model call. It does block "demonstrable to a stranger", and it is why `/metrics` currently
+  advertises a **100% failure rate** (one row, the failed run above).
+
+- **`/health` cannot see the outage that matters — Phase 12 material.** It reports
+  `"credentials": {"anthropic": true}` for a revoked key, because it checks *presence*, not
+  *validity*. So the liveness probe was green throughout an outage that takes the public demo down
+  completely. Making it validate means an outbound call on every probe with its own budget
+  implications — a design decision, deliberately not taken in 11-04.
 
 - **OPEN — `main` is 21 commits ahead of `origin/main`; Phase 10 sign-off waits on a push.**
   Found by plan 10-05's SC-5 re-verification on 2026-08-05, after a `git fetch origin` so the
@@ -179,7 +303,86 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 10-05-PLAN.md — the phase gate battery.** Every gate in
+Stopped at: **Completed 11-04-PLAN.md — production is on Supabase, and every step is still
+reversible.** Task 1 (provisioning) was done by the operator beforehand and was verified, not
+redone. One `fly deploy -a research-agent` landed the branch code and the staged `DATABASE_URL` in
+**release v5** — deliberately *not* `fly secrets deploy`, which would have put the new DSN on the
+pre-pool v4 image. `/health` returns `PostgresSessionStore` / `PostgresMetricsStore` /
+`PgVectorMemoryStore`, `dependencies: ok`, `unreachable: []`, `machine: 78156d2c32d738`, host
+`aws-0-ap-southeast-2.pooler.supabase.com` with no password and no project ref; `/ready` 200;
+`/`, `/demo`, `/metrics` 200; `/demo` still `token_required: false`.
+**Measured** (Assumptions A1 and A2 discharged): connect+TLS **119.2 ms**, `SELECT 1` p50
+**2.73 ms** / p95 **6.37 ms**; the three real store probes 2.84 / 3.23 / 3.39 ms p50, worst
+observed 6.90 ms against a 3000 ms `HEALTH_PROBE_BUDGET` — ~435× headroom, so the `/health`
+arithmetic needs no redoing before 11-05. `pg_stat_activity` **15–16** of 60 (5 under the app's
+user: 4 idle + 1 active, i.e. `PG_POOL_MAX_SIZE=5` exactly). `/health` wall clock 0.270–0.427 s
+over eleven samples. **Zero** `prepared statement` / `_pg3_` / `PoolTimeout` / `OperationalError`
+errors over **74** probe-triggering responses across ~9 minutes — Pitfall 3 discharged in
+production, where psycopg's threshold-of-5 would actually bite.
+**pgvector proved properly:** it lives in the `extensions` schema (the case 11-02 flagged as
+unreachable), the lazy advisory-locked DDL created `sessions`, `runs`, `research_notes` and the
+HNSW index against an empty database, and a real Voyage-embedded note was inserted and retrieved
+by cosine similarity. Also found: Supabase's *default* `search_path` already includes
+`extensions`, so 11-01's `_configure()` callback is untested insurance rather than a fix for an
+observed break — recorded so nobody misreads the rationale.
+**Session round trip** proved at the store layer (`fly ssh console`), not through HTTP, because
+every HTTP write path runs the model first: session `2c737084599646a8b0fcc0ec91c92ab2` created in
+3.2 ms, read back by id in 2.8 ms with task and draft matching, appended to, listed, deleted. All
+probe rows cleaned up afterwards; the one genuine failed production run was deliberately left.
+**Nothing irreversible:** `git status --porcelain fly.toml` empty, `[[mounts]]` present,
+`min_machines_running = 1`, one machine, volume `vol_vdegz1021w669gx4` attached, and `/data` still
+holds 1 session / 3 runs / 3 notes — exactly the pre-cutover `/health` counts. The rollback
+(`fly secrets unset DATABASE_URL`) is **untested**; everything it depends on is verified.
+**Knowingly given up, now visible:** cumulative `/metrics` history. `spent_24h_usd` went
+0.2289 → 0.0 and `/metrics` reads `{"total": 1, "failed": 1, "failure_rate": 1.0}`.
+**BLOCKED, separately and not by the cutover:** `ANTHROPIC_API_KEY` is revoked (HTTP 401 from
+Anthropic), so no research run completes. See Blockers.
+Resume file: None
+
+Superseded — previous session: **Completed 11-03-PLAN.md — the deploy guards are armed and the runbook is honest.**
+Three tasks, three commits (`9b4afe6`, `53fb6a0`, `1991f7d`). Both mount-conditional guards in
+`tests/test_deploy_config.py` used to `pytest.skip()` when `[[mounts]]` was absent, so 11-05's
+mount removal would have silenced them with CI green; both now assert in **both** topologies and
+`grep -c 'pytest.skip'` is `1` (the `fly` fixture's legitimate no-`fly.toml` skip), down from `3`.
+The stateless arm requires more than the absence of the `*_DB_PATH` keys — it requires
+`SESSION_BACKEND=postgres`, `METRICS_BACKEND=postgres`, `VECTOR_STORE=pgvector`, asserted on the
+parsed `[env]` table because `VECTOR_STORE_PATH` contains the string `VECTOR_STORE`. Two new
+guards: `DATABASE_URL` must not appear in the committed `[env]`, and a `-k runbook` test keeps
+`fly postgres create`/`attach` out of `fly.toml` (recorded red against `git show HEAD:fly.toml`).
+Four falsification checks run against scratch files, all four observed failing, plus a passing
+control; check 1 was also fed to the old guard, which returned `Skipped` where the new one raises
+`AssertionError` — the disarm-by-deletion demonstrated rather than argued.
+`fly.toml`'s footer, health-budget, `auto_stop_machines`, `primary_region` and concurrency
+comments were rewritten for the external-Supabase path, and `docs/OPERATIONS.md` carries the
+ordered cutover, the fail-closed pins, the start-clean tradeoff, the kept volume and SC-6's
+four-way timeout semantics. **Every `fly.toml` change is a comment** — `git diff -U0 fly.toml`
+shows no changed non-comment line, and `tomllib` confirms `min_machines_running == 1`, `mounts`
+present and `SESSION_DB_PATH` in `[env]`. Suite **436 passed, 34 skipped** (+2 tests, skip count
+unchanged); `ruff` clean.
+**Owed to 11-05:** removing `[[mounts]]` is now a four-part change or the tests fail — the three
+`*_DB_PATH` vars out, the three pins in, `min_machines_running` ≥ 2. And `11-VALIDATION.md`'s
+skip-count invariant still says 28; it is 34.
+Resume file: None
+
+Superseded — previous session: **Completed 11-01-PLAN.md — `db.py` is pooled.** Three tasks, three commits
+(`8c7a145`, `9e46158`, `5df970b`). `psycopg-pool==3.3.1` pinned and installed; five new env
+readers (`PG_POOL_MIN_SIZE`, `PG_POOL_MAX_SIZE`, `PG_POOL_TIMEOUT`, `PG_STATEMENT_TIMEOUT`,
+`PG_TCP_USER_TIMEOUT`); one `ConnectionPool` per DSN behind a claim-refcounted registry, shared
+by all three stores; the RLock and single `_conn` deleted; `prepare_threshold=None`,
+`statement_timeout`, `tcp_user_timeout`, keepalives and a `search_path` `configure` callback all
+reaching the connection; `PoolTimeout`/`PoolClosed` re-raised ahead of the retry; DDL under
+`pg_advisory_lock(3895545195)` on one connection with the unlock's result checked. `tests/test_db.py`
+is new (27 tests, no server needed). Suite **415 passed, 28 skipped** against a 388/28 baseline —
+skip count unchanged, so Postgres coverage was extended rather than disarmed. `ruff` clean.
+`fly.toml` untouched. Both behavioural gates were mutated, observed red and reverted; the table
+is in `11-01-SUMMARY.md` § Falsification Checks.
+**Owed to 11-02:** `test_the_connection_recovers_from_being_dropped` reaches into `store.db._conn`,
+which this plan deletes. It is Postgres-gated so it skips locally, but it **will fail in CI**.
+Repairing it, wiring `close_all_pools()` into the lifespan, the `/health` per-probe deadline and
+the real-server lock/pgvector tests are all 11-02's.
+Resume file: None
+
+Superseded — previous session: **Completed 10-05-PLAN.md — the phase gate battery.** Every gate in
 `10-VALIDATION.md` was run as written on macOS and recorded with its literal output: five ADRs
 with `Status` lines and Nygard sections, all five citing `docs/DESIGN.md` and all five linked
 back from it, ADR-0006 verified separately (exists, `Accepted`, `DEMO_TOKEN` present, zero
@@ -236,8 +439,29 @@ Resume file: None
 - **Deploys are manual and now proven so.** `fly secrets set --stage` then one `fly deploy`
   puts secret and code in the same release — required whenever a control fails closed.
 
-Next: **push `main`** (21 documentation-only commits, no deployable file among them), then flip
-the SC-5 row in `10-VALIDATION.md` to ✅, set `**Approval:** approved`, mark Phase 10 Complete in
-ROADMAP and tick `REQ-adr-promotion` in REQUIREMENTS.md. After that, `/gsd:plan-phase 11`
-(multi-machine state and pooled Postgres). No deploy is pending — release v4 is current and was
-re-verified live on 2026-08-05.
+- **A `@contextmanager` cannot retry from inside the caller's `with` body.** Yielding a second
+  time after `gen.throw` raises `RuntimeError: generator didn't stop after throw()`, which fails
+  the call *and* destroys the original exception. This is why `db.cursor()` retries only the
+  checkout and `db._read()` owns the statement-level retry. Anyone "improving" the retry should
+  read both docstrings first.
+
+- **`HEALTH_PROBE_BUDGET` is a new tunable**, 3.0s default with a 0.1 floor, and it has no
+  `fly.toml` entry on purpose — the default is the intended production value. 11-05 should
+  confirm the resulting 9s ceiling against the real check timeout in `fly.toml`.
+
+- **`fly ssh console -C` runs no shell, and the container has no `curl`.** Heredocs are passed as
+  literal argv. base64-encode the script and run
+  `python -c "import base64;exec(base64.b64decode('...'))"` — quoting-safe, and it keeps any
+  credential inside the machine.
+
+- **`Session.id`, not `Session.session_id`.** The `session_id` key exists only in `summary()`'s
+  dict. And `research_notes`'s text column is `text`, not `content`. Both cost a failed probe in
+  11-04.
+
+Next: **11-05** — remove `[[mounts]]` and the three `*_DB_PATH` vars, add the three backend pins,
+raise `min_machines_running` to 2 and `fly scale count 2`. This is the point of no return for
+per-machine state, and 11-04 has cleared its precondition: the database is reachable and proven.
+`tests/test_deploy_config.py` makes that a four-part change or it fails. Also owed there:
+`11-VALIDATION.md`'s skip-count invariant still says 28 and must become 34, and the branch
+`gsd/phase-11-multi-machine-postgres` (waves 1–4) is unpushed — land it via a **pull request**,
+not a push, since `enforce_admins` is `false`.

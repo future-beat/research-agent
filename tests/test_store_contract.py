@@ -14,6 +14,11 @@ rather than merely written.
     DATABASE_URL=postgresql://postgres:pw@localhost:5432/postgres pytest
 """
 
+import contextlib
+import threading
+import time
+
+import psycopg
 import pytest
 from test_memory_stores import FakeEmbedder
 
@@ -43,6 +48,22 @@ CONTRACT_NOTES_TABLE = "contract_test_notes"
 def _skip_without_postgres(backend: str) -> None:
     if backend == "postgres" and not HAS_POSTGRES:
         pytest.skip("DATABASE_URL is not set")
+
+
+def _dsn_tagged(application_name: str, **params: str) -> str:
+    """DATABASE_URL carrying an application_name, and any other libpq params.
+
+    Two jobs. It lets a test find its own backends in pg_stat_activity, which
+    is how the reconnect test kills only what it owns on a shared CI server.
+    And it makes the DSN test-unique, which matters because db._pool_for
+    caches one pool per DSN with the pool settings read at *construction*: a
+    test that varies PG_POOL_TIMEOUT and shares a DSN would silently be handed
+    a pool built at someone else's setting.
+    """
+    parts = {"application_name": application_name, **params}
+    base = db.database_url()
+    separator = "&" if "?" in base else "?"
+    return base + separator + "&".join(f"{k}={v}" for k, v in parts.items())
 
 
 @pytest.fixture(params=BACKENDS)
@@ -394,6 +415,73 @@ def test_unknown_backends_fail_loudly(factory, kind):
         factory("mysql")
 
 
+# --------------------------------------------------------------------------
+# Pinned Postgres backends fail closed
+#
+# A PROPERTY TEST, NOT A PROGRESS GATE. These pass against today's tree,
+# because the pins are env-driven and db.database_url() has always raised.
+# They are here so the property is asserted rather than assumed, since the
+# production topology now depends on it.
+#
+# What they do not prove is that the pins are actually SET in production.
+# That gate is the stateless arm of test_local_store_paths_live_under_the_mount
+# in tests/test_deploy_config.py, written in plan 11-03 and armed by 11-05.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pin, value, factory", [
+    ("SESSION_BACKEND", "postgres", sessions_module.get_session_store),
+    ("METRICS_BACKEND", "postgres", metrics_module.get_metrics_store),
+    ("VECTOR_STORE", "pgvector", lambda: vm.get_memory_store(embedder=FakeEmbedder())),
+])
+def test_a_pinned_postgres_backend_fails_closed_without_a_dsn(pin, value, factory, monkeypatch):
+    """Pinning is the defence, and it has to fail loudly to be one.
+
+    A machine with no mount and no DATABASE_URL must refuse to start, not
+    quietly fall back. See the negative below for what it would fall back to.
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv(pin, value)
+
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        factory()
+
+
+def test_unpinned_backends_default_to_container_local_storage(monkeypatch, tmp_path):
+    """The negative that motivates the three above, kept in the file so the
+    reason survives.
+
+    With nothing pinned and no DSN, the defaults are per-container: SQLite
+    files whose path defaults to the *module directory* -- and SESSION_DB_PATH
+    is read at import time, so even the env var is not a late escape -- plus a
+    JSON note store. Two mount-less machines would each boot happily on their
+    own private copy: the per-machine split-brain this phase exists to end,
+    now with data that vanishes on restart.
+
+    Nothing raises, which is exactly the problem. It is why production pins
+    the backends rather than trusting the DSN to be present.
+
+    Constructed at explicit temp paths rather than through the factories, so
+    asserting "this boots" does not drop a stray sessions.db next to the
+    source -- the very default being complained about.
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    for pin in ("SESSION_BACKEND", "METRICS_BACKEND", "VECTOR_STORE"):
+        monkeypatch.delenv(pin, raising=False)
+
+    assert sessions_module.default_backend() == "sqlite"
+    assert metrics_module.default_backend() == "sqlite"
+    assert vm.default_backend() == "json"
+
+    stores = [
+        SQLiteSessionStore(str(tmp_path / "sessions.db")),
+        SQLiteMetricsStore(str(tmp_path / "metrics.db")),
+        JSONMemoryStore(path=str(tmp_path / "notes.json"), embedder=FakeEmbedder()),
+    ]
+    for store in stores:
+        store.close()
+
+
 def test_dsn_description_strips_the_password():
     described = _describe_dsn("postgresql://user:sup3rsecret@db.example.com:5432/agent")
     assert described == "postgres://db.example.com/agent"
@@ -424,14 +512,39 @@ def test_a_dimension_mismatch_is_explained_not_a_type_error():
 @pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
 def test_the_connection_recovers_from_being_dropped():
     """Managed Postgres closes idle connections. Without the reconnect, the
-    first request after a quiet night fails."""
-    store = PostgresSessionStore()
+    first request after a quiet night fails.
+
+    The kill is now server-side. This used to reach through the store into
+    the private connection attribute the pool replaced and close it -- and
+    closing a connection from the client was always the weaker simulation,
+    because it fails at *checkout*, where a retry was never in doubt.
+    Reaching for a private attribute is also how a test ends up broken by a
+    refactor that broke nothing. `pg_terminate_backend` is what a managed
+    provider actually does: the connection sits in the pool still looking
+    live, the checkout succeeds, and the statement is where it dies. That is
+    the case the read-level retry in db._read exists for.
+
+    Scoped by application_name and excluding our own pid, so this cannot
+    disturb anything else sharing the CI server.
+    """
+    marker = "ra_reconnect_test"
+    store = PostgresSessionStore(dsn=_dsn_tagged(marker))
+    killer = db.Database(_dsn_tagged("ra_reconnect_killer"))
     try:
+        store.db.execute("TRUNCATE sessions")
         store.create("before", finished_state())
-        store.db._conn.close()  # simulate the provider hanging up
+
+        killed = killer.fetchall(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE pid <> pg_backend_pid() AND application_name = %s",
+            (marker,),
+        )
+        assert killed, "nothing was terminated; the kill would prove nothing"
+
         assert store.count() == 1  # must reconnect rather than raise
     finally:
         store.close()
+        killer.close()
 
 
 def test_postgres_really_ran_when_ci_said_it_would():
@@ -497,7 +610,17 @@ def test_a_deferred_schema_is_retried_on_first_use(fast_timeout):
     store = PostgresSessionStore(dsn=UNREACHABLE_DSN)
     try:
         assert store.db._schema_sql is not None
-        with pytest.raises(Exception, match="(?i)connect"):
+        # Asserted on the exception TYPE, not on its message. This previously
+        # pattern-matched the word "connect" case-insensitively out of the
+        # error text, which under the pool depends on the exact wording of
+        # psycopg_pool's PoolTimeout -- "couldn't get a connection after N.NN
+        # sec". It happens to contain the substring, but a third-party error
+        # string is not a contract, and a reworded release would turn this
+        # green over an assertion that no longer checks anything. PoolTimeout
+        # subclasses OperationalError, and "the failure is operational, not a
+        # SQL error" is the property that actually matters. Deliberate
+        # replacement -- please do not restore the string match.
+        with pytest.raises(psycopg.OperationalError):
             store.count()  # still down: surfaces, rather than pretending
         assert store.db.schema_applied is False
     finally:
@@ -512,3 +635,255 @@ def test_the_schema_lands_on_first_use_against_a_real_server():
         store.count()
     finally:
         store.close()
+
+
+# --------------------------------------------------------------------------
+# What only a real server can prove
+#
+# Everything below needs Postgres and skips without it. That is not a hole:
+# these are precisely the claims a fake cannot support, and CI runs them with
+# REQUIRE_POSTGRES=1, where a skip here would be caught by
+# test_postgres_really_ran_when_ci_said_it_would.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_advisory_lock_is_exclusive_across_connections():
+    """The falsifying gate for db._apply_schema's single-connection invariant.
+
+    Greps for `pg_advisory_lock` prove nothing here, and neither does the
+    concurrent-init test below: the schema block is written with
+    CREATE ... IF NOT EXISTS and tolerates duplicate-object errors, so it
+    succeeds with the lock removed entirely. The only thing that shows the
+    lock is real is a SECOND connection being refused it.
+
+    The unlock's return value matters just as much, and the third assertion
+    reproduces the split-across-checkouts failure directly: unlocking from a
+    connection that does not hold the lock returns False. That is exactly what
+    db._apply_schema would produce the moment its lock, DDL and unlock stopped
+    sharing one cursor() call, since every cursor() call is a separate
+    checkout and pg_advisory_lock is session-scoped. The result is a lock that
+    serialises nothing AND leaks, held forever on a connection already handed
+    back to the pool -- and _apply_schema raises on exactly this False.
+
+    To be precise about the division of labour: this test proves the primitive
+    behaves per-connection, which is *why* the single-connection invariant is
+    required. The test that fails if _apply_schema itself is split is
+    test_schema_lock_single_connection in tests/test_db.py, which counts the
+    checkouts.
+    """
+    holder = db.Database(_dsn_tagged("ra_lock_holder"))
+    rival = db.Database(_dsn_tagged("ra_lock_rival"))
+    try:
+        with holder.cursor() as held:
+            held.execute("SELECT pg_advisory_lock(%s)", (db.SCHEMA_LOCK_KEY,))
+            held.fetchone()
+
+            with rival.cursor() as other:
+                other.execute("SELECT pg_try_advisory_lock(%s)", (db.SCHEMA_LOCK_KEY,))
+                assert other.fetchone()[0] is False, "a second connection took a held lock"
+
+                # The split-across-checkouts signature, reproduced: an unlock
+                # from a connection that does not hold the lock is a no-op
+                # that reports itself as one.
+                other.execute("SELECT pg_advisory_unlock(%s)", (db.SCHEMA_LOCK_KEY,))
+                assert other.fetchone()[0] is False, "unlocked a lock held elsewhere"
+
+            held.execute("SELECT pg_advisory_unlock(%s)", (db.SCHEMA_LOCK_KEY,))
+            assert held.fetchone()[0] is True, "the unlock ran on a connection without the lock"
+
+        # And now that it is genuinely released, the rival can have it.
+        with rival.cursor() as other:
+            other.execute("SELECT pg_try_advisory_lock(%s)", (db.SCHEMA_LOCK_KEY,))
+            assert other.fetchone()[0] is True
+            other.execute("SELECT pg_advisory_unlock(%s)", (db.SCHEMA_LOCK_KEY,))
+            assert other.fetchone()[0] is True
+    finally:
+        holder.close()
+        rival.close()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_concurrent_schema_init_from_two_processes_both_succeed():
+    """A REGRESSION TEST, NOT A LOCK TEST.
+
+    Be honest about what this can show: CREATE ... IF NOT EXISTS plus
+    _apply_schema's duplicate-object tolerance satisfies it with the advisory
+    lock absent entirely. test_advisory_lock_is_exclusive_across_connections
+    above is the test that actually proves the lock.
+
+    It still earns its place, because it is the race the phase creates: two
+    machines booting simultaneously against an *empty* database, which
+    `fly deploy` across two machines plus a start-clean Postgres together
+    guarantee. Before this phase only one process ever ran the lazy schema
+    path, so the race was structurally impossible to hit.
+    """
+    table = "contract_concurrent_init"
+    schema = f"CREATE TABLE IF NOT EXISTS {table} (id BIGSERIAL PRIMARY KEY, note TEXT)"
+    admin = db.Database(_dsn_tagged("ra_init_admin"))
+    handles = [db.Database(_dsn_tagged(f"ra_init_{i}")) for i in range(2)]
+    barrier = threading.Barrier(len(handles))
+    failures: list[BaseException] = []
+
+    def race(handle) -> None:
+        handle._schema_sql = schema
+        barrier.wait(timeout=10)
+        try:
+            handle._apply_schema()
+        except BaseException as exc:  # noqa: BLE001 - recorded, then asserted on
+            failures.append(exc)
+
+    try:
+        admin.execute(f"DROP TABLE IF EXISTS {table}")  # start genuinely empty
+        threads = [threading.Thread(target=race, args=(h,)) for h in handles]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert failures == [], f"concurrent schema init raised: {failures}"
+        assert all(handle.schema_applied for handle in handles)
+        assert admin.fetchone(
+            "SELECT to_regclass(%s) AS present", (table,)
+        )["present"] is not None
+    finally:
+        with contextlib.suppress(Exception):
+            admin.execute(f"DROP TABLE IF EXISTS {table}")
+        admin.close()
+        for handle in handles:
+            handle.close()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_statement_timeout_bounds_a_slow_query(monkeypatch):
+    """The falsifying gate for the server-side half of the post-checkout bound.
+
+    Without the `options="-c statement_timeout=..."` connect kwarg this waits
+    the full five seconds and fails. PG_POOL_TIMEOUT cannot help: the checkout
+    already succeeded, and its budget was spent before the statement started.
+
+    What it does NOT cover, so nobody reads it as more than it is: a peer that
+    stops answering entirely, where the server-side cancellation never reaches
+    the client because nothing is reaching the client. That case is bounded by
+    /health's per-probe wall clock, in tests/test_service.py.
+    """
+    monkeypatch.setenv("PG_STATEMENT_TIMEOUT", "500")
+    handle = db.Database(_dsn_tagged("ra_stmt_timeout"))
+    try:
+        started = time.perf_counter()
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            handle.fetchone("SELECT pg_sleep(5)")
+        elapsed = time.perf_counter() - started
+        assert elapsed < 2.0, f"pg_sleep(5) ran for {elapsed:.2f}s against a 500ms timeout"
+    finally:
+        handle.close()
+        # This test varies a pool setting, and _pool_for caches per DSN with
+        # the setting read at construction. Leaving the pool registered would
+        # hand a 500ms-statement-timeout pool to whoever asks for this DSN next.
+        db.close_all_pools()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_pgvector_search_path_lets_an_unqualified_cast_resolve():
+    """Supabase installs pgvector into the `extensions` schema, not `public`.
+
+    memory.py writes `vector(N)` column types and `%s::vector` casts
+    unqualified, which do not resolve on the default search_path -- so the
+    pool's `configure` callback sets one. CI's stock pgvector/pgvector:pg16
+    image has no `extensions` schema at all, and Postgres tolerates a missing
+    schema in search_path, so this has to pass in both worlds.
+
+    Asserted twice on purpose: that the setting took (the callback ran on a
+    pooled connection, which nothing had ever exercised against a server) and
+    that a real cast resolves, because a setting being set is not the claim.
+    """
+    handle = db.Database(_dsn_tagged("ra_search_path"))
+    store = PgVectorMemoryStore(
+        embedder=FakeEmbedder(), table=CONTRACT_NOTES_TABLE, dimensions=FAKE_DIMENSIONS
+    )
+    try:
+        search_path = handle.fetchone("SHOW search_path")["search_path"]
+        assert "extensions" in search_path, search_path
+
+        store.db.execute(f"TRUNCATE {CONTRACT_NOTES_TABLE}")
+        store.add("langgraph models agents as an explicit state graph")
+        assert store.query("langgraph") == [
+            "langgraph models agents as an explicit state graph"
+        ]
+    finally:
+        store.close()
+        handle.close()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_a_session_written_on_one_instance_resolves_on_a_cross_instance_read():
+    """The mechanism the whole phase rests on, isolated.
+
+    A follow-up used to 404 when it landed on the machine that had not served
+    the original run, because each machine held its own SQLite file. Here the
+    write and the read go through separately constructed stores on separate
+    pools -- separate connections to one database.
+
+    What it does NOT prove: that Fly's proxy actually routes two requests to
+    two machines. A second machine adds a network boundary and a routing
+    decision; it does not add a new code path. The routing half is verified
+    live against the deployed app in plan 11-05.
+    """
+    writer = PostgresSessionStore(dsn=_dsn_tagged("ra_instance_a"))
+    reader = PostgresSessionStore(dsn=_dsn_tagged("ra_instance_b"))
+    try:
+        writer.db.execute("TRUNCATE sessions")
+        session_id = writer.create("cross-instance question", finished_state())
+
+        resolved = reader.get(session_id)
+
+        assert resolved is not None, "the second instance could not see the session"
+        assert resolved.task == "cross-instance question"
+        assert reader.count() == 1
+    finally:
+        writer.close()
+        reader.close()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_concurrent_reads_run_past_the_pool_max_size(monkeypatch):
+    """The reversal REQ-connection-pool exists for, measured.
+
+    fly.toml allows 16 in-flight requests per machine; two machines make 32
+    against one database. Before this phase every one of them queued behind a
+    single lock-guarded connection. Twelve threads against a max_size of five
+    is comfortably more than the pool holds, so this exercises queueing rather
+    than merely parallelism -- and none of them may time out.
+    """
+    monkeypatch.setenv("PG_POOL_MIN_SIZE", "1")
+    monkeypatch.setenv("PG_POOL_MAX_SIZE", "5")
+    monkeypatch.setenv("PG_POOL_TIMEOUT", "10")
+    workers = 12
+    assert workers >= 2 * 5
+
+    store = PostgresSessionStore(dsn=_dsn_tagged("ra_concurrent"))
+    barrier = threading.Barrier(workers, timeout=30)
+    counts: list[int] = []
+    failures: list[BaseException] = []
+
+    def read() -> None:
+        try:
+            barrier.wait()
+            counts.append(store.count())
+        except BaseException as exc:  # noqa: BLE001 - recorded, then asserted on
+            failures.append(exc)
+
+    try:
+        store.db.execute("TRUNCATE sessions")
+        store.create("concurrent", finished_state())
+        threads = [threading.Thread(target=read) for _ in range(workers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+
+        assert failures == [], f"concurrent reads raised: {failures}"
+        assert counts == [1] * workers
+    finally:
+        store.close()
+        db.close_all_pools()  # this test varies pool sizing; see above

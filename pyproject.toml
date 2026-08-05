@@ -25,6 +25,11 @@ service = [
     # never touches it -- but a deploy that provisions a database should not
     # fail on a missing driver.
     "psycopg[binary]==3.3.4",
+    # The pool ships as its own distribution on its own release cadence -- it is
+    # NOT versioned with psycopg, so `psycopg[binary,pool]` would float it. Pin
+    # it explicitly. Imported lazily for the same reason psycopg is: a
+    # SQLite/JSON deployment should not need a Postgres driver to start up.
+    "psycopg-pool==3.3.1",
 ]
 dev = [
     "research-agent[service]",

@@ -10,10 +10,10 @@ until every claim is grounded. Watch the critic push back — that's the part
 worth seeing.
 
 A production service, not a notebook: bounded loops, per-run cost accounting,
-a spend cap, swappable Postgres/pgvector backends, an eval harness, and 364
+a spend cap, swappable Postgres/pgvector backends, an eval harness, and 470
 tests that run with no API keys.
 
-**Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Postgres
+**Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
 
 ---
 
@@ -158,7 +158,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 364 tests, ~10s, no API keys, no network
+pytest                    # 470 tests, ~10s, no API keys, no network
 python -m evals           # 12 golden cases, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 ```
@@ -183,10 +183,11 @@ offline run.
 docker compose up --build
 ```
 
-Runs non-root with a healthcheck; mount a volume at `/data` or every session
-and stored note dies with the container. Setting `DATABASE_URL` moves sessions,
-metrics and notes to Postgres and pgvector in one variable, and lifts the
-one-machine constraint.
+Runs non-root with a healthcheck; locally, mount a volume at `/data` or every
+session and stored note dies with the container. In production `DATABASE_URL`
+points at Supabase Postgres — one variable moves sessions, metrics and notes to
+Postgres and pgvector, over a pool shared by all three — which is what lets the
+service run on more than one machine.
 
 🚀 **[Operations →](docs/OPERATIONS.md)** — Fly.io setup, the Postgres
 migration, CI, and the full configuration table.
@@ -202,8 +203,9 @@ Known, and deliberate for the scope.
 - **Offline evals can't measure answer quality**, and twelve live cases are a smoke test, not a benchmark.
 - **Cost is computed from list prices** — no enterprise discounts or `inference_geo` multiplier, so `/metrics` tracks the shape of the bill, not the bill. List prices are also effective-dated rather than fixed: Claude Sonnet 5's introductory window runs through `2026-08-31` and the standard window applies from `2026-09-01`, so any rate quoted as permanent is wrong by some date. `/pricing` reports whichever window accounting is using today — read it there, not from a number in a document.
 - **Stores grow without bound.** No eviction, dedup, or summarisation for notes; no expiry or ownership for sessions.
-- **SQLite pins you to one machine.** `DATABASE_URL` lifts it; until then a second machine would hold its own database and 404 on sessions that exist.
-- **No connection pool.** One lock-guarded Postgres connection per machine — right when a run occupies a worker for tens of seconds, but a ceiling worth knowing before raising concurrency.
+- **Running on SQLite pins you to one machine.** That's the local and container default: a second machine would hold its own database and 404 on sessions that exist. Production points `DATABASE_URL` at Supabase Postgres, which is what removes the constraint — the deploy config asserts the two can't drift apart in either direction.
+- **The database is a single region and a free tier.** Supabase Nano in `ap-southeast-2`, no read replica, and a 60-connection ceiling of which the fleet holds ten. Fine at this traffic; the first thing to look at if it isn't.
+- **The demo spend cap counts completed runs only.** A burst of concurrent runs can overshoot `DEMO_DAILY_USD_CAP` before any of them settle, and running two machines raises how far. Bounded by the per-run cap and the rate limit, not by the daily one.
 - **Changing embedding model means a new pgvector table.** The column width is fixed at creation; the dimension check fails loudly but can't migrate for you.
 - **The public demo is rate-limited, not authenticated.** Running research is deliberately open to anyone — guardrails bound the spend, they don't identify callers. Reading or deleting a stored session is not: those endpoints need a token, but the token says *authorised*, not *who*.
 
