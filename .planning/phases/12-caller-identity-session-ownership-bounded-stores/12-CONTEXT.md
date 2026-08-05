@@ -59,6 +59,19 @@ superseder — verify whether full supersession or amendment is honest, and reco
 - Expired sessions stop resolving. Mechanics (lazy filtering vs background sweep) are the
   researcher's call, but whatever is chosen must behave identically on both machines.
 
+### Chroma joins CI — RATIFIED 2026-08-05
+
+- **Discovered during research:** `chromadb` is an optional extra, NOT installed by the `dev`
+  extra CI runs, and the shared contract suite parametrizes only `json/memory/pgvector`. So
+  SC-5's "across json, memory, chroma, and pgvector, proven by the shared behavioural suite"
+  was **unprovable** as written — chroma had no suite arm.
+- **Decision:** add `chromadb==1.4.1` to the `dev` extra and parametrize the contract suite
+  over all FOUR backends, so SC-5 becomes literally true and green. Accept the heavier CI
+  (chromadb pulls onnxruntime and friends). This makes the roadmap criterion honest rather
+  than amending it downward.
+- Wave 0 must confirm `ChromaMemoryStore` actually imports and runs in CI before the rest of
+  the phase depends on the 4-arm suite.
+
 ### Note tenant scoping — IN SCOPE (user-approved addition)
 
 - Notes are currently written to one shared store and recalled into **other visitors'**
@@ -71,11 +84,46 @@ superseder — verify whether full supersession or amendment is honest, and reco
 - The two orphaned notes from the 2026-08-04 deletions are dealt with here (delete or
   claim-by-nobody-and-expire; researcher proposes).
 
-### Note bounds — mechanics researcher-proposed, ratified at plan review
+### Note bounds — RATIFIED 2026-08-05
 
-- At least one enforced bound (eviction, dedup, or summarisation). Align with the 7-day
-  hygiene posture — a note TTL matching session expiry is the obvious candidate; the
-  researcher proposes exact mechanics and the user ratifies at plan review.
+- **Notes expire 7 days after creation**, matching session hygiene. Dedup-on-write was
+  evaluated and **rejected** — no identical semantics across the four backends, so it would
+  fail SC-5's "behaves the same" bar. TTL is the bound.
+- pgvector already has `created_at`; only `owner` columns are new. Lazy filter against the
+  database clock plus an opportunistic sweep on `create()`, mirroring session expiry.
+
+### Cap reservation — RATIFIED 2026-08-05
+
+- Each in-flight run **reserves `DEMO_RESERVED_RUN_USD` (default $0.20)** against the daily
+  cap, settled to real cost when the run finishes (both the success and SSE-error arms funnel
+  through `_execute`/`_stream`). Avg run is ~$0.20–0.25, so the reservation is honest, not
+  punitive. Tunable env var.
+- Reservation rows checked+inserted inside `pg_advisory_xact_lock` (transaction-scoped — needs
+  a small `Database.transaction()` helper; the pool is autocommit today). A 900s staleness
+  cutoff backstops crashed runs that never settle. The cap's "Read-only endpoints still work"
+  429 property survives verbatim.
+
+### Operator view — RATIFIED 2026-08-05
+
+- **`SESSIONS_TOKEN` survives as the operator credential.** `GET /sessions` is dual-mode: a
+  valid operator token lists ALL sessions (the debugging view used this week); without it, the
+  listing is identity-scoped to the caller. `DELETE` works for the **owner or the operator**.
+- Therefore **ADR-0007 SUPERSEDES ADR-0006** (SESSIONS_TOKEN's role changes but survives) with
+  explicit carry-forward of 0006's still-true decisions — the README convention has no
+  "Amended" status and 0006 pre-named Phase 12 as its superseder.
+- Foreign/expired sessions return **404, byte-identical to missing** (`No session {id!r}.`),
+  continuing 10.5's leak-least, existence-oracle-free posture. Not 403.
+
+### Transport — RATIFIED (from research, HIGH confidence)
+
+- **Signed HttpOnly cookie.** `fetch()` defaults to `credentials: "same-origin"`, so all five
+  page call sites carry it for free — **zero JS changes**. `HttpOnly; SameSite=Lax; Secure;
+  Max-Age=400d`. Token `v1.<uuid4hex>.<hmac-sha256>` via stdlib `hmac` (`itsdangerous`
+  rejected — buys nothing needed). Secret `IDENTITY_SIGNING_SECRET` as an app-wide Fly secret;
+  unset degrades to per-machine ephemeral identity with the global cap still bounding the bill.
+- **Minting is pure-ASGI middleware, mint-on-response, never 401** — `/research/stream`,
+  `/ask/stream` and `GET /` return `Response` objects directly, where dependency-set cookies
+  are dropped. A first-time caller's stream must never break.
 
 ### Spend-cap race — IN SCOPE (user-approved addition)
 
