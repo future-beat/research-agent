@@ -651,7 +651,12 @@ README deliverable).
 | A4 | Supabase's pgvector version supports `SET LOCAL enable_indexscan = off` exact scan (standard Postgres planner GUC, not version-gated) | Pattern 2 | Very low — it is a core Postgres setting; the live run would surface it immediately |
 | A5 | Quiesce-migrate-flip is acceptable for the demo (no dual-write) | Pattern 5 | Product-taste call flagged for plan review; CONTEXT's honest-scale note supports it |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All three were adopted as recommended — see 13-CONTEXT.md § "Post-research calls
+(2026-08-06)". Q1 → `VOYAGE_PRICES` lives in `usage.py`. Q2 → the live demonstration runs
+against Supabase scratch tables, cleaned up after. Q3 → preview always prints; `--yes`
+required to spend; `--dry-run` stops after the preview.
 
 1. **Where does `VOYAGE_PRICES` live — `usage.py` or `migrate.py`?**
    - Known: `PriceWindow` is reusable; Phase 14 will touch `usage.py` heavily.
