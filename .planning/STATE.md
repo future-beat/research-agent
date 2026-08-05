@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: phase-complete
-stopped_at: "Phase 11 COMPLETE — Supabase Postgres live, pooled, two machines on release v7. SC-3 proved over HTTP. Next: PR, then /gsd:plan-phase 12."
+status: planned
+stopped_at: "Phase 12 planned on branch gsd/phase-12-caller-identity — 6 plans, 6 waves. Checker: 0 blockers, 3 warnings fixed. Next: /gsd:execute-phase 12."
 last_updated: "2026-08-05T08:55:00.000Z"
-last_activity: "2026-08-05 — Phase 11 shipped: all three stores on Supabase ap-southeast-2 via the session-mode pooler, one shared psycopg pool per machine, /health bounded at a 9s ceiling, volume detached but kept, two machines on v7, and a session created on 846975f2604548 resolved by d8d0320f751618 over HTTP"
+last_activity: "2026-08-05 — Phase 12 planned: auto-issued signed-cookie identity, Postgres-backed identity-keyed limits with race-free cap reservation, 7-day session+note expiry, owner-scoped notes across four backends (chroma joins CI), ADR-0007 supersedes 0006. UI keeps criterion 6 (no auth wall)."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,98 +25,36 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **EXECUTING (11-05 BLOCKED)**
-Plan: 5 of 5 started; 11-05 Tasks 1 and 4 complete, Tasks 2 and 3 blocked
-Status: **The repository is in its stateless end state; production is not.** `fly.toml` has no
-`[[mounts]]`, no `*_DB_PATH` vars, the three Postgres backend pins, and `min_machines_running = 2`.
-The fail-closed mechanism is proved at runtime: with `DATABASE_URL` absent and
-`SESSION_BACKEND=postgres`, store construction exits 1 with a `RuntimeError` naming `DATABASE_URL`.
-Both of 11-03's two-armed guards ran their stateless arm for the first time — **12 passed, 0
-skipped**. `11-VALIDATION.md` is reconciled and `docs/OPERATIONS.md` carries the measured latency.
+Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **PLANNED, not started**
+Plan: 0 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
+Status: Planned and verified. UI spec passed the ui-checker after one fix. Plan-checker: 0 blockers, 3 warnings, all fixed in one revision.
+Last activity: 2026-08-05 — Phase 12 planned.
 
-**BLOCKED, and it is the phase's headline claim.** Removing `[[mounts]]` makes `fly deploy` stop
-and ask *"Do you still want to continue and detach the volume? This will replace the machine.
-(y/N)"*. flyctl v0.4.78 accepts `-y` and then ignores it on that path; driving it through a pty
-either panics flyctl (`machines.go:321`, nil pointer, when stdin is flooded) or accepts the
-keystroke and then hangs indefinitely (900s, no output, no release). Three attempts, then stopped —
-escalating to `fly machine destroy` was outside this plan's authorisation and is the one nearby
-step that touches the volume's attachment.
+**Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7.
 
-**Production is untouched and healthy:** release **v6**, ONE machine `78156d2c32d738`, volume
-`vol_vdegz1021w669gx4` still ATTACHED, all three Postgres backends, `dependencies: ok`, all four
-endpoints 200, `/demo` `token_required: false`, `DEMO_TOKEN` absent, `SESSIONS_TOKEN` present.
-`fly volumes destroy` was never run. **SC-2's live half and SC-3 are unproven — there are no
-machine ids to record, because only one machine exists.**
+Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
+Phase 12: [░░░░░░░░░░] 0 of 6 plans — planned
 
-**Operator action required to unblock:** run `fly deploy -a research-agent` from a real terminal
-and answer `y`; then `fly scale count 2 -a research-agent`; then prove SC-3 over HTTP with
-`fly-force-instance-id` and the `X-Demo-Token` header, recording both machine ids and the session
-id; then check `pg_stat_activity` (expect ~21–26 of 60); then tick README's Phase 11 line and flip
-`11-VALIDATION.md`'s two blocked rows and its Approval.
+**Carry into execution — what breaks the demo if wrong:**
 
-**An edit to publicly reported numbers, recorded deliberately:** the operator deleted the single
-`AuthenticationError` run row from the production metrics table, with consent, on the grounds that
-it recorded a credential outage rather than a pipeline failure. `/metrics` moved from
-`failure_rate 1.0` to `failure_rate 0.0`. `ANTHROPIC_API_KEY` has been rotated (digest
-`9704aee92910b5e7`) and a full research run has since completed on Postgres —
-session `f14905b2fce8438eb716842c9a3b6c92`, $0.204266. See 11-05-SUMMARY.md.
+- **Minting is pure-ASGI middleware, mint-on-response, NEVER 401.** `/research/stream`,
+  `/ask/stream`, `GET /` return Response objects where a dependency's set_cookie is dropped.
+  A first-time COOKIELESS caller's stream must not break — this is criterion 6's hinge.
+- **The global daily cap SURVIVES.** Identities are free to mint (clear storage → fresh
+  limits), so per-identity limits alone cannot bound the bill. Removing the global cap because
+  "limits are per-identity now" is the failure mode.
+- **The cap reservation is race-free only inside `pg_advisory_xact_lock`** (transaction-scoped;
+  a new `Database.transaction()` helper — the pool is autocommit). Settlement on BOTH success
+  and SSE-error arms; 900s staleness reclaim or a crashed run throttles the demo forever.
+- **`reserve_or_429` now has a structural walker gate** (like `guard`) so it can't be silently
+  forgotten on a route — the exact failure ADR-0006 exists to prevent.
+- **Secure cookie + TestClient:** tests need `base_url="https://testserver"` or the cookie
+  never sets and auth tests pass vacuously.
+- **chromadb joins the `dev` extra**; the contract suite runs 4 arms that must PASS in CI (not
+  skip). SC-5 depends on it.
 
-Previously (11-04): **Production runs on external Postgres.** Fly release v5 carries waves 1–3
-plus the staged `DATABASE_URL`; `/health` reports `PostgresSessionStore`, `PostgresMetricsStore`
-and `PgVectorMemoryStore` with `dependencies: ok`, `unreachable: []` and
-`machine: 78156d2c32d738`, at 0.27–0.43s across eleven samples. The Fly-syd → Supabase-syd hop is
-**connect+TLS 119.2ms, query p50 2.73ms / p95 6.37ms**; the three real `/health` store probes cost
-2.84 / 3.23 / 3.39ms p50 against a 3000ms `HEALTH_PROBE_BUDGET`. `pg_stat_activity` 15–16 of 60.
-Zero `prepared statement` errors over 74 probe-triggering responses. **Nothing irreversible
-happened:** `[[mounts]]` present, one machine, volume attached, and `/data` still holds 1 session,
-3 runs and 3 notes — exactly the pre-cutover counts.
-Last activity: 2026-08-05 — Executed 11-05-PLAN.md partially (Tasks 1 and 4 committed; Tasks 2 and 3 blocked on an interactive `fly deploy`).
-
-**11-02 ran the Postgres-gated suite for real.** Docker was unavailable, so PostgreSQL 17 +
-pgvector were installed via Homebrew and run on port 54329 (stopped and data dir deleted after;
-no `brew services` entry). This was load-bearing, not thoroughness theatre: the suite was green
-locally and red against a server, and the run found three `db.py` bugs — see 11-02-SUMMARY.md
-§ "The inherited breakage, and what it actually was".
-
-**Phase 10 is closed** — PR #4 merged, both required checks green, so the SC-5 push gate that
-held it open is satisfied and `REQ-adr-promotion` is complete.
-
-Progress: [██████░░░░] 59% (10 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 10.5: [██████████] 5 of 5 plans — complete
-Phase 10:   [██████████] 5 of 5 plans — complete (PR #4 merged)
-Phase 11:   [████████░░] 4 of 5 plans — 11-05 partial, BLOCKED on an interactive deploy
-
-**Carry into execution — the four findings the plans are built around:**
-
-- ~~**`psycopg_pool.PoolTimeout` subclasses `psycopg.OperationalError`**~~ — **CLOSED by 11-01.**
-  Both `PoolTimeout` and `PoolClosed` are now caught and re-raised in an arm placed *before* the
-  `OperationalError` arm. Measured against an unreachable DSN with `PG_POOL_TIMEOUT=0.5`: 0.505s
-  with the exclusion, 1.007s without it — the naive port was mutated in and observed red.
-- ~~**`/health` already blows its budget today**~~ — **CLOSED by 11-02.** Every probe now runs
-  under `HEALTH_PROBE_BUDGET` (3.0s default), giving a 9s ceiling that holds cold, warm *and*
-  partitioned. Measured 0.32s against a store that never answers; removing the deadline was
-  mutated in and observed **hanging** for 31.4s before failing.
-- ~~**`pg_advisory_lock` is session-scoped**~~ — **CLOSED by 11-02.** The unit half landed in
-  11-01 (one `cursor()`, unlock boolean checked, splitting observed red); the real-server half is
-  now `test_advisory_lock_is_exclusive_across_connections`, which shows a second connection
-  refused a held lock and an unlock from a non-holder returning `False` — the exact signature a
-  split across checkouts produces.
-- **Removing the three `*_DB_PATH` env vars does NOT prevent SQLite fallback.** `sessions.py:43`
-  has a module-dir default and `default_backend()` returns `sqlite` whenever `DATABASE_URL` is
-  empty — two mountless machines would each boot their own ephemeral database and `/health` would
-  report `ok`. The fix is pinning `SESSION_BACKEND`/`METRICS_BACKEND`/`VECTOR_STORE` so a missing
-  DSN fails closed at construction. **Half closed by 11-02:** `-k fails_closed` asserts that a
-  pinned Postgres backend with no `DATABASE_URL` raises, and a companion test pins the negative
-  (unpinned + no DSN boots happily on container-local storage). That is a *property* test, not a
-  progress gate — it passes against today's tree. The gate that the pins are actually **set in
-  production** is still owed: the stateless arm of `test_local_store_paths_live_under_the_mount`,
-  written in 11-03 and armed by 11-05.
-
-Plan 11-05 is `autonomous: false` — it drops the mount, pins the three backends and scales to two
-machines. The volume `agent_data` is **kept as backup, never destroyed**. 11-04 is done: Supabase
-is provisioned in `ap-southeast-2`, `DATABASE_URL` is a deployed Fly secret against the session-mode
-pooler on 5432 with `sslmode=require`, and everything up to this point is still reversible with
-`fly secrets unset DATABASE_URL` — **a path that is verified-supported but not itself tested.**
+Wave 5 (12-06) is `autonomous: false` — sets the `IDENTITY_SIGNING_SECRET` Fly secret, deploys,
+and needs a real browser + two machines to verify criterion 6 and identity continuity.
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
