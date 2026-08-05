@@ -154,6 +154,30 @@ def test_unanswered_followup_does_not_enter_the_conversation():
     assert followup_state(cancelled, "question two")["conversation"] == []
 
 
+def test_a_run_carries_the_owner_its_notes_belong_to():
+    """The state half of the note-scoping thread (Phase 12).
+
+    `owner` has to survive into the state dict, because researcher_node reads
+    it from there and nowhere else. The default is "" rather than absent: the
+    REPL and the eval harness construct runs with no caller, and "" is a real
+    owner value that matches nobody rather than a wildcard that matches all.
+    """
+    assert initial_state("why?", owner="alice")["owner"] == "alice"
+    assert initial_state("why?")["owner"] == ""
+
+    # A follow-up belongs to whoever is asking it...
+    prior = initial_state("why?", owner="alice")
+    assert followup_state(prior, "and?", owner="bob")["owner"] == "bob"
+    # ...and carries the previous turn's owner forward when nobody is named,
+    # which is what keeps REPL chaining working.
+    assert followup_state(prior, "and?")["owner"] == "alice"
+
+    # A session state blob written before Phase 12 has no owner key at all.
+    # Reading it must not raise: that state is a live row in production.
+    legacy = {k: v for k, v in prior.items() if k != "owner"}
+    assert followup_state(legacy, "and?")["owner"] == ""
+
+
 # --------------------------------------------------------------------------
 # Guardrails: these outrank every routing rule above
 # --------------------------------------------------------------------------

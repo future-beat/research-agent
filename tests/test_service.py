@@ -8,6 +8,7 @@ only thing faked is the network.
 
 import inspect
 import json
+import re
 import threading
 import time
 
@@ -654,6 +655,120 @@ def test_a_session_records_the_identity_that_created_it(make_client):
     assert owner, "the session was created with no owner"
     # The cookie is v1.<id>.<hmac>; the stored owner is that middle id.
     assert client.cookies["ra_id"].split(".")[1] == owner
+
+
+def _run_and_count_recall(client, path: str, question: str) -> int:
+    """Start a research run and report how many stored notes its researcher
+    pulled into the prompt.
+
+    Handles both shapes: the blocking route answers with a session id whose
+    trace is read back, the streaming one carries the trace in its final
+    `result` event. Parametrising over the two is not decoration -- the demo
+    page uses the streaming route, so an owner threaded only through the
+    blocking one would be scoping the path nobody uses.
+    """
+    response = client.post(path, json={"question": question})
+    assert response.status_code == 200, response.text
+    if path.endswith("/stream"):
+        trace = sse_events(response)[-1][1]["trace"]
+    else:
+        session_id = response.json()["session_id"]
+        trace = client.get(f"/sessions/{session_id}/trace").json()["trace"]
+    researcher = [entry for entry in trace if entry.get("node") == "researcher"][-1]
+    return researcher["recalled_from_memory"]
+
+
+@pytest.mark.parametrize("path", ["/research", "/research/stream"])
+def test_one_visitors_notes_never_reach_another_visitors_run(make_client, path):
+    """The cross-visitor prompt-injection path, closed end to end.
+
+    This is the reason note scoping exists, and it is worth being precise
+    about the attack: recalled notes are pasted verbatim into the researcher
+    prompt, the researcher's output becomes the draft, and the critic reviews
+    that draft. Text one visitor caused to be written was therefore text that
+    reached another visitor's critic -- untrusted input on the path to
+    APPROVED. Bounding it to the caller is what closes that.
+
+    Both directions, because either alone is satisfiable by a bug. Alice
+    recalling her own note proves the recall path still works at all -- a
+    store that returned nothing to anybody would pass the isolation half
+    vacuously. And the shared-store assertion at the end proves Bob's zero is
+    isolation rather than an empty store: all three notes are sitting in one
+    backend, which is exactly the deployed topology.
+    """
+    question = "langgraph supervisor retry patterns"
+    alice, _ = make_client()  # the fixture installs one InMemoryStore for the app
+
+    assert _run_and_count_recall(alice, path, question) == 0, "nothing was stored yet"
+    assert _run_and_count_recall(alice, path, question) >= 1, "a visitor lost their own memory"
+
+    # A different visitor, same question, same note store, no operator token:
+    # an ordinary stranger holding a valid identity of their own.
+    with TestClient(service.app, base_url="https://testserver") as bob:
+        assert _run_and_count_recall(bob, path, question) == 0, (
+            "another visitor's notes reached this run's researcher, and therefore its critic"
+        )
+
+    assert len(graph.memory()) == 3, (
+        "the three runs did not share one note store; the isolation above proved nothing"
+    )
+
+
+def _state_constructions(source: str) -> list[str]:
+    """Every initial_state(...) / followup_state(...) call in a handler.
+
+    Parentheses are matched rather than regexed to the first `)`, because
+    `followup_state(session.state, body.cleaned(), owner=owner)` would
+    otherwise be truncated at `cleaned(` and the owner argument -- the only
+    thing this is looking for -- would never be seen.
+    """
+    found = []
+    for match in re.finditer(r"(?:initial|followup)_state\(", source):
+        depth, index = 0, match.end() - 1
+        while index < len(source):
+            if source[index] == "(":
+                depth += 1
+            elif source[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        found.append(source[match.start():index + 1])
+    return found
+
+
+def test_every_run_starting_route_scopes_the_run_to_its_caller():
+    """No route may start a run that does not know whose notes it may read.
+
+    A tripwire, not the proof -- the proof is the behavioural test above, and
+    it covers the two routes that actually touch the note store (a follow-up
+    never runs the researcher). This exists because that behavioural test
+    cannot cover the ask routes at all, and a control that only two of four
+    call sites are checked for is the exact shape of the bug this codebase has
+    now hit eleven times.
+
+    Written as "every state construction carries an owner" rather than "the
+    handler source mentions owner=" on purpose: three of these handlers pass
+    `owner=owner` to something ELSE as well (store.create, reserve_or_429), so
+    the looser form stays green when the state construction alone loses it.
+    That mutation was run.
+    """
+    starters = {}
+    for path, route in api_routes(service.app):
+        constructions = _state_constructions(inspect.getsource(route.endpoint))
+        if constructions:
+            starters[(sorted(route.methods)[0], path)] = constructions
+
+    # Non-vacuity: /research, /research/stream, and the two ask routes.
+    assert len(starters) == 4, f"walker found {sorted(starters)}"
+
+    unscoped = [
+        (key, call)
+        for key, calls in starters.items()
+        for call in calls
+        if "owner=" not in call
+    ]
+    assert unscoped == [], f"runs started without an owner: {unscoped}"
 
 
 def test_a_reads_do_not_extend_a_sessions_life(make_client, monkeypatch):

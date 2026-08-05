@@ -643,8 +643,11 @@ def research(
 ) -> RunResponse:
     """Full pipeline: classify, search, draft, fact-check. Opens a session."""
     question = body.cleaned()
-    run = initial_state(question)
     owner = limits.caller_identity(request)
+    # The identity is the note owner as well as the session owner: what this
+    # run recalls and what it writes are both scoped to it, so one visitor's
+    # notes never reach another visitor's critic.
+    run = initial_state(question, owner=owner)
     limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     session_id, state = _execute(
         run, metrics, limits_store, lambda final: store.create(question, final, owner=owner)
@@ -661,8 +664,8 @@ def research_stream(
     limits_store: LimitsStore = Depends(get_limits),
 ):
     question = body.cleaned()
-    run = initial_state(question)
     owner = limits.caller_identity(request)
+    run = initial_state(question, owner=owner)
     # Before the StreamingResponse is built, so a capped caller gets a real 429
     # instead of a 200 whose body turns out to be an error event.
     limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
@@ -703,7 +706,7 @@ def ask(
         store.append_turn(session_id, final)
         return session_id
 
-    run = followup_state(session.state, body.cleaned())
+    run = followup_state(session.state, body.cleaned(), owner=owner)
     # A follow-up is cheaper than a research run, not free -- so it reserves
     # too. Forgetting it here is the specific regression the four-route gate in
     # tests/test_service.py exists to catch.
@@ -728,7 +731,7 @@ def ask_stream(
         store.append_turn(session_id, state)
         return session_id
 
-    run = followup_state(session.state, body.cleaned())
+    run = followup_state(session.state, body.cleaned(), owner=owner)
     limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     return _sse_response(run, metrics, limits_store, on_complete)
 

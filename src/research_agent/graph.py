@@ -123,6 +123,7 @@ def call_model(state: AgentState, node: str, **kwargs):
 
 class AgentState(TypedDict):
     run_id: str  # identifies this run in logs, spans, and the metrics table
+    owner: str  # caller identity this run's notes belong to; "" means nobody
     task: str  # the research question, or the follow-up question in followup mode
     mode: str  # "research" | "followup"
     topic_type: str  # "technical" | "contested" | "sparse" | "general"
@@ -141,10 +142,18 @@ class AgentState(TypedDict):
     trace: list
 
 
-def initial_state(task: str) -> AgentState:
-    """A clean research run. Only the memory store persists across runs."""
+def initial_state(task: str, owner: str = "") -> AgentState:
+    """A clean research run. Only the memory store persists across runs.
+
+    `owner` is the caller this run's notes belong to -- what the researcher
+    may recall and what it writes. The default of "" is the REPL, the eval
+    harness and the CLI, none of which have a caller; the service always
+    passes a real identity. It is an exact value, not a wildcard: a run owned
+    by "" recalls only notes owned by "".
+    """
     return {
         "run_id": uuid.uuid4().hex,
+        "owner": owner,
         "task": task,
         "mode": "research",
         "topic_type": "",
@@ -164,12 +173,18 @@ def initial_state(task: str) -> AgentState:
     }
 
 
-def followup_state(previous: AgentState, question: str) -> AgentState:
+def followup_state(previous: AgentState, question: str, owner: str = "") -> AgentState:
     """A follow-up turn grounded in `previous`.
 
     Accepts either a research run or an earlier follow-up, so chaining is just
     followup_state(last_state, q) every turn. Notes and the source report carry
     forward unchanged; each answered turn is appended to the conversation.
+
+    A follow-up's owner is the caller asking it, and falls back to the previous
+    turn's owner when there is no caller -- which is what keeps REPL chaining
+    working. `previous` may also be a state blob persisted before Phase 12,
+    which has no owner key at all, so it is read defensively; those runs are
+    followups and never touch the note store anyway.
     """
     was_followup = previous.get("mode") == "followup"
 
@@ -177,7 +192,7 @@ def followup_state(previous: AgentState, question: str) -> AgentState:
     if was_followup and previous.get("draft"):
         conversation.append({"question": previous["task"], "answer": previous["draft"]})
 
-    state = initial_state(question)
+    state = initial_state(question, owner=owner or previous.get("owner", ""))
     state.update(
         {
             "mode": "followup",
@@ -245,7 +260,13 @@ def classifier_node(state: AgentState) -> AgentState:
 @retry_node("researcher")
 def researcher_node(state: AgentState) -> AgentState:
     store = memory()
-    recalled = store.query(state["task"], top_k=3)
+    # Scoped to the caller in both directions, and this is the whole of the
+    # fix. Recall used to read one communal store, so a note written during
+    # someone else's run arrived in this prompt -- and the draft built from it
+    # is what the critic then reviews, which is how untrusted text from one
+    # visitor could steer another visitor's report toward APPROVED. A run now
+    # only ever reads what its own caller caused to be written.
+    recalled = store.query(state["task"], top_k=3, owner=state["owner"])
     recalled_block = (
         "Relevant notes from previous research sessions:\n" + "\n".join(recalled) + "\n\n"
         if recalled else ""
@@ -271,7 +292,7 @@ def researcher_node(state: AgentState) -> AgentState:
     )
     notes = _text(response)
     state["research_notes"] = notes
-    store.add(f"[{state['task']}] {notes}")
+    store.add(f"[{state['task']}] {notes}", owner=state["owner"])
     state["trace"].append({
         "node": "researcher", "notes_length": len(notes),
         "recalled_from_memory": len(recalled),
