@@ -14,6 +14,7 @@ rather than merely written.
     DATABASE_URL=postgresql://postgres:pw@localhost:5432/postgres pytest
 """
 
+import psycopg
 import pytest
 from test_memory_stores import FakeEmbedder
 
@@ -43,6 +44,22 @@ CONTRACT_NOTES_TABLE = "contract_test_notes"
 def _skip_without_postgres(backend: str) -> None:
     if backend == "postgres" and not HAS_POSTGRES:
         pytest.skip("DATABASE_URL is not set")
+
+
+def _dsn_tagged(application_name: str, **params: str) -> str:
+    """DATABASE_URL carrying an application_name, and any other libpq params.
+
+    Two jobs. It lets a test find its own backends in pg_stat_activity, which
+    is how the reconnect test kills only what it owns on a shared CI server.
+    And it makes the DSN test-unique, which matters because db._pool_for
+    caches one pool per DSN with the pool settings read at *construction*: a
+    test that varies PG_POOL_TIMEOUT and shares a DSN would silently be handed
+    a pool built at someone else's setting.
+    """
+    parts = {"application_name": application_name, **params}
+    base = db.database_url()
+    separator = "&" if "?" in base else "?"
+    return base + separator + "&".join(f"{k}={v}" for k, v in parts.items())
 
 
 @pytest.fixture(params=BACKENDS)
@@ -394,6 +411,73 @@ def test_unknown_backends_fail_loudly(factory, kind):
         factory("mysql")
 
 
+# --------------------------------------------------------------------------
+# Pinned Postgres backends fail closed
+#
+# A PROPERTY TEST, NOT A PROGRESS GATE. These pass against today's tree,
+# because the pins are env-driven and db.database_url() has always raised.
+# They are here so the property is asserted rather than assumed, since the
+# production topology now depends on it.
+#
+# What they do not prove is that the pins are actually SET in production.
+# That gate is the stateless arm of test_local_store_paths_live_under_the_mount
+# in tests/test_deploy_config.py, written in plan 11-03 and armed by 11-05.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pin, value, factory", [
+    ("SESSION_BACKEND", "postgres", sessions_module.get_session_store),
+    ("METRICS_BACKEND", "postgres", metrics_module.get_metrics_store),
+    ("VECTOR_STORE", "pgvector", lambda: vm.get_memory_store(embedder=FakeEmbedder())),
+])
+def test_a_pinned_postgres_backend_fails_closed_without_a_dsn(pin, value, factory, monkeypatch):
+    """Pinning is the defence, and it has to fail loudly to be one.
+
+    A machine with no mount and no DATABASE_URL must refuse to start, not
+    quietly fall back. See the negative below for what it would fall back to.
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv(pin, value)
+
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        factory()
+
+
+def test_unpinned_backends_default_to_container_local_storage(monkeypatch, tmp_path):
+    """The negative that motivates the three above, kept in the file so the
+    reason survives.
+
+    With nothing pinned and no DSN, the defaults are per-container: SQLite
+    files whose path defaults to the *module directory* -- and SESSION_DB_PATH
+    is read at import time, so even the env var is not a late escape -- plus a
+    JSON note store. Two mount-less machines would each boot happily on their
+    own private copy: the per-machine split-brain this phase exists to end,
+    now with data that vanishes on restart.
+
+    Nothing raises, which is exactly the problem. It is why production pins
+    the backends rather than trusting the DSN to be present.
+
+    Constructed at explicit temp paths rather than through the factories, so
+    asserting "this boots" does not drop a stray sessions.db next to the
+    source -- the very default being complained about.
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    for pin in ("SESSION_BACKEND", "METRICS_BACKEND", "VECTOR_STORE"):
+        monkeypatch.delenv(pin, raising=False)
+
+    assert sessions_module.default_backend() == "sqlite"
+    assert metrics_module.default_backend() == "sqlite"
+    assert vm.default_backend() == "json"
+
+    stores = [
+        SQLiteSessionStore(str(tmp_path / "sessions.db")),
+        SQLiteMetricsStore(str(tmp_path / "metrics.db")),
+        JSONMemoryStore(path=str(tmp_path / "notes.json"), embedder=FakeEmbedder()),
+    ]
+    for store in stores:
+        store.close()
+
+
 def test_dsn_description_strips_the_password():
     described = _describe_dsn("postgresql://user:sup3rsecret@db.example.com:5432/agent")
     assert described == "postgres://db.example.com/agent"
@@ -424,14 +508,39 @@ def test_a_dimension_mismatch_is_explained_not_a_type_error():
 @pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
 def test_the_connection_recovers_from_being_dropped():
     """Managed Postgres closes idle connections. Without the reconnect, the
-    first request after a quiet night fails."""
-    store = PostgresSessionStore()
+    first request after a quiet night fails.
+
+    The kill is now server-side. This used to reach through the store into
+    the private connection attribute the pool replaced and close it -- and
+    closing a connection from the client was always the weaker simulation,
+    because it fails at *checkout*, where a retry was never in doubt.
+    Reaching for a private attribute is also how a test ends up broken by a
+    refactor that broke nothing. `pg_terminate_backend` is what a managed
+    provider actually does: the connection sits in the pool still looking
+    live, the checkout succeeds, and the statement is where it dies. That is
+    the case the read-level retry in db._read exists for.
+
+    Scoped by application_name and excluding our own pid, so this cannot
+    disturb anything else sharing the CI server.
+    """
+    marker = "ra_reconnect_test"
+    store = PostgresSessionStore(dsn=_dsn_tagged(marker))
+    killer = db.Database(_dsn_tagged("ra_reconnect_killer"))
     try:
+        store.db.execute("TRUNCATE sessions")
         store.create("before", finished_state())
-        store.db._conn.close()  # simulate the provider hanging up
+
+        killed = killer.fetchall(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE pid <> pg_backend_pid() AND application_name = %s",
+            (marker,),
+        )
+        assert killed, "nothing was terminated; the kill would prove nothing"
+
         assert store.count() == 1  # must reconnect rather than raise
     finally:
         store.close()
+        killer.close()
 
 
 def test_postgres_really_ran_when_ci_said_it_would():
@@ -497,7 +606,17 @@ def test_a_deferred_schema_is_retried_on_first_use(fast_timeout):
     store = PostgresSessionStore(dsn=UNREACHABLE_DSN)
     try:
         assert store.db._schema_sql is not None
-        with pytest.raises(Exception, match="(?i)connect"):
+        # Asserted on the exception TYPE, not on its message. This previously
+        # pattern-matched the word "connect" case-insensitively out of the
+        # error text, which under the pool depends on the exact wording of
+        # psycopg_pool's PoolTimeout -- "couldn't get a connection after N.NN
+        # sec". It happens to contain the substring, but a third-party error
+        # string is not a contract, and a reworded release would turn this
+        # green over an assertion that no longer checks anything. PoolTimeout
+        # subclasses OperationalError, and "the failure is operational, not a
+        # SQL error" is the property that actually matters. Deliberate
+        # replacement -- please do not restore the string match.
+        with pytest.raises(psycopg.OperationalError):
             store.count()  # still down: surfaces, rather than pretending
         assert store.db.schema_applied is False
     finally:
