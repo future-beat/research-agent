@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Completed 12-02-PLAN.md (Wave 1): signed HMAC identity token + mint-on-response IdentityMiddleware landed; all three response shapes carry the cookie, never 401. Next: 12-03."
-last_updated: "2026-08-05T11:50:00.000Z"
-last_activity: "2026-08-05 — Executed 12-02: identity.py (stdlib HMAC mint/verify, degrade-when-unset secret), IdentityMiddleware registered, make_client on https://testserver, mint_cookie seam. Suite 467/37 plain, 503/1 armed; README 480 -> 504."
+stopped_at: "Completed 12-03-PLAN.md (Wave 2): limits moved to a LimitsStore keyed on identity; the daily cap now reserves in-flight spend under pg_advisory_xact_lock and settles on every terminal arm. Next: 12-04."
+last_updated: "2026-08-05T13:20:00.000Z"
+last_activity: "2026-08-05 — Executed 12-03: LimitsStore (memory + Postgres), identity-keyed rate window, reserve_or_429 in all four spending routes, settle at every metrics.record, two-thread no-overshoot race against real Postgres. Suite 493/41 plain, 533/1 armed; README 504 -> 534 and the falsified spend-cap limitation corrected."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 15
+  completed_plans: 16
   percent: 57
 ---
 
@@ -26,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTING**
-Plan: 2 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
-Status: Wave 1 complete (12-02). Every caller now gets a signed `ra_id` identity cookie minted on the response — proven on the SSE stream, the FileResponse demo page and JSON routes, never a 401. `request.state.identity` is guaranteed for every later wave; the test seam (https base_url + `mint_cookie()`) is in place.
-Last activity: 2026-08-05 — Executed 12-02 (commits ea204cd, f7e2494, 39ea349, a828ef1).
+Plan: 3 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
+Status: Wave 2 complete (12-03). Rate limiting and the daily spend cap have left per-machine memory: both live in a `LimitsStore` (memory or Postgres, defaulting on `DATABASE_URL`), the rate window keys on the signed identity rather than the client address, and the cap counts in-flight runs by reserving `$0.20` per run inside a transaction holding `pg_advisory_xact_lock(CAP_LOCK_KEY)`. Two of the phase's named defects — the ~3× concurrency overshoot and the two-machines-two-budgets split — are closed with falsifiable gates.
+Last activity: 2026-08-05 — Executed 12-03 (commits fe50a83, 9db9125, 40d2de9, 7fb1c72, fd5267f).
 
 **Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7.
 
 Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 12: [███▓░░░░░░] 2 of 6 plans — executing
+Phase 12: [█████░░░░░] 3 of 6 plans — executing
 
 **Carry into execution — what breaks the demo if wrong:**
 
@@ -75,7 +75,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
-| 12 | 2 of 6 (12-01, 12-02) | 33min | 17min |
+| 12 | 3 of 6 (12-01, 12-02, 12-03) | 57min | 19min |
 
 **Recent Trend:**
 
@@ -152,6 +152,13 @@ Recent decisions affecting current work:
 - [Phase 12-02]: **`Secure` is unconditional; the tests adapt, never the attribute.** `make_client` uses `base_url="https://testserver"` because httpx's jar withholds a Secure cookie over http — under the default base_url every request silently re-mints and per-identity tests pass vacuously. Do not fork the cookie attributes on env.
 - [Phase 12-02]: **A bare ASGI stub cannot sit inside `with TestClient(...)`** — the context manager drives lifespan, which the stub answers with http messages and Starlette asserts. Raw-middleware tests use the client without the context manager.
 - [Phase 12-02]: **README's identity narrative is left to the wave that owns it.** "guardrails … don't identify callers" stays true until Wave 3 rekeys the limits; Wave 5 owns the deployed-identity story. Only the falsified test count (480 → 504) was corrected in-wave.
+- [Phase 12-03]: **The two halves of `LimitsStore` have deliberately different strictness, and confusing them is the expensive mistake.** `check_rate` is a fairness tool: one statement, one round trip, and a small concurrent-insert overshoot costs nothing. `reserve` is a money tool: check-and-insert inside `db.transaction()` holding `pg_advisory_xact_lock(CAP_LOCK_KEY)`, because a single conditional INSERT is **not** race-free under READ COMMITTED — two guards each evaluate the WHERE against a snapshot excluding the other's uncommitted row and both pass. The reason is written at the seam so nobody "simplifies" the reserve into the rate shape.
+- [Phase 12-03]: **`caller_identity()` falls back to one SHARED bucket, never to `client_ip`.** A shared bucket is more restrictive than the truth, which is the safe direction; an address fallback would quietly reinstate the forgeable key this phase removed, and would do it exactly when the identity layer was broken — i.e. when nobody was looking. `client_ip` and `TRUST_FORWARDED_FOR` survive for **logging only**, with a do-not-key-limits-on-this comment.
+- [Phase 12-03]: **The cap left `enforce()` rather than gaining a `run_id` parameter there.** A reservation needs state the guard cannot see (the run does not exist until the handler builds it), and a guard that half-enforces the cap is worse than one that visibly does not. `reserve_or_429` raises **synchronously inside the handler**, before any StreamingResponse is constructed, so a capped caller gets a real 429 rather than a 200 whose body turns out to be an error event.
+- [Phase 12-03]: **An in-handler control needs two gates, not one.** `reserve_or_429` is not a route dependency, so the `api_routes()` walker structurally cannot see it — the exact ADR-0006 shape, on the same `/sessions` routes that forgot a credential four times. It is held by a parametrized four-route 429 test **and** a structural `inspect.getsource` invariant with a non-vacuity floor asserted first. Falsified, not assumed: deleting the reserve from `ask()` alone turns both red.
+- [Phase 12-03]: **Settle goes next to `metrics.record`, never in the handler's `except`.** `_stream` swallows its exception to terminate the SSE cleanly, so the handler's own `except` never runs on a failed stream — a settle placed there leaks a reservation on every stream failure. Four terminal arms, four settles. `limits.settle()` itself never raises: a failed settle must not turn a finished run into a 500 or truncate a stream that already delivered, and `RESERVATION_STALE_SECONDS` (900s) makes the failure survivable while the warning keeps the leak visible.
+- [Phase 12-03]: **The process-global `RateLimiter` instance is gone.** It was what made "the rate limit" mean something different on each machine, and a module global is not something a request can be pointed away from. The window now lives in the injected store; `RateLimiter` survives only as `InMemoryLimits`' internals.
+- [Phase 12-03]: **Baselines moved and are fully explained**: plain 467/37 → 493/41, armed 503/1 → 533/1, collected 504 → 534. The four extra plain skips are exactly the Postgres-gated `test_limits.py` tests, so **a green plain run is not evidence for the no-overshoot race** — the armed run against `:54329` is. README's falsified spend-cap limitation was corrected by the wave that falsified it; the "rate-limited, not authenticated" line still belongs to Wave 5.
 
 ### Pending Todos
 
@@ -218,9 +225,11 @@ None yet.
 - **Other findings from codebase mapping, not yet phased.** Notes are written to a shared
   store with no tenant scoping (`graph.py:274`) and recalled into other visitors' runs
   (`graph.py:248`), and the critic reads the same untrusted text it polices
-  (`graph.py:385`) — so injection can force `APPROVED`. The daily spend cap counts only
-  completed runs (`limits.py:198` vs `service.py:222`), so ~16 concurrent runs can overshoot
-  the $5 cap roughly 3×. `pydantic` is unpinned — used by every API model, absent from
+  (`graph.py:385`) — so injection can force `APPROVED`. ~~The daily spend cap counts only
+  completed runs, so ~16 concurrent runs can overshoot the $5 cap roughly 3×.~~
+  **RESOLVED 2026-08-05, plan 12-03** — the cap reserves `DEMO_RESERVED_RUN_USD` per in-flight
+  run and check+insert is serialised under `pg_advisory_xact_lock`; a two-thread race against
+  real Postgres asserts exactly one of two concurrent reserves is admitted. `pydantic` is unpinned — used by every API model, absent from
   `pyproject.toml`, floating in via FastAPI. `requires-python = ">=3.10"` while Docker and
   CI run 3.14, so the floor is untested. Voyage embedding spend is accounted nowhere.
   Decide in Phase 12 planning which of these belong there versus a later phase.
@@ -251,7 +260,32 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 12-02-PLAN.md — Wave 1 of Phase 12 is in.** Four commits on
+Stopped at: **Completed 12-03-PLAN.md — Wave 2 of Phase 12 is in.** Five commits on
+`gsd/phase-12-caller-identity`: `fe50a83` (the `LimitsStore` ABC with `InMemoryLimits` and
+`PostgresLimits`; two new tables under the lazy advisory-locked `ensure_schema`; `get_limits_store()`
+defaulting on `DATABASE_URL` like sessions and metrics), `9db9125` (`DEMO_RESERVED_RUN_USD`;
+`enforce` reduced to token + identity-rate; `reserve_or_429` carrying the verbatim
+"Read-only endpoints still work." 429; `app.state.limits` + the `get_limits` accessor; the reserve
+in all four spending handlers and `settle` after every `metrics.record` in `_execute` and
+`_stream`; `status()` extended additively with `rate_limit_scope` and `reserved_run_usd`),
+`40d2de9` (the doubled gate — parametrized four-route 429 plus the `inspect.getsource` structural
+invariant with a non-vacuity floor; **falsified by deleting `ask`'s reserve and observing both go
+red**), `7fb1c72` (the two-thread `cap_reservation_no_overshoot` race and the stale-reclaim test
+against real Postgres on `:54329`, using two `_dsn_tagged` handles so the threads hold separate
+pool connections), and `fd5267f` (README: the spend-cap known-limitation entry rewritten to what
+is now true plus the residual it leaves — the 900s stale window and estimate accuracy — and
+504 → 534 tests).
+Suite: **493 passed / 41 skipped plain, 533 passed / 1 skipped armed** against 467/37 and 503/1.
+Collected 504 → 534; the four extra plain skips are exactly the Postgres-gated `test_limits.py`
+tests, each reporting `DATABASE_URL is not set` — so the plain run is **not** evidence for the
+race gate. `ruff` clean. Nothing deployed; no push. `REQ-demo-authentication` stays Pending until
+the Wave 5 cutover.
+**Owed to 12-04/12-05:** `status()` now exposes `rate_limit_scope` and `reserved_run_usd` for the
+UI wave to render, and `README.md`'s "rate-limited, not authenticated" line at ~210 is now
+half-false — the limits *do* identify callers — and is Wave 5's to correct.
+Resume file: None
+
+Superseded — previous session: **Completed 12-02-PLAN.md — Wave 1 of Phase 12 is in.** Four commits on
 `gsd/phase-12-caller-identity`: `ea204cd` (17 failing identity unit tests, TDD RED observed at
 collection), `f7e2494` (`identity.py` — stdlib-HMAC `v1.<uuid4hex>.<sha256>` mint/verify with
 `compare_digest`, never-raise verify, per-call `IDENTITY_SIGNING_SECRET` with a cached
