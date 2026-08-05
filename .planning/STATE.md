@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 13-01-PLAN.md (migrate.py repaired and proven). Branch gsd/phase-13-embedding-migration, rebased onto main. Next: 13-02 (argparse subcommands + embeddings copy)."
-last_updated: "2026-08-06T00:00:00.000Z"
-last_activity: "2026-08-06 — Phase 13 wave 1 executed: migrate.py's live data-loss bug fixed (notes and sessions now carry owner and created_at), owner-aware dedup, expired-session skip stated, and the module's first-ever tests. Five mutations run; one gate found vacuous and repaired."
+stopped_at: "Completed 13-02-PLAN.md (golden recall set + embeddings copy, SC-5's copy half proven). Branch gsd/phase-13-embedding-migration. Next: 13-03 (embeddings re-embed + Voyage cost preview)."
+last_updated: "2026-08-06T12:00:00.000Z"
+last_activity: "2026-08-06 — Phase 13 wave 2 executed: a frozen tie-free golden recall set and the `embeddings copy` subcommand. Copy is server-side, non-destructive, idempotent and self-checking; recall identity is proven under exact scan with the HNSW index outside the claim and separately sanity-checked. Six mutations, all red."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 20
-  percent: 58
+  completed_plans: 21
+  percent: 59
 ---
 
 # Project State
@@ -26,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 13 of 17 (Embedding model migration) — **IN PROGRESS**
-Plan: 1 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
+Plan: 2 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
 (PR #6 merged). Not pushed.
-Status: Wave 1 complete — migrate.py repaired and proven.
+Status: Wave 2 complete — the golden recall set exists and `embeddings copy` is proven.
 
 **Phase 12 shipped** (PR #6 merged, v9 live). Phases 10, 10.5, 11 merged.
 
 Progress: [███████░░░] 71% (12 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 13: [██░░░░░░░░] 1 of 5 plans — 13-01 done
+Phase 13: [████░░░░░░] 2 of 5 plans — 13-01, 13-02 done
 
 **Carry into execution:**
 - ~~`migrate.py` has a LIVE data-loss bug today~~ **FIXED in 13-01.** Notes and sessions
@@ -41,15 +41,26 @@ Phase 13: [██░░░░░░░░] 1 of 5 plans — 13-01 done
   expired-session skip is printed. `tests/test_migrate.py` gates all three.
 - `migrate_notes` now takes `table=`/`dimensions=` keyword parameters — waves 2–3 should
   extend that idiom rather than reading module constants inside new functions.
-- "Recall byte-identical" is NEVER asserted through the HNSW index (approximate,
-  nondeterministic build). Exact-scan discipline everywhere; index sanity is a separate,
-  scale-bounded set-equality check.
+- ~~"Recall byte-identical" is NEVER asserted through the HNSW index~~ **IMPLEMENTED in 13-02.**
+  `recall_golden.exact_scan_results` is the only runner an equality-of-recall assertion may
+  use; `indexed_results` exists for `test_index_sanity`'s set-equality check alone. Wave 3
+  measures the re-embed delta with the same two runners — do not reach for the indexed one.
+- `recall_golden.assert_tie_free` checks rows **at or above each query's floor**, not every
+  row: with 5-dim binary vectors any two notes sharing no word with the query both sit at
+  similarity 0, so global tie-freedom is impossible, and rows a query cannot return cannot
+  affect its order. Wave 3 must re-run it against the re-embedded table — a new model
+  re-scores everything and tie-freedom does not travel.
+- `embeddings copy` exists and is the CLI idiom to extend: `_main_embeddings` already owns
+  an argparse subparser set, so `re-embed` is a sibling `sub.add_parser(...)`, not a new
+  dispatch branch. Table names go through `memory.validate_table_name()`.
 - voyage-3.5 `output_dimension=2048` exceeds pgvector's HNSW limit (2000) — the re-embed
   command refuses >2000 loudly.
 - Preview always prints; `--yes` required to spend. Wave 5 is a checkpoint (live Voyage
   re-embed against Supabase `migration_demo_*` scratch tables only; cleanup gated).
 - Local PG17+pgvector on :54329 (scratchpad instance `pg12`; start with LC_ALL set).
-  Baselines: plain 527/47, armed 573/1.
+  Baselines after 13-02: plain **527/53**, armed **579/1** (`DATABASE_URL` only) or
+  **580/0** (with `REQUIRE_POSTGRES=1`). 13-01's `575/1` was the `DATABASE_URL`-only form;
+  quote which one when comparing.
 
 ## Performance Metrics
 
@@ -67,7 +78,7 @@ Phase 13: [██░░░░░░░░] 1 of 5 plans — 13-01 done
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
-| 13 | 1 of 5 (13-01) | 41min | 41min |
+| 13 | 2 of 5 (13-01, 13-02) | 96min | 48min |
 
 **Recent Trend:**
 
@@ -142,6 +153,14 @@ Recent decisions affecting current work:
 - [Phase 13-01]: **A dedup or idempotency gate that only runs once proves nothing about the key.** The plan's own acceptance criterion — "the same text under two owners produced two rows" — is green under a text-only dedup key, because a first pass into an empty table inserts everything whatever the key is. The gate now deletes one owner's row and re-migrates, which is where the key actually applies. **Fourteenth vacuous gate, second consecutive phase** where a structurally sensible assertion was blind to the exact mutation it existed to catch.
 - [Phase 13-01]: **Timestamp identity across the SQLite/JSON→Postgres boundary is compared as a `datetime`, never as an epoch float.** `extract(epoch FROM …)` returns a psycopg `Decimal` (never equal to a float), and a ~1.8e9 epoch carrying microseconds needs 16 significant digits where float64 has ~15.95 — so a rounded-epoch dedup key could fail to recognise the row it had just written, turning every re-run into a duplicate insert.
 - [Phase 13-01]: **Belt-and-braces writes are honest redundancy, not a caught bug, and the mutation table must say so.** `owner` is written twice in `migrate_sessions` (the `create()` kwarg and the restoring UPDATE), so removing either alone is unobservable and stays green. Only removing both goes red. Recorded as such rather than claiming a red that did not happen.
+- [Phase 13-02]: **A tie-freedom check must be scoped to the rows a query can return.** The plan asked for it unfiltered; over 5-dimensional binary bag-of-words vectors that is unsatisfiable, because any two notes sharing no word with the query both sit at similarity 0. The check examines rows at or above each query's `min_similarity` — which is also the property that matters, since a row the query cannot return cannot affect its order. **Distinct vocabulary sets do NOT buy tie-freedom**: similarity depends only on (overlap, size), so `{chroma,retry}` and `{chroma,voyage}` are the same distance from `"chroma"`. Two candidate golden queries were discarded at design time for exactly this.
+- [Phase 13-02]: **A self-checking command can hide the gate downstream of it.** Dropping `owner` from the copy column list turns the *command's own* fidelity gate red first (the join key includes `owner`), so the test fails on `assert main(...) == 0` and the golden comparison never runs. The mutation table records a second variant with the return code relaxed, which is what actually demonstrates the golden set can see tenancy loss — all eight queries delta, with alice's and bob's rows surfacing in the unowned bucket. Without it the recorded evidence would have looked stronger than it was.
+- [Phase 13-02]: **The plan's `INSERT..SELECT` grep gate was vacuous as written** — `grep -c "INSERT INTO .* SELECT"` returns 1 on the tree *before* the change, matching prose in a docstring, and the real SQL is a multi-line template no single-line grep can see. Replaced with a whitespace-flattened regex requiring the full column and select lists, and recorded as a presence check; the real gate is the byte-diff assertion, falsified by perturbing one copied vector.
+- [Phase 13-02]: **A recall-equality assertion needs an anti-vacuity floor.** `recall_delta` over two sets of eight empty results is also `[]`, so a seeding failure or a wrong owner would make the gate green. The test asserts seven of eight queries answered, and at least 12 rows total, before comparing.
+- [Phase 13-02]: **A non-destructive gate compares contents, not counts.** A row count is green against `TRUNCATE`+re-`INSERT` and against an `UPDATE` that rewrote every embedding — which is the exact corruption the byte-fidelity mutation simulates. The source is compared as a full `(text, owner, created_at, embedding::text)` set before and after the copy and after a `--dry-run`.
+- [Phase 13-02]: `--dry-run` creates **nothing**, not even the target table: it asks `to_regclass` whether the target exists and treats every source row as pending when it does not, rather than running DDL to make its own counting query legal. A dry run that writes is not one.
+- [Phase 13-02]: The copy **refuses an empty source**. A copy of nothing satisfies every fidelity check there is.
+- [Phase 13-02]: `main()` dispatches on the literal token `embeddings` rather than using a top-level required subparser, which would have turned the bare invocation `docs/OPERATIONS.md` documents into an error about a missing subcommand.
 - [Phase 13-01]: A missing or zero `created_at` migrates as **epoch 0** — already expired under the note TTL — rather than as `now()`. That mirrors what the store does with pre-Phase-12 entries; stamping them fresh would resurrect data the service had stopped serving.
 - [Phase 12-01]: **The dev extra composes `research-agent[chroma]` rather than repeating the pin.** chromadb==1.4.1 stays pinned once, in the chroma extra; a SQLite/JSON deploy installing `[service]` alone still never pulls it. The contract fixture's chroma arm skips ONLY on a genuinely missing chromadb import — never on HAS_POSTGRES — so CI (which installs dev) collects and runs it.
 - [Phase 12-01]: **`CAP_LOCK_KEY` (11165997) is a different advisory-lock key from `SCHEMA_LOCK_KEY` (3895545195)**, and the inequality test is deliberately not Postgres-gated so a keyless local run still catches a collapsed-constants edit. A shared key would serialise cap accounting against schema DDL.
@@ -280,8 +299,43 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-05
-Stopped at: **Executed 12-06-PLAN.md Tasks 1–3 — Wave 5's code and docs are in; Task 4 is deferred.**
+Last session: 2026-08-06
+Stopped at: **Completed 13-02-PLAN.md — Wave 2 of Phase 13 is in.** Three commits on
+`gsd/phase-13-embedding-migration`: `e7e2c06` (`src/research_agent/recall_golden.py` — 12 notes
+over three owners with per-owner-distinct vocabulary sets and `"chroma retry"` under both alice and
+bob as the tenancy probe; 8 queries including one that must return `[]`; `exact_scan_results`
+running the production SELECT inside `Database.transaction()` under `SET LOCAL enable_indexscan =
+off`; `indexed_results` for the sanity check alone; a store-agnostic `recall_delta`; and
+`assert_tie_free`, which is the module's real guarantee), `5ab6a6e` (`embeddings copy --from --to
+[--dry-run]` — one server-side `INSERT..SELECT` carrying text/embedding/owner/created_at, idempotent
+on `(text, owner, created_at)`, four printed fidelity numbers with a nonzero exit on any of them,
+zero statements against `--from`, no DDL at all in `--dry-run`, and `memory.validate_table_name()`
+extracted so the store and the CLI share one rule), and `9262aeb` (the four gates).
+Suite: **527 passed / 53 skipped plain, 579 passed / 1 skipped armed** (580/0 with
+`REQUIRE_POSTGRES=1`) against 527/49 and 575/1. Collected 576 → 580; the four extra plain skips are
+exactly the four new Postgres-gated tests, each `DATABASE_URL is not set` — **the plain run is not
+evidence for this plan**. `ruff check` clean. Nothing deployed; no push.
+**Falsified, not assumed — six mutations, all red**, tree clean after each. Perturbing one copied
+vector, dropping `owner`, dropping `created_at`, deleting a row from the new table, adding two
+same-vocabulary notes under one owner, and removing the `NOT EXISTS` skip clause. Two are recorded
+with caveats rather than as clean wins: the `owner` mutation trips the *command's own* gate before
+the golden comparison is reached (a second variant with the return code relaxed shows all eight
+queries deltaing, alice's and bob's rows both surfacing in the unowned bucket), and the idempotency
+mutation is red only on the **second** pass — 13-01's lesson applied rather than re-learnt.
+**Three gates the plan specified were weaker than they looked and were strengthened before commit:**
+the `INSERT..SELECT` grep matches a docstring on the unmodified tree, the recall-equality assertion
+is green over two sets of empty results, and a row-count non-destructive check is green against a
+table whose contents were replaced.
+**README reviewed, deliberately unchanged.** Line 209's "changing embedding model … can't migrate
+for you" is still true: this wave copies vectors, it does not re-embed. Wave 3 owns that sentence.
+Resume file: None
+
+Superseded — previous session: **Completed 13-01-PLAN.md — migrate.py repaired and proven** (owner
+and created_at carried, owner-aware dedup keyed on a datetime, the expired-session skip printed, and
+the module's first tests; commits `6516c23`, `33bc377`, `91b59d1`, `7b8b312`; suite 527/49 plain,
+575/1 armed; the fourteenth vacuous gate found and repaired).
+
+Superseded — earlier session: **Executed 12-06-PLAN.md Tasks 1–3 — Wave 5's code and docs are in; Task 4 is deferred.**
 Three commits on `gsd/phase-12-caller-identity`: `ab54fb5` (**ADR-0007**, `Accepted — supersedes
 ADR-0006`, `**Source:** Phase 12` — the reversal, the fairness ceiling, the cookie transport with its
 CSRF reasoning, 404-not-403, `TRUST_FORWARDED_FOR` demoted; and a `### Carried forward from ADR-0006`
