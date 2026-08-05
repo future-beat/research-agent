@@ -375,7 +375,13 @@ class FakePool:
     def __init__(self, raises=(), unlock_result=True):
         self.raises = list(raises)
         self.handed_out = []
+        self.checks = 0
         self._unlock_result = unlock_result
+
+    def check(self):
+        """psycopg_pool's own name for "test every idle connection and replace
+        the broken ones". Recorded so a test can assert it was reached."""
+        self.checks += 1
 
     @contextmanager
     def connection(self):
@@ -507,10 +513,39 @@ def test_a_read_retries_a_connection_that_dies_mid_statement(faked, dies_mid_sta
     `RuntimeError: generator didn't stop after throw()` -- contextlib refusing
     a second yield -- which both failed the call AND destroyed the real error.
     """
-    handle = faked(DeadOnFirstExecutePool())
+    pool = DeadOnFirstExecutePool()
+    handle = faked(pool)
     handle._schema_applied = True
 
     assert handle.fetchone("SELECT COUNT(*) AS n FROM sessions") == {"n": 1}
+    assert pool.checks == 1, "the rest of the pool's idle connections went unchecked"
+
+
+@pytest.mark.parametrize("sqlstate, retried", [
+    (None, True),        # client-side: the socket failed before any reply
+    ("57P01", True),     # admin_shutdown -- what pg_terminate_backend sends
+    ("57P02", True),     # crash_shutdown
+    ("08006", True),     # connection_failure
+    ("57014", False),    # query_canceled -- PG_STATEMENT_TIMEOUT fired
+    ("53300", False),    # too_many_connections: the server answered, and said no
+])
+def test_only_a_lost_connection_is_worth_retrying(sqlstate, retried):
+    """The discriminator is the SQLSTATE, and both obvious rules are wrong.
+
+    "Any OperationalError" retries a statement the server deliberately
+    cancelled, doubling the bound that cancelled it. "Any error with a
+    SQLSTATE means the server is alive" is wrong the other way, and this is
+    not theoretical -- it is what a real server actually did:
+    pg_terminate_backend arrives as AdminShutdown, SQLSTATE 57P01, a
+    server-reported error whose connection is nevertheless gone. That rule
+    shipped, was measured against Postgres 17, and failed exactly there.
+    """
+    exc = psycopg.OperationalError("boom")
+    if sqlstate is not None:
+        exc = psycopg.errors.lookup(sqlstate)("boom")
+        assert exc.sqlstate == sqlstate
+
+    assert db._connection_was_lost(exc) is retried
 
 
 def test_a_read_retry_gives_up_after_one_attempt(faked):
@@ -524,6 +559,43 @@ def test_a_read_retry_gives_up_after_one_attempt(faked):
             handle.fetchall("SELECT 1")
     finally:
         DeadOnFirstExecuteCursor.failures_left = 0
+
+
+def test_a_read_does_not_retry_a_server_reported_error(faked):
+    """A SQLSTATE means the server answered, so there is nothing to reconnect.
+
+    QueryCanceled -- how PG_STATEMENT_TIMEOUT surfaces -- subclasses
+    OperationalError, so a retry arm that keyed only on the type would re-run
+    a statement the server had just killed for taking too long, doubling the
+    bound that killed it. The discriminator is sqlstate, not the class.
+    """
+    assert issubclass(psycopg.errors.QueryCanceled, psycopg.OperationalError)
+
+    class CancellingCursor(FakeCursor):
+        def execute(self, sql, params=None):
+            raise psycopg.errors.QueryCanceled(
+                "canceling statement due to statement timeout"
+            )
+
+    class CancellingConnection(FakeConnection):
+        def cursor(self, row_factory=None):
+            return CancellingCursor(self)
+
+    class CancellingPool(FakePool):
+        @contextmanager
+        def connection(self):
+            conn = CancellingConnection()
+            self.handed_out.append(conn)
+            yield conn
+
+    pool = CancellingPool()
+    handle = faked(pool)
+    handle._schema_applied = True
+
+    with pytest.raises(psycopg.errors.QueryCanceled):
+        handle.fetchone("SELECT pg_sleep(5)")
+
+    assert len(pool.handed_out) == 1, "a cancelled statement must not be run twice"
 
 
 def test_a_write_is_not_retried_mid_statement(faked, dies_mid_statement):

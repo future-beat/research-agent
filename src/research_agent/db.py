@@ -314,6 +314,31 @@ def _release_pool(dsn: str) -> None:
         pool.close()
 
 
+# SQLSTATEs that mean "this connection is gone", as opposed to "the server
+# answered and said no". Class 08 is connection_exception; 57P01/02/03 are the
+# operator-intervention codes a managed provider sends when it terminates a
+# backend, restarts, or is starting up.
+#
+# The distinction is the whole point and it is easy to get wrong in both
+# directions. psycopg.OperationalError is far too broad: QueryCanceled (57014),
+# which is how PG_STATEMENT_TIMEOUT surfaces, subclasses it -- and re-running a
+# statement the server just killed for taking too long doubles the very bound
+# that killed it. But "has a SQLSTATE at all" is too narrow the other way:
+# pg_terminate_backend arrives as AdminShutdown (57P01), a server-reported
+# error whose connection is nevertheless gone. Measured against a real server;
+# an earlier sqlstate-is-None rule failed exactly there.
+_CONNECTION_LOST_SQLSTATES = frozenset({"57P01", "57P02", "57P03"})
+
+
+def _connection_was_lost(exc) -> bool:
+    """Whether this error means the connection died, rather than the server
+    having answered with a complaint about the statement."""
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate is None:
+        return True  # client-side: the socket failed before any reply
+    return sqlstate.startswith("08") or sqlstate in _CONNECTION_LOST_SQLSTATES
+
+
 def close_all_pools() -> None:
     """Dispose every registered pool. For the service lifespan's `finally`,
     and for tests, which must not leak background reconnect workers between
@@ -392,6 +417,11 @@ class Database:
         side effects, and psycopg_pool discards a connection it finds broken
         on return, so the second attempt gets a fresh one.
 
+        Only errors that mean the connection is *gone* are retried -- see
+        `_connection_was_lost`. A server that answered with a complaint about
+        the statement is alive, and re-running the statement would just wait
+        out the same bound twice.
+
         WRITES ARE DELIBERATELY NOT GIVEN THIS. A statement that failed with a
         connection error may or may not have committed server-side -- the
         client cannot tell the difference between "never arrived" and
@@ -416,9 +446,27 @@ class Database:
                     return cur.fetchall() if many else cur.fetchone()
             except (psycopg_pool.PoolTimeout, psycopg_pool.PoolClosed):
                 raise  # the wait already happened; see cursor()
-            except (psycopg.OperationalError, psycopg.InterfaceError):
+            except (psycopg.OperationalError, psycopg.InterfaceError) as exc:
+                if not _connection_was_lost(exc):
+                    raise
                 if attempt == attempts:
                     raise
+                # Whatever killed this connection almost certainly killed every
+                # other idle connection in the pool -- a provider terminating
+                # backends, a failover, a restart all take the lot. Without
+                # this the retry just draws the next corpse: measured against a
+                # real server, pg_terminate_backend left two dead connections
+                # and a bare retry-once still failed. check() tests each idle
+                # connection and replaces the broken ones, so one retry is
+                # enough however many the pool was holding.
+                #
+                # This is NOT the `check=` checkout callback that _pool_for
+                # deliberately omits. That one costs a server round trip on
+                # every checkout, including /health's, which is the objection.
+                # This runs only after a connection has already been found
+                # dead, where the round trip is the cheapest thing available.
+                with contextlib.suppress(Exception):
+                    self._pool.check()
         return None  # pragma: no cover - the loop either returns or raises
 
     # -- schema ----------------------------------------------------------
