@@ -1379,6 +1379,130 @@ def test_the_daily_cap_refuses_new_runs(make_client, monkeypatch):
     assert fake.calls == []  # nothing billable ran
 
 
+# --------------------------------------------------------------------------
+# The spend reservation: every spending route, every terminal arm
+# --------------------------------------------------------------------------
+#
+# `guard` gets its structural guarantee for free -- it is a route dependency,
+# so the walker can see it, and test_route_guard_invariant_over_the_sessions_tree
+# fails the moment a route appears without one. `reserve_or_429` cannot have
+# that: the reservation needs a run_id, which does not exist until the handler
+# has built the run state, so it is an IN-HANDLER call that no amount of
+# reading route.dependant would ever reveal.
+#
+# That is precisely the shape ADR-0006 was written about -- "a control you have
+# to remember to repeat is a control that will be forgotten" -- and it was
+# forgotten four times before, on these same /sessions routes. So the reserve
+# is held by two gates instead of one: a behavioural test that drives all four
+# routes to a real 429, and a structural one that reads each handler's source.
+# Deleting the reserve from `ask` alone fails both.
+
+SPENDING_PATHS = [
+    "/research",
+    "/research/stream",
+    "/sessions/{session_id}/ask",
+    "/sessions/{session_id}/ask/stream",
+]
+
+
+@pytest.mark.parametrize("path", SPENDING_PATHS)
+def test_all_spending_routes_reserve(make_client, monkeypatch, path):
+    """Every route that spends money is refused once the budget is gone.
+
+    The follow-up routes are in the parametrization deliberately: they are the
+    cheap ones, they are the ones a reader is most likely to think do not need
+    the check, and they are the ones that were missed last time.
+    """
+    client, fake = make_client()
+    session_id = client.post("/research", json={"question": "seed"}).json()["session_id"]
+    fake.calls.clear()
+
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0.0000001")
+    response = client.post(path.format(session_id=session_id), json={"question": "one more"})
+
+    assert response.status_code == 429, f"{path} did not reserve against the cap"
+    assert "Read-only endpoints still work." in response.json()["detail"]
+    assert fake.calls == []  # refused before anything billable ran
+
+    # And the sentence in that refusal is true: reads still answer while capped.
+    assert client.get("/sessions").status_code == 200
+    assert client.get(f"/sessions/{session_id}").status_code == 200
+
+
+def test_every_spending_route_calls_reserve():
+    """The structural half. Costs no run, so it holds even for a route whose
+    behavioural test someone deletes as flaky."""
+    endpoints = {
+        path: route for path, route in api_routes(service.app) if path in SPENDING_PATHS
+    }
+    # Non-vacuity first: a walker that found nothing would pass the loop below
+    # over an empty dict, which is how a gate like this goes quietly green.
+    assert len(endpoints) >= 4, f"found only {sorted(endpoints)}"
+
+    missing = [
+        path
+        for path, route in endpoints.items()
+        if "reserve_or_429" not in inspect.getsource(route.endpoint)
+    ]
+    assert missing == [], f"spending routes with no cap reservation: {missing}"
+
+
+def test_reservation_settles_on_the_success_arms(make_client, monkeypatch):
+    """A finished run's estimate must stop counting: its real cost is in the
+    metrics table by then, and leaving both would double-count the run."""
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "100.00")  # generous, but live
+    store = limits_store()
+
+    assert client.post("/research", json={"question": "why?"}).status_code == 200
+    assert client.post("/research/stream", json={"question": "and?"}).status_code == 200
+
+    assert len(store.reserved) == 2, store.reserved  # non-vacuity: it did reserve
+    assert sorted(store.settled) == sorted(store.reserved)
+    assert store.reservation_ids() == set()
+
+
+def test_a_failed_run_settles_its_reservation(make_client, monkeypatch):
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "100.00")
+    store = limits_store()
+
+    def explode(state):
+        # An upstream failure rather than a bug in ours: _http_error maps it to
+        # a 503, so the response is a real one and TestClient does not re-raise
+        # it -- which would leave this asserting on an exception rather than on
+        # the reservation.
+        raise anthropic.APIConnectionError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+
+    monkeypatch.setattr(graph.app, "invoke", explode)
+    assert client.post("/research", json={"question": "why?"}).status_code >= 500
+
+    assert store.reserved  # non-vacuity
+    assert store.reservation_ids() == set()
+
+
+def test_a_failed_stream_settles_its_reservation(make_client, monkeypatch):
+    """The arm that is easy to forget. `_stream` swallows the exception to
+    terminate the SSE cleanly, so the handler's own except never runs -- if the
+    settle is not next to the failure record, every failed stream leaks a
+    reservation until the staleness cutoff catches it."""
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "100.00")
+    store = limits_store()
+
+    def explode(state):
+        raise RuntimeError("the graph fell over mid-stream")
+
+    monkeypatch.setattr(graph.app, "stream", explode)
+    response = client.post("/research/stream", json={"question": "why?"})
+
+    assert [name for name, _ in sse_events(response)] == ["error"]  # it did fail
+    assert store.reserved  # and it did reserve
+    assert store.reservation_ids() == set()
+
+
 def test_a_demo_token_gates_writes_but_not_reads(make_client, monkeypatch):
     """Read-only endpoints stay open: they cost nothing, and they are how you
     diagnose a service that is refusing work."""
