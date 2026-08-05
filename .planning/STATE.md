@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Completed 11-01-PLAN.md — db.py is pooled. Next: 11-02 (health deadline, lifespan disposal, real-server lock tests, and the _conn contract-test repair)."
-last_updated: "2026-08-05T04:30:00.000Z"
-last_activity: "2026-08-05 — Executed 11-01: one psycopg_pool.ConnectionPool per DSN shared by all three stores, PoolTimeout excluded from the retry (measured 0.505s vs 1.007s), DDL under a single-connection advisory lock. Both behavioural gates mutated and observed red before being reverted"
+stopped_at: "Completed 11-02-PLAN.md — /health is bounded, pools are disposed, and the real-Postgres gates run. Next: 11-03 (deploy-config guards for the new topology)."
+last_updated: "2026-08-05T06:05:00.000Z"
+last_activity: "2026-08-05 — Executed 11-02: HEALTH_PROBE_BUDGET gives /health a 9s ceiling that holds for a warm partitioned pool (0.32s measured vs 31.4s undeadlined), close_all_pools wired into lifespan, FLY_MACHINE_ID in the body, and six real-Postgres tests run against a local PostgreSQL 17 + pgvector — which found three db.py bugs no fake had caught"
 progress:
   total_phases: 19
   completed_phases: 9
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 12
+  completed_plans: 12
   percent: 56
 ---
 
@@ -26,12 +26,20 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **EXECUTING**
-Plan: 1 of 5 executed in current phase
-Status: 11-01 complete. `db.py` runs on one `psycopg_pool.ConnectionPool` per DSN, shared by all
-three stores; the RLock and the single `_conn` are gone. `PoolTimeout`/`PoolClosed` are re-raised
-ahead of the retry arm, and schema DDL is serialised under `pg_advisory_lock(3895545195)` taken,
-held and released on one connection with the unlock's result checked.
-Last activity: 2026-08-05 — Executed 11-01-PLAN.md (3 tasks, 3 commits).
+Plan: 2 of 5 executed in current phase
+Status: 11-02 complete. `/health` bounds every store probe with a `HEALTH_PROBE_BUDGET` wall
+clock, giving a 9s ceiling that holds for a warm partitioned pool and not only a cold one; the
+lifespan disposes every pool including `graph.memory()`'s, which nothing had ever closed; the
+body names the answering machine via `FLY_MACHINE_ID`. The two contract tests 11-01 invalidated
+are repaired — the reconnect claim is now proved by a server-side `pg_terminate_backend` — and
+six real-Postgres tests run green with **zero skips** under `REQUIRE_POSTGRES=1`.
+Last activity: 2026-08-05 — Executed 11-02-PLAN.md (3 tasks, 4 commits).
+
+**11-02 ran the Postgres-gated suite for real.** Docker was unavailable, so PostgreSQL 17 +
+pgvector were installed via Homebrew and run on port 54329 (stopped and data dir deleted after;
+no `brew services` entry). This was load-bearing, not thoroughness theatre: the suite was green
+locally and red against a server, and the run found three `db.py` bugs — see 11-02-SUMMARY.md
+§ "The inherited breakage, and what it actually was".
 
 **Phase 10 is closed** — PR #4 merged, both required checks green, so the SC-5 push gate that
 held it open is satisfied and `REQ-adr-promotion` is complete.
@@ -39,7 +47,7 @@ held it open is satisfied and `REQ-adr-promotion` is complete.
 Progress: [██████░░░░] 59% (10 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
 Phase 10:   [██████████] 5 of 5 plans — complete (PR #4 merged)
-Phase 11:   [██░░░░░░░░] 1 of 5 plans — executing
+Phase 11:   [████░░░░░░] 2 of 5 plans — executing
 
 **Carry into execution — the four findings the plans are built around:**
 
@@ -47,19 +55,25 @@ Phase 11:   [██░░░░░░░░] 1 of 5 plans — executing
   Both `PoolTimeout` and `PoolClosed` are now caught and re-raised in an arm placed *before* the
   `OperationalError` arm. Measured against an unreachable DSN with `PG_POOL_TIMEOUT=0.5`: 0.505s
   with the exclusion, 1.007s without it — the naive port was mutated in and observed red.
-- **`/health` already blows its budget today**, before any Phase 11 change: two 3s connect
-  attempts × three sequential probes = up to 18s against Fly's 15s check. Phase 11 fixes it with
-  a `HEALTH_PROBE_BUDGET` deadline giving a 9s ceiling that holds cold, warm *and* partitioned.
-- **`pg_advisory_lock` is session-scoped**, so lock + DDL + unlock must share ONE pooled
-  connection or the lock serialises nothing and leaks. **Unit half closed by 11-01** — the block
-  runs inside one `cursor()`, the unlock's boolean is read and `False` raises, and a fake pool
-  proves one connection was handed out for the whole call (splitting the block was observed red).
-  The real-server exclusivity test is still owed by 11-02.
+- ~~**`/health` already blows its budget today**~~ — **CLOSED by 11-02.** Every probe now runs
+  under `HEALTH_PROBE_BUDGET` (3.0s default), giving a 9s ceiling that holds cold, warm *and*
+  partitioned. Measured 0.32s against a store that never answers; removing the deadline was
+  mutated in and observed **hanging** for 31.4s before failing.
+- ~~**`pg_advisory_lock` is session-scoped**~~ — **CLOSED by 11-02.** The unit half landed in
+  11-01 (one `cursor()`, unlock boolean checked, splitting observed red); the real-server half is
+  now `test_advisory_lock_is_exclusive_across_connections`, which shows a second connection
+  refused a held lock and an unlock from a non-holder returning `False` — the exact signature a
+  split across checkouts produces.
 - **Removing the three `*_DB_PATH` env vars does NOT prevent SQLite fallback.** `sessions.py:43`
   has a module-dir default and `default_backend()` returns `sqlite` whenever `DATABASE_URL` is
   empty — two mountless machines would each boot their own ephemeral database and `/health` would
   report `ok`. The fix is pinning `SESSION_BACKEND`/`METRICS_BACKEND`/`VECTOR_STORE` so a missing
-  DSN fails closed at construction.
+  DSN fails closed at construction. **Half closed by 11-02:** `-k fails_closed` asserts that a
+  pinned Postgres backend with no `DATABASE_URL` raises, and a companion test pins the negative
+  (unpinned + no DSN boots happily on container-local storage). That is a *property* test, not a
+  progress gate — it passes against today's tree. The gate that the pins are actually **set in
+  production** is still owed: the stateless arm of `test_local_store_paths_live_under_the_mount`,
+  written in 11-03 and armed by 11-05.
 
 Plans 11-04 and 11-05 are `autonomous: false` — they provision Supabase, set a Fly secret, drop
 the mount and scale to two machines. The volume `agent_data` is **kept as backup, never destroyed**.
@@ -82,7 +96,7 @@ Phase 10 — but it must not wait for Phase 11.
 |-------|-------|-------|----------|
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
-| 11 | 1 of 5 (11-01) | 55min | 55min |
+| 11 | 2 of 5 (11-01, 11-02) | 150min | 75min |
 
 **Recent Trend:**
 
@@ -128,6 +142,13 @@ Recent decisions affecting current work:
 - [Phase 10-05]: `ruff` is not on `PATH` in this environment; `.venv/bin/ruff` is the working invocation, matching the `.venv/bin/pytest` convention. Recorded so a future phase does not read a bare `ruff check .` failure as a lint regression.
 - [Phase 10-05]: The non-vacuity control is now four probes, not one — the zero-occurrence search, the file counter, the link resolver and the `Status` gate were each shown to fail on input that must fail. This repo has shipped five vacuous gates across two phases; a gate that has only ever passed is treated as unproven.
 - [Phase 11-01]: `check=ConnectionPool.check_connection` is **deliberately not used**, against RESEARCH's own Pattern 1. The check is a server round trip performed *during* checkout and the pool's `timeout` does not interrupt one in flight, so on a partitioned database it adds an unbounded cost to every checkout — on `/health`, the exact endpoint this phase is bounding. Staleness stays covered by the retry-once arm. Gated by `grep -c 'check_connection' src/research_agent/db.py` returning 0, with the reason in a comment so the omission does not read as an oversight.
+- [Phase 11-02]: **A local Postgres was built to run the gated suite**, because Docker was unavailable and this phase's plans state explicitly that a green local run is not evidence. It found three `db.py` bugs, two of which no fake could have caught. The rule this establishes: for a phase whose claims are server-shaped, "the Postgres tests skipped locally" is an unverified result, not a pass.
+- [Phase 11-02]: **The retry discriminator is the SQLSTATE, not the exception class.** Both obvious rules are wrong. "Any `OperationalError`" retries `QueryCanceled` (57014) and doubles the statement timeout that just fired. "Has a SQLSTATE means the server is alive" refuses to retry `AdminShutdown` (57P01), which is exactly what `pg_terminate_backend` sends. The second rule shipped and was caught only by the real server. `_connection_was_lost()` now retries SQLSTATE `None`, class `08`, and `57P01/02/03`.
+- [Phase 11-02]: **Reads retry the whole statement; writes deliberately do not.** A client cannot distinguish "never arrived" from "committed, response lost", so a retried write is at-least-once — a duplicated run in `/metrics` or a `UniqueViolation` over a row that exists. The asymmetry is documented in `_read()` rather than left to be inferred.
+- [Phase 11-02]: **`pool.check()` on the failure path is not the `check=` callback 11-01 rejected.** A provider terminates every idle connection at once, so a bare retry-once drew the next dead connection and still failed against a real server. `check()` replaces all broken idle connections, but runs *only* after one has been found dead — so 11-01's objection (a round trip on every checkout, including `/health`'s) does not apply and still stands.
+- [Phase 11-02]: **`_probe`'s deadline bounds availability, not execution**, and the docstring says so precisely. A `ThreadPoolExecutor` bounds its *workers*, not its *queue*; abandoned probes against a persistently hung peer are reaped by `tcp_user_timeout`, not by the worker count. `future.cancel()` was deliberately not added so the documented mechanism stays the true one.
+- [Phase 11-02]: **The skip-count invariant rises from 28 to 34**, and the operative gate is restated as (1) `0` skipped in CI under `REQUIRE_POSTGRES=1` — actually run, not predicted — and (2) locally, skips rise by exactly 6, each named in the summary. 11-05 Task 4 must mirror this into `11-VALIDATION.md`.
+- [Phase 11-02]: Two acceptance greps again tripped on the prose explaining why the forbidden token was removed — the same tension 11-01 logged. Resolved the same way: keep the gate, reword the reason. This is now a repeat pattern and a plan author should expect it.
 - [Phase 11-01]: `Database.close()` is a **claim release**, not a disposal, and is idempotent. `service.lifespan` closes sessions and metrics but never the memory store, and the contract suite closes after every parametrised case; a `close()` that disposed a shared pool would break the remaining holders, and a `ConnectionPool` cannot be reopened. `db.close_all_pools()` exists for the lifespan `finally` and is not wired yet — that is 11-02.
 - [Phase 11-01]: RESEARCH's Pitfall 7 was **wrong in the safe direction**. `PoolTimeout`'s message is "couldn't get a connection after 0.50 sec", and `test_store_contract.py`'s `match="(?i)connect"` is a `re.search`, which "connection" satisfies. The test needed no edit; do not loosen it later on the strength of the prediction.
 - [Phase 11-01]: The retry arm in `cursor()` can only fire on an exception raised at *checkout*. A `@contextmanager` that yields a second time after an exception is thrown in raises `RuntimeError: generator didn't stop after throw()`. This is the pre-existing shape, unchanged by the port — worth knowing before anyone "improves" it.
@@ -285,8 +306,17 @@ Resume file: None
 - **Deploys are manual and now proven so.** `fly secrets set --stage` then one `fly deploy`
   puts secret and code in the same release — required whenever a control fails closed.
 
-Next: **push `main`** (21 documentation-only commits, no deployable file among them), then flip
-the SC-5 row in `10-VALIDATION.md` to ✅, set `**Approval:** approved`, mark Phase 10 Complete in
-ROADMAP and tick `REQ-adr-promotion` in REQUIREMENTS.md. After that, `/gsd:plan-phase 11`
-(multi-machine state and pooled Postgres). No deploy is pending — release v4 is current and was
-re-verified live on 2026-08-05.
+- **A `@contextmanager` cannot retry from inside the caller's `with` body.** Yielding a second
+  time after `gen.throw` raises `RuntimeError: generator didn't stop after throw()`, which fails
+  the call *and* destroys the original exception. This is why `db.cursor()` retries only the
+  checkout and `db._read()` owns the statement-level retry. Anyone "improving" the retry should
+  read both docstrings first.
+
+- **`HEALTH_PROBE_BUDGET` is a new tunable**, 3.0s default with a 0.1 floor, and it has no
+  `fly.toml` entry on purpose — the default is the intended production value. 11-05 should
+  confirm the resulting 9s ceiling against the real check timeout in `fly.toml`.
+
+Next: **11-03** — guard the new deploy topology in `tests/test_deploy_config.py`, including the
+stateless arm of `test_local_store_paths_live_under_the_mount`, which is the real gate that the
+three backend pins are set in production. No deploy is pending — release v4 is current and was
+re-verified live on 2026-08-05. `DATABASE_URL` provisioning is 11-04.
