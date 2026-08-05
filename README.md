@@ -158,7 +158,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 504 tests, ~25s, no API keys, no network
+pytest                    # 534 tests, ~25s, no API keys, no network
 python -m evals           # 12 golden cases, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 ```
@@ -205,7 +205,7 @@ Known, and deliberate for the scope.
 - **Stores grow without bound.** No eviction, dedup, or summarisation for notes; no expiry or ownership for sessions.
 - **Running on SQLite pins you to one machine.** That's the local and container default: a second machine would hold its own database and 404 on sessions that exist. Production points `DATABASE_URL` at Supabase Postgres, which is what removes the constraint — the deploy config asserts the two can't drift apart in either direction.
 - **The database is a single region and a free tier.** Supabase Nano in `ap-southeast-2`, no read replica, and a 60-connection ceiling of which the fleet holds ten. Fine at this traffic; the first thing to look at if it isn't.
-- **The demo spend cap counts completed runs only.** A burst of concurrent runs can overshoot `DEMO_DAILY_USD_CAP` before any of them settle, and running two machines raises how far. Bounded by the per-run cap and the rate limit, not by the daily one.
+- **The demo spend cap reserves against an estimate, not the real cost.** A starting run claims `DEMO_RESERVED_RUN_USD` ($0.20, about what a run costs) against `DEMO_DAILY_USD_CAP` and settles to the actual figure when it finishes, so in-flight runs count and concurrency can no longer overshoot — the check and the insert share one transaction holding a Postgres advisory lock, and the state is shared across machines rather than held per process. What remains: a run whose process dies keeps its reservation for 900s before it is reclaimed, and a wrong estimate makes the cap slightly early or slightly late, never absent.
 - **Changing embedding model means a new pgvector table.** The column width is fixed at creation; the dimension check fails loudly but can't migrate for you.
 - **The public demo is rate-limited, not authenticated.** Running research is deliberately open to anyone — guardrails bound the spend, they don't identify callers. Reading or deleting a stored session is not: those endpoints need a token, but the token says *authorised*, not *who*.
 
