@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: executing
-stopped_at: "Executed 12-06-PLAN.md IN FULL, including Task 4 — the live cutover. IDENTITY_SIGNING_SECRET deployed app-wide; releases v8 then v9; both machines (846975f2604548, d8d0320f751618) healthy on v9. Verified live with recorded output: identity_signing true on both machines, a cookieless caller reaching a working page and a completed research stream with the identity minted on that same response, a cookie minted on A verifying on B with zero re-mints and surviving a fleet restart, and ownership refusing a second identity with a 404 indistinguishable from missing. Both requirements marked Complete. Nothing pushed. Next: /gsd:verify-work on Phase 12, then the phase PR."
+status: planned
+stopped_at: "Phase 13 planned on branch gsd/phase-13-embedding-migration (stacked on phase-12; rebase onto main after PR #6 merges). 5 plans, 5 waves; checker 0 blockers, 3 warnings fixed. Next: /gsd:execute-phase 13."
 last_updated: "2026-08-05T16:35:00.000Z"
-last_activity: "2026-08-05 — Executed 12-06 IN FULL. Task 4 cut over live (releases v8, v9): both machines report identity_signing true; a genuinely cookieless curl gets 200 + text/html + Set-Cookie on the same response, with a first-paint tag census of 1 form / 1 input / 1 button and zero wall words, and the served bytes sha-identical to the statically gated file; a cookieless POST /research/stream completed and minted on its SSE response; that cookie verified on the machine that did not mint it with zero re-mints, carried POST /sessions/{id}/ask to 200, and survived a full fleet restart; a second identity got an empty listing and a 404 byte-identical to never-existed on both read and write. One bug found by probing prod and fixed as v9: the root index claimed X-Demo-Token was required for three endpoints that answer 200 without it. Gaps recorded not waived: no real-browser session (all curl), rollback untested. Earlier, Tasks 1-3: ADR-0007 (supersedes 0006, carrying forward SESSIONS_TOKEN-as-operator-credential with its fail-closed meaning inverted, the read/cap decomposition, the router grouping and DEMO_TOKEN-never-in-prod); README/OPERATIONS/.env.example corrected including the two items deferred here by waves 2-3; /health reports identity_signing; the demo page gained a footer identity sentence, a two-scope limits line, an owned-session list that is absent from the DOM until populated, a side-effect-free renderTurnCard() and a resume flow; nine criterion-6 gates, 24 of 25 mutations red. Suite 526/47 plain, 572/1 armed, no new skips."
+last_activity: "2026-08-06 — Phase 13 planned: repair-then-prove migrate.py (it orphans owners TODAY), copy-only + re-embed as separate commands, golden recall set with exact-scan discipline (HNSW never inside a fidelity claim), VOYAGE_PRICES effective-dated in usage.py, cutover = PGVECTOR_TABLE flip, ADR-0008."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,42 +25,30 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTED, awaiting verify + PR**
-Plan: 6 of 6 executed (12-06 all 4 tasks) · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched, nothing pushed)
-Status: Wave 5 code and docs complete (12-06 Tasks 1–3). **ADR-0007 supersedes ADR-0006** with an explicit `### Carried forward` section — the convention forbids editing a superseded record's body, so the new record is the only honest place to say that `SESSIONS_TOKEN` survives as the *operator* credential with its fail-closed meaning **inverted**, and that 0006's parts 3 (guard stays off the reads) and 4 (structural router grouping) are reaffirmed rather than discarded. README's "rate-limited, not authenticated" bullet — deferred by four consecutive waves — is rewritten honestly, including the free-to-mint fairness ceiling. The demo page shows identity in exactly two muted text deltas and nothing else: an owned-session list that is **not in the document at all** until it has a row, a side-effect-free `renderTurnCard()` that omits absent badges instead of inventing `$0.0000`, and a resume flow. Criterion 6 is now nine machine-checked static gates including a frozen first-paint text baseline (the whole phase's markup delta is one run) and a frozen tag census.
-**Task 4 — the live cutover — is DONE.** `IDENTITY_SIGNING_SECRET` went from `Staged` to `Deployed`; releases **v8** then **v9**; both machines `846975f2604548` and `d8d0320f751618` on v9, checks passing. The three claims the suite structurally cannot reach are now evidenced with recorded command output rather than judgements about it: `/health` reports `identity_signing: true` on **both** machines; a genuinely cookieless caller (no jar, no `-b`) gets **200 + `text/html` + `Set-Cookie` on that same response**, a first-paint tag census of `1 form / 1 input / 1 button`, zero wall words, and served bytes **sha-identical** to the statically gated file; a cookieless `POST /research/stream` completed with the cookie minted on its SSE response; **that cookie verified on the machine that did not mint it with zero re-mints**, carried `POST /sessions/{id}/ask` to a 200, and survived a full fleet restart — which a per-process ephemeral secret cannot do by construction. Ownership bites: a second identity gets `{"sessions":[]}` and a 404 byte-identical to never-existed, on read and write alike. `/demo` still reports `token_required: false`; `DEMO_TOKEN` remains unset.
-**Two gaps recorded rather than waived:** every live check was `curl`, so there was no real-browser dev-tools session (cookie invisibility to `document.cookie` and the reload revealing "Your recent research" rest on mechanism + static/DOM-shim coverage), and the rollback (`fly secrets unset` + redeploy) was **not** exercised.
-Last activity: 2026-08-05 — Executed 12-06 in full (commits ab54fb5, 1c79677, d7d06e2, fc6c56a).
+Phase: 13 of 17 (Embedding model migration) — **PLANNED, not started**
+Plan: 0 of 5 executed · branch `gsd/phase-13-embedding-migration`, STACKED on
+`gsd/phase-12-caller-identity` (phase 12 note schema is a dependency). **Rebase onto `main`
+after PR #6 merges, before executing.**
+Status: Planned and verified — checker 0 blockers; 3 one-line warnings fixed inline.
 
-**Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7. **Phase 12 is now live on v9** but not yet merged — the branch is unpushed.
+**Phase 12 shipped** (PR #6 open, green, v9 live). Phases 10, 10.5, 11 merged.
 
-Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 12: [██████████] 6 of 6 plans — executed and live on release v9 (awaiting /gsd:verify-work, then the phase PR)
+Progress: [███████░░░] 71% (12 of 17 phases complete + hotfix; v1.0 shipped)
+Phase 13: [░░░░░░░░░░] 0 of 5 plans — planned
 
-**Carry into execution — what breaks the demo if wrong:**
-
-- **Minting is pure-ASGI middleware, mint-on-response, NEVER 401.** `/research/stream`,
-  `/ask/stream`, `GET /` return Response objects where a dependency's set_cookie is dropped.
-  A first-time COOKIELESS caller's stream must not break — this is criterion 6's hinge.
-- **The global daily cap SURVIVES.** Identities are free to mint (clear storage → fresh
-  limits), so per-identity limits alone cannot bound the bill. Removing the global cap because
-  "limits are per-identity now" is the failure mode.
-- **The cap reservation is race-free only inside `pg_advisory_xact_lock`** (transaction-scoped;
-  a new `Database.transaction()` helper — the pool is autocommit). Settlement on BOTH success
-  and SSE-error arms; 900s staleness reclaim or a crashed run throttles the demo forever.
-- **`reserve_or_429` now has a structural walker gate** (like `guard`) so it can't be silently
-  forgotten on a route — the exact failure ADR-0006 exists to prevent.
-- **Secure cookie + TestClient:** tests need `base_url="https://testserver"` or the cookie
-  never sets and auth tests pass vacuously.
-- **chromadb joins the `dev` extra**; the contract suite runs 4 arms that must PASS in CI (not
-  skip). SC-5 depends on it.
-
-Wave 5 (12-06) is `autonomous: false` — sets the `IDENTITY_SIGNING_SECRET` Fly secret, deploys,
-and needs a real browser + two machines to verify criterion 6 and identity continuity.
-
-**Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
-Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
-Phase 10 — but it must not wait for Phase 11.
+**Carry into execution:**
+- `migrate.py` has a LIVE data-loss bug today: `migrate_notes` inserts only `(text,
+  embedding)` → every migrated note orphaned to `owner=''` with its TTL restarted;
+  sessions drop `owner` too. Wave 1 repairs before proving.
+- "Recall byte-identical" is NEVER asserted through the HNSW index (approximate,
+  nondeterministic build). Exact-scan discipline everywhere; index sanity is a separate,
+  scale-bounded set-equality check.
+- voyage-3.5 `output_dimension=2048` exceeds pgvector's HNSW limit (2000) — the re-embed
+  command refuses >2000 loudly.
+- Preview always prints; `--yes` required to spend. Wave 5 is a checkpoint (live Voyage
+  re-embed against Supabase `migration_demo_*` scratch tables only; cleanup gated).
+- Local PG17+pgvector on :54329 (scratchpad instance `pg12`; start with LC_ALL set).
+  Baselines: plain 527/47, armed 573/1.
 
 ## Performance Metrics
 
