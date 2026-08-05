@@ -5,19 +5,30 @@ The service is publicly reachable with live API keys, so these are the tests
 that stand between a shared URL and someone else's Anthropic bill.
 """
 
+import threading
 import time
 
 import pytest
 from fastapi import HTTPException
 
-from research_agent import limits
-from research_agent.limits import RateLimiter
+from research_agent import db, limits
+from research_agent.limits import InMemoryLimits, PostgresLimits, RateLimiter
+
+HAS_POSTGRES = db.postgres_configured()
 
 
 class FakeRequest:
-    def __init__(self, headers=None, host="203.0.113.7"):
+    """A Request stand-in carrying what the guards actually read.
+
+    `state.identity` is set by IdentityMiddleware on every real request, so a
+    fake without one would let an identity-keyed limiter be tested against
+    something the production path never sees.
+    """
+
+    def __init__(self, headers=None, host="203.0.113.7", identity="identity-default"):
         self.headers = headers or {}
         self.client = type("C", (), {"host": host})()
+        self.state = type("S", (), {"identity": identity})()
 
 
 class FakeMetrics:
@@ -33,11 +44,10 @@ class FakeMetrics:
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     for var in ("DEMO_TOKEN", "SESSIONS_TOKEN", "DEMO_RATE_LIMIT_PER_HOUR",
-                "DEMO_DAILY_USD_CAP", "TRUST_FORWARDED_FOR"):
+                "DEMO_DAILY_USD_CAP", "TRUST_FORWARDED_FOR", "DEMO_RESERVED_RUN_USD",
+                "LIMITS_BACKEND"):
         monkeypatch.delenv(var, raising=False)
-    limits.reset_limiter()
     yield
-    limits.reset_limiter()
 
 
 # --------------------------------------------------------------------------
@@ -131,8 +141,6 @@ def test_stale_keys_are_swept():
 
 
 def test_the_limiter_is_thread_safe():
-    import threading
-
     rl = RateLimiter(limit=1000, window_seconds=3600)
     errors = []
 
@@ -153,11 +161,230 @@ def test_the_limiter_is_thread_safe():
     assert len(rl._hits["shared"]) == 500  # no lost updates
 
 
-def test_the_shared_limiter_reconfigures_when_the_setting_changes(monkeypatch):
-    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "5")
-    assert limits.limiter().limit == 5
-    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "50")
-    assert limits.limiter().limit == 50
+def test_the_memory_store_reconfigures_when_the_setting_changes():
+    """Raising the limit must take effect without a restart -- and without
+    carrying the old window's hits into the new one."""
+    store = InMemoryLimits()
+    assert store.check_rate("a", 1, 60)[0] is True
+    assert store.check_rate("a", 1, 60)[0] is False
+    assert store.check_rate("a", 5, 60)[0] is True
+
+
+# --------------------------------------------------------------------------
+# The limits store: identity-keyed rate window, reserve/settle
+# --------------------------------------------------------------------------
+
+
+def _dsn_tagged(application_name: str) -> str:
+    """DATABASE_URL carrying an application_name, mirroring test_store_contract.
+
+    Two jobs, both load-bearing here: it makes the DSN test-unique, and
+    db._pool_for caches one pool per DSN -- so two handles on two tagged DSNs
+    are guaranteed two pools and therefore two real connections, which is what
+    the two-thread race below needs.
+    """
+    base = db.database_url()
+    separator = "&" if "?" in base else "?"
+    return f"{base}{separator}application_name={application_name}"
+
+
+@pytest.fixture
+def pg_limits():
+    """A PostgresLimits on a private table state, truncated between cases."""
+    store = PostgresLimits(dsn=_dsn_tagged("ra_limits"))
+    store.db.execute("TRUNCATE rate_hits")
+    store.db.execute("TRUNCATE run_reservations")
+    yield store
+    store.close()
+
+
+def test_the_memory_store_rate_limits_per_identity():
+    """The whole point of the identity rekey: the key is the identity, so one
+    caller's exhaustion is not another's."""
+    store = InMemoryLimits()
+    assert store.check_rate("identity-a", 1, 60)[0] is True
+    assert store.check_rate("identity-a", 1, 60)[0] is False
+    assert store.check_rate("identity-b", 1, 60)[0] is True
+
+
+def test_a_refused_rate_check_reports_a_retry_hint():
+    store = InMemoryLimits()
+    store.check_rate("a", 1, 60)
+    allowed, retry_after = store.check_rate("a", 1, 60)
+    assert allowed is False
+    assert 0 < retry_after <= 61
+
+
+def test_a_rate_limit_of_zero_disables_the_check():
+    store = InMemoryLimits()
+    assert all(store.check_rate("a", 0, 60)[0] for _ in range(50))
+
+
+def test_a_reservation_within_budget_is_recorded():
+    store = InMemoryLimits()
+    assert store.reserve("run-1", "id-a", 0.20, cap=5.00, spent_24h=0.0) is True
+    assert store.reservation_ids() == {"run-1"}
+
+
+def test_settle_releases_the_reservation():
+    store = InMemoryLimits()
+    store.reserve("run-1", "id-a", 0.20, cap=5.00, spent_24h=0.0)
+    store.settle("run-1")
+    assert store.reservation_ids() == set()
+    store.settle("run-1")  # idempotent: a second settle must not raise
+
+
+def test_a_reservation_over_the_cap_is_refused():
+    store = InMemoryLimits()
+    assert store.reserve("run-1", "id-a", 0.20, cap=5.00, spent_24h=4.95) is False
+    assert store.reservation_ids() == set()
+
+
+def test_in_flight_reservations_count_against_the_cap():
+    """The defect this closes: counting only completed runs let N concurrent
+    runs each see the same pre-burst total and all pass."""
+    store = InMemoryLimits()
+    assert store.reserve("run-1", "id-a", 0.60, cap=1.00, spent_24h=0.0) is True
+    assert store.reserve("run-2", "id-b", 0.60, cap=1.00, spent_24h=0.0) is False
+
+
+def test_a_cap_of_zero_reserves_nothing():
+    store = InMemoryLimits()
+    assert store.reserve("run-1", "id-a", 0.20, cap=0.0, spent_24h=1000.0) is True
+    assert store.reservation_ids() == set()
+
+
+def test_a_stale_reservation_stops_counting(monkeypatch):
+    """A run killed mid-flight must not pin the budget forever."""
+    store = InMemoryLimits()
+    assert store.reserve("crashed", "id-a", 0.60, cap=1.00, spent_24h=0.0) is True
+    # Age it past the cutoff without waiting fifteen minutes.
+    identity, est, _ = store._reservations["crashed"]
+    long_ago = time.time() - limits.RESERVATION_STALE_SECONDS - 1
+    store._reservations["crashed"] = (identity, est, long_ago)
+
+    assert store.reserve("fresh", "id-b", 0.60, cap=1.00, spent_24h=0.0) is True
+    assert "crashed" not in store.reservation_ids()  # purged on the way past
+
+
+def test_the_backend_defaults_on_the_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert limits.default_backend() == "memory"
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user@host/db")
+    assert limits.default_backend() == "postgres"
+
+
+def test_an_unknown_backend_is_rejected():
+    with pytest.raises(ValueError, match="Unknown LIMITS_BACKEND"):
+        limits.get_limits_store("mysql")
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_the_postgres_rate_window_persists_across_calls(pg_limits):
+    """The state has to be in the database, not in this process: that is the
+    entire reason for the backend."""
+    assert pg_limits.check_rate("pg-a", 1, 60)[0] is True
+    assert pg_limits.check_rate("pg-a", 1, 60)[0] is False
+    assert pg_limits.check_rate("pg-b", 1, 60)[0] is True
+
+    # A second store on the same database sees the first one's hits -- which is
+    # what "two machines share one window" means.
+    other = PostgresLimits(dsn=_dsn_tagged("ra_limits_other"))
+    try:
+        assert other.check_rate("pg-a", 1, 60)[0] is False
+    finally:
+        other.close()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_postgres_reservations_round_trip(pg_limits):
+    assert pg_limits.reserve("pg-run-1", "id-a", 0.20, cap=5.00, spent_24h=0.0) is True
+    assert pg_limits.reservation_ids() == {"pg-run-1"}
+    assert pg_limits.reserve("pg-run-2", "id-b", 0.20, cap=5.00, spent_24h=4.95) is False
+    pg_limits.settle("pg-run-1")
+    assert pg_limits.reservation_ids() == set()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_cap_reservation_no_overshoot(pg_limits):
+    """Two guards racing one slot: exactly one may have it.
+
+    This is the gate on the whole reservation design. A conditional
+    INSERT ... SELECT reads as atomic and is not: under READ COMMITTED each
+    transaction evaluates its WHERE against a snapshot taken before the other's
+    row was committed, so both see an empty table and both insert. Only the
+    advisory lock around check-and-insert makes the pair serial.
+
+    Two Databases on two tagged DSNs, because db._pool_for caches one pool per
+    DSN -- one handle would hand both threads connections from the same pool,
+    which still works but tests less. Mirrors the schema-lock exclusivity test
+    in test_store_contract.py.
+    """
+    est = 0.20
+    cap = 0.20  # room for exactly one reservation, and not a cent more
+    stores = [
+        PostgresLimits(dsn=_dsn_tagged("ra_cap_race_a")),
+        PostgresLimits(dsn=_dsn_tagged("ra_cap_race_b")),
+    ]
+    results = []
+    results_lock = threading.Lock()
+    # A barrier rather than a bare start(): without it the first thread can
+    # finish before the second begins, and the test proves nothing about
+    # concurrency at all.
+    ready = threading.Barrier(len(stores))
+
+    def attempt(store, run_id):
+        ready.wait(timeout=5)
+        outcome = store.reserve(run_id, "racer", est, cap, 0.0)
+        with results_lock:
+            results.append(outcome)
+
+    threads = [
+        threading.Thread(target=attempt, args=(store, f"race-{i}"))
+        for i, store in enumerate(stores)
+    ]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+    finally:
+        for store in stores:
+            store.close()
+
+    assert results.count(True) == 1, f"the cap admitted {results.count(True)} of two: {results}"
+    assert results.count(False) == 1, results
+    assert len(pg_limits.reservation_ids()) == 1  # and only one row exists
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_postgres_reservation_settles_and_reclaims(pg_limits):
+    """Settle releases the slot; a crashed run's reservation releases itself."""
+    pg_limits.reserve("settled", "id-a", 0.60, cap=1.00, spent_24h=0.0)
+    pg_limits.settle("settled")
+    assert pg_limits.reservation_ids() == set()
+
+    # Control: a LIVE reservation genuinely blocks a second one. Without this,
+    # "the stale one was ignored" below would also pass against a reserve that
+    # had stopped counting reservations altogether.
+    assert pg_limits.reserve("live", "id-a", 0.60, cap=1.00, spent_24h=0.0) is True
+    assert pg_limits.reserve("blocked", "id-b", 0.60, cap=1.00, spent_24h=0.0) is False
+    pg_limits.settle("live")
+
+    # A run whose process died 15 minutes ago. Nothing legitimate is still
+    # going, so its claim on the budget must lapse rather than throttle the
+    # demo until someone notices.
+    pg_limits.db.execute(
+        "INSERT INTO run_reservations (run_id, identity, est_usd, created_at) "
+        "VALUES (%s, %s, %s, %s)",
+        ("crashed", "id-c", 0.60, time.time() - limits.RESERVATION_STALE_SECONDS - 1),
+    )
+    assert pg_limits.reserve("fresh", "id-d", 0.60, cap=1.00, spent_24h=0.0) is True
+
+    # And it is purged rather than accumulating forever.
+    pg_limits.SWEEP_EVERY = 1  # instance attribute: forces the sweep on this call
+    pg_limits.settle("fresh")
+    assert pg_limits.reservation_ids() == set()
 
 
 # --------------------------------------------------------------------------
@@ -188,7 +415,7 @@ def test_the_right_token_passes(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Sessions token
+# Session access: the operator token, and the identity everyone else has
 # --------------------------------------------------------------------------
 
 
@@ -205,30 +432,52 @@ def test_sessions_token_falls_back_to_demo_token(monkeypatch):
     assert limits.sessions_token() == "beta"
 
 
-def test_require_sessions_token_refuses_when_nothing_is_configured():
-    """The whole point of the hotfix: an operator who forgets the secret must
-    not silently reopen the leak. Unset means nobody passes, not everybody."""
-    with pytest.raises(HTTPException) as exc:
-        limits.require_sessions_token(FakeRequest())
-    assert exc.value.status_code == 403
+def test_session_access_without_a_token_is_the_callers_own_identity():
+    """The Phase 12 inversion, asserted rather than described.
+
+    This used to raise 403 when nothing was configured, so that forgetting the
+    secret could not silently reopen the world-readable hole. Sessions now
+    carry an owner and `service._require` refuses a stranger's with a 404, so
+    an unset SESSIONS_TOKEN closes the OPERATOR view and nothing else. The
+    caller is scoped to themselves -- which is not "passing", it is being
+    handed the only key that opens their own door.
+    """
+    assert limits.require_session_access(FakeRequest()) == ("identity", "identity-default")
 
 
 @pytest.mark.parametrize("headers", [{}, {"x-demo-token": "wrong"}])
-def test_require_sessions_token_rejects_a_missing_or_wrong_header(monkeypatch, headers):
+def test_session_access_without_the_right_token_is_not_the_operator(monkeypatch, headers):
+    """A missing or wrong credential buys the identity view, never the operator
+    one. Asserted on the mode, because a guess that merely failed to raise
+    would be indistinguishable from a guess that worked."""
     monkeypatch.setenv("SESSIONS_TOKEN", "alpha")
-    with pytest.raises(HTTPException) as exc:
-        limits.require_sessions_token(FakeRequest(headers))
-    assert exc.value.status_code == 401
+    mode, owner = limits.require_session_access(FakeRequest(headers))
+    assert (mode, owner) == ("identity", "identity-default")
 
 
-def test_require_sessions_token_accepts_the_configured_token(monkeypatch):
+def test_session_access_with_the_configured_token_is_the_operator(monkeypatch):
     monkeypatch.setenv("SESSIONS_TOKEN", "alpha")
-    assert limits.require_sessions_token(FakeRequest({"x-demo-token": "alpha"})) is None
+    assert limits.require_session_access(FakeRequest({"x-demo-token": "alpha"})) == (
+        "operator",
+        None,
+    )
 
 
-def test_require_sessions_token_accepts_a_demo_token_value(monkeypatch):
+def test_session_access_accepts_a_demo_token_value(monkeypatch):
     monkeypatch.setenv("DEMO_TOKEN", "beta")
-    limits.require_sessions_token(FakeRequest({"x-demo-token": "beta"}))  # must not raise
+    assert limits.require_session_access(FakeRequest({"x-demo-token": "beta"}))[0] == "operator"
+
+
+def test_an_unset_token_cannot_be_matched_by_an_absent_header():
+    """Both sides empty must not compare equal into the operator branch.
+
+    The regression this forbids is the one-character kind: dropping the
+    `token and supplied` test would make `compare_digest("", "")` true, and
+    every anonymous caller on a service with no SESSIONS_TOKEN would silently
+    become the operator -- the original world-readable defect, rebuilt.
+    """
+    mode, _ = limits.require_session_access(FakeRequest({"x-demo-token": ""}))
+    assert mode == "identity"
 
 
 # --------------------------------------------------------------------------
@@ -238,17 +487,46 @@ def test_require_sessions_token_accepts_a_demo_token_value(monkeypatch):
 
 def test_spending_under_the_cap_is_allowed(monkeypatch):
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
-    limits.check_daily_cap(FakeMetrics(spent=4.99))
+    store = InMemoryLimits()
+    limits.reserve_or_429(store, "run-1", "id-a", FakeMetrics(spent=4.00))
+    assert store.reservation_ids() == {"run-1"}
 
 
 def test_reaching_the_cap_refuses_new_runs(monkeypatch):
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
     with pytest.raises(HTTPException) as exc:
-        limits.check_daily_cap(FakeMetrics(spent=5.00))
+        limits.reserve_or_429(InMemoryLimits(), "run-1", "id-a", FakeMetrics(spent=5.00))
 
     assert exc.value.status_code == 429
     assert "daily budget" in exc.value.detail
     assert "Retry-After" in exc.value.headers
+
+
+def test_reads_survive_the_cap(monkeypatch):
+    """The refusal's exact promise. The message tells the caller that reads
+    still work, so the sentence is part of the contract and not decoration --
+    ADR-0006 keeps `guard` off the session reads to make it true."""
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
+
+    class AlwaysFull(InMemoryLimits):
+        def reserve(self, *args, **kwargs):
+            return False
+
+    with pytest.raises(HTTPException) as exc:
+        limits.reserve_or_429(AlwaysFull(), "run-1", "id-a", FakeMetrics(spent=9.99))
+
+    assert exc.value.status_code == 429
+    assert "Read-only endpoints still work." in exc.value.detail
+
+
+def test_the_reservation_reflects_the_estimate(monkeypatch):
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "1.00")
+    monkeypatch.setenv("DEMO_RESERVED_RUN_USD", "0.60")
+    store = InMemoryLimits()
+
+    limits.reserve_or_429(store, "run-1", "id-a", FakeMetrics(spent=0.0))
+    with pytest.raises(HTTPException):  # 0.60 + 0.60 > 1.00
+        limits.reserve_or_429(store, "run-2", "id-b", FakeMetrics(spent=0.0))
 
 
 def test_the_cap_asks_about_a_rolling_24h_window(monkeypatch):
@@ -256,7 +534,7 @@ def test_the_cap_asks_about_a_rolling_24h_window(monkeypatch):
     the server happens to think it is in."""
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
     metrics = FakeMetrics()
-    limits.check_daily_cap(metrics)
+    limits.reserve_or_429(InMemoryLimits(), "run-1", "id-a", metrics)
 
     asked_about = metrics.queries[0]
     day_ago = time.time() - limits.DAY_SECONDS
@@ -266,8 +544,20 @@ def test_the_cap_asks_about_a_rolling_24h_window(monkeypatch):
 def test_a_cap_of_zero_disables_it_and_costs_no_query(monkeypatch):
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0")
     metrics = FakeMetrics(spent=1000.0)
-    limits.check_daily_cap(metrics)
+    limits.reserve_or_429(InMemoryLimits(), "run-1", "id-a", metrics)
     assert metrics.queries == []
+
+
+def test_settle_never_raises():
+    """A settle that failed must not turn a finished run into a 500, nor
+    truncate a stream that has already delivered its result. The staleness
+    cutoff is what makes swallowing it survivable."""
+
+    class Broken(InMemoryLimits):
+        def settle(self, run_id):
+            raise RuntimeError("database went away")
+
+    limits.settle(Broken(), "run-1")  # must not raise
 
 
 # --------------------------------------------------------------------------
@@ -280,14 +570,46 @@ def test_an_unauthorised_caller_cannot_consume_the_rate_limit(monkeypatch):
     without ever being allowed to run anything."""
     monkeypatch.setenv("DEMO_TOKEN", "s3cret")
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
+    store = InMemoryLimits()
 
     for _ in range(5):
         with pytest.raises(HTTPException) as exc:
-            limits.enforce(FakeRequest(), FakeMetrics())
+            limits.enforce(FakeRequest(), FakeMetrics(), store)
         assert exc.value.status_code == 401
 
     # The quota was never touched, so a valid caller still gets their turn.
-    limits.enforce(FakeRequest({"x-demo-token": "s3cret"}), FakeMetrics())
+    limits.enforce(FakeRequest({"x-demo-token": "s3cret"}), FakeMetrics(), store)
+
+
+def test_the_rate_limit_keys_on_identity_not_the_address(monkeypatch):
+    """Two callers behind one address -- a household, an office NAT, a mobile
+    carrier -- get independent budgets. Both directions are asserted: A must
+    actually be refused, and B must actually be let through, so neither a
+    shared window nor a limiter that never fires can pass this."""
+    monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
+    store = InMemoryLimits()
+    shared_address = "198.51.100.9"
+    a = FakeRequest(host=shared_address, identity="identity-a")
+    b = FakeRequest(host=shared_address, identity="identity-b")
+
+    limits.enforce(a, FakeMetrics(), store)
+    with pytest.raises(HTTPException) as exc:
+        limits.enforce(a, FakeMetrics(), store)
+    assert exc.value.status_code == 429
+
+    limits.enforce(b, FakeMetrics(), store)  # untouched by A's exhaustion
+
+
+def test_enforce_no_longer_applies_the_daily_cap(monkeypatch):
+    """The cap moved to the run-start choke point, where a run_id exists to
+    reserve against. A guard that still capped would 429 here and cost a spend
+    query doing it."""
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "1.00")
+    metrics = FakeMetrics(spent=1000.0)  # far over the cap
+
+    limits.enforce(FakeRequest(), metrics, InMemoryLimits())  # must not raise
+
+    assert metrics.queries == []  # and must not have asked
 
 
 def test_a_rate_limited_caller_costs_no_database_query(monkeypatch):
@@ -295,14 +617,14 @@ def test_a_rate_limited_caller_costs_no_database_query(monkeypatch):
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
     metrics = FakeMetrics()
+    store = InMemoryLimits()
 
-    limits.enforce(FakeRequest(), metrics)
-    assert len(metrics.queries) == 1
-
+    limits.enforce(FakeRequest(), metrics, store)
     for _ in range(10):
         with pytest.raises(HTTPException):
-            limits.enforce(FakeRequest(), metrics)
-    assert len(metrics.queries) == 1  # unchanged
+            limits.enforce(FakeRequest(), metrics, store)
+
+    assert metrics.queries == []
 
 
 # --------------------------------------------------------------------------
@@ -321,6 +643,30 @@ def test_status_reports_the_live_configuration(monkeypatch):
     assert status["spent_24h_usd"] == 1.2345
     assert status["budget_exhausted"] is False
     assert status["token_required"] is False
+
+
+def test_status_keeps_every_key_it_has_ever_reported(monkeypatch):
+    """Additive only. The deployed page is redeployed with the service; the
+    browser tab already open on it is not, so a renamed key breaks a live
+    client for as long as it stays open."""
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
+    original = {
+        "token_required",
+        "rate_limit_per_hour",
+        "daily_cap_usd",
+        "spent_24h_usd",
+        "budget_exhausted",
+    }
+    assert original <= set(limits.status(FakeMetrics(spent=1.0)))
+
+
+def test_status_reports_the_new_limit_shape(monkeypatch):
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
+    monkeypatch.setenv("DEMO_RESERVED_RUN_USD", "0.25")
+    status = limits.status(FakeMetrics(spent=1.0))
+
+    assert status["rate_limit_scope"] == "identity"
+    assert status["reserved_run_usd"] == 0.25
 
 
 def test_status_flags_an_exhausted_budget(monkeypatch):

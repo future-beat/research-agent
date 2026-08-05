@@ -29,6 +29,8 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Protocol
@@ -58,6 +60,31 @@ VECTOR_DIMENSIONS = int(os.environ.get("VECTOR_DIMENSIONS", "1024"))
 
 DEFAULT_TOP_K = 3
 DEFAULT_MIN_SIMILARITY = 0.3
+
+NOTE_TTL_DAYS_DEFAULT = 7.0
+
+
+def note_ttl_seconds() -> float:
+    """How long a note survives its creation, in seconds.
+
+    Seven days, matching SESSION_TTL_DAYS: notes and sessions are the same
+    hygiene problem wearing different hats, and two different answers to "how
+    long does the demo remember you" would be a thing to keep in sync rather
+    than a decision.
+
+    Notes are written once and never updated, so created_at *is* last activity
+    -- there is no "expires after a week of inactivity" / "a week after
+    creation" distinction to get wrong here, unlike sessions.
+
+    Read per call rather than cached, the convention every env-driven knob in
+    this codebase uses, so a test can flip it with monkeypatch.setenv.
+    """
+    raw = os.environ.get("NOTE_TTL_DAYS", "").strip()
+    try:
+        days = float(raw) if raw else NOTE_TTL_DAYS_DEFAULT
+    except ValueError:
+        days = NOTE_TTL_DAYS_DEFAULT
+    return max(days, 0.0) * 86400.0
 
 
 # --------------------------------------------------------------------------
@@ -108,11 +135,40 @@ class VoyageEmbedder:
 
 
 class MemoryStore(ABC):
-    """The entire contract the graph depends on."""
+    """The entire contract the graph depends on.
+
+    `owner` is the caller identity a note belongs to, and it is the reason
+    this module changed in Phase 12. Notes used to go into one communal store
+    and be recalled into *other* visitors' runs, where the researcher pastes
+    them into a prompt the critic then reads -- so a note one visitor caused
+    to be written could steer another visitor's report. Scoping recall to the
+    caller closes that path.
+
+    Two properties every backend must implement identically, because the
+    behavioural suite asserts them on all four:
+
+    * Owner matching is EXACT. `owner=""` retrieves only `owner=""` notes; it
+      is never a wildcard. Pre-Phase-12 rows carry the empty owner and so
+      belong to nobody, which is the intended answer for them.
+    * A note older than NOTE_TTL_DAYS is not recalled, and is physically
+      removed by the next add(). Lazy filter plus opportunistic sweep, exactly
+      as sessions do it -- the filter is what makes expiry immediate, the
+      sweep is what keeps the store from growing forever.
+
+    Deliberately NOT here: dedup-on-write. It is one unique index in pgvector
+    and four different hand-rolled approximations everywhere else, which is
+    precisely the "backends quietly disagree" failure this suite exists to
+    prevent. The TTL is the bound.
+    """
 
     @abstractmethod
-    def add(self, text: str) -> None:
-        """Embed and store one note."""
+    def add(self, text: str, owner: str = "") -> None:
+        """Embed and store one note for `owner`, sweeping expired notes.
+
+        The default keeps the REPL, the __main__ demo and the eval harness --
+        none of which have a caller -- working unchanged; the service always
+        passes a real identity.
+        """
 
     @abstractmethod
     def query(
@@ -120,9 +176,10 @@ class MemoryStore(ABC):
         query_text: str,
         top_k: int = DEFAULT_TOP_K,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
+        owner: str = "",
     ) -> list[str]:
-        """Return up to top_k stored texts scoring at or above min_similarity,
-        most similar first."""
+        """Return up to top_k of `owner`'s unexpired notes scoring at or above
+        min_similarity, most similar first."""
 
     @abstractmethod
     def __len__(self) -> int:
@@ -163,12 +220,22 @@ class _BruteForceStore(MemoryStore):
         # list, or a query could scan entries mid-mutation.
         self._lock = threading.RLock()
 
-    def add(self, text: str) -> None:
+    def add(self, text: str, owner: str = "") -> None:
         # Embedding is a network call; deliberately outside the lock so a slow
         # Voyage response doesn't block every concurrent reader.
         embedding = self.embedder.embed_documents([text])[0]
+        now = time.time()
+        cutoff = now - note_ttl_seconds()
         with self._lock:
-            self.entries.append({"text": text, "embedding": list(embedding)})
+            # Opportunistic sweep on the rare expensive event rather than on a
+            # timer, mirroring the session store. A lazy filter alone hides
+            # expired notes; only this keeps the file from growing forever.
+            # Entries written before Phase 12 have no created_at, read as 0,
+            # and are collected here -- which is how the orphaned notes go.
+            self.entries = [e for e in self.entries if e.get("created_at", 0.0) > cutoff]
+            self.entries.append(
+                {"text": text, "embedding": list(embedding), "owner": owner, "created_at": now}
+            )
             self._persist()
 
     def query(
@@ -176,11 +243,19 @@ class _BruteForceStore(MemoryStore):
         query_text: str,
         top_k: int = DEFAULT_TOP_K,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
+        owner: str = "",
     ) -> list[str]:
+        cutoff = time.time() - note_ttl_seconds()
         with self._lock:
-            if not self.entries:
-                return []
-            snapshot = list(self.entries)
+            # Exact owner match, never "empty means all": a legacy entry with
+            # no owner key reads as "" and so belongs to nobody.
+            snapshot = [
+                entry
+                for entry in self.entries
+                if entry.get("owner", "") == owner and entry.get("created_at", 0.0) > cutoff
+            ]
+        if not snapshot:
+            return []
 
         query_vec = np.array(self.embedder.embed_query(query_text))
         scored = [
@@ -267,12 +342,40 @@ class ChromaMemoryStore(MemoryStore):
             metadata={"hnsw:space": "cosine"},
         )
 
-    def add(self, text: str) -> None:
+    def _sweep(self, cutoff: float) -> None:
+        """Delete notes created at or before `cutoff`.
+
+        Read back and filtered in Python rather than expressed as a chroma
+        `where` clause on created_at. The TTL comparison then has exactly one
+        implementation per store rather than one for the sweep and another for
+        the filter, and the four backends stay observably identical -- which
+        is the only claim the shared suite can make.
+        """
+        got = self._collection.get(include=["metadatas"])
+        ids = got.get("ids") or []
+        metadatas = got.get("metadatas") or []
+        stale = [
+            note_id
+            for note_id, meta in zip(ids, metadatas, strict=True)
+            if float((meta or {}).get("created_at", 0.0)) <= cutoff
+        ]
+        if stale:
+            self._collection.delete(ids=stale)
+
+    def add(self, text: str, owner: str = "") -> None:
         embedding = self.embedder.embed_documents([text])[0]
+        now = time.time()
+        self._sweep(now - note_ttl_seconds())
         self._collection.add(
-            ids=[f"note-{self._collection.count()}-{abs(hash(text))}"],
+            # A uuid rather than the old f"note-{count}-{hash(text)}". Once the
+            # sweep can shrink the collection, count() is no longer monotonic,
+            # so the same text added after an eviction could reproduce an id
+            # already in use -- and chroma treats a repeated id as an upsert,
+            # which would silently overwrite a live note instead of adding one.
+            ids=[uuid.uuid4().hex],
             documents=[text],
             embeddings=[list(embedding)],
+            metadatas=[{"owner": owner, "created_at": now}],
         )
 
     def query(
@@ -280,6 +383,7 @@ class ChromaMemoryStore(MemoryStore):
         query_text: str,
         top_k: int = DEFAULT_TOP_K,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
+        owner: str = "",
     ) -> list[str]:
         count = self._collection.count()
         if not count:
@@ -288,17 +392,22 @@ class ChromaMemoryStore(MemoryStore):
         result = self._collection.query(
             query_embeddings=[list(self.embedder.embed_query(query_text))],
             n_results=min(top_k, count),
+            where={"owner": owner},
+            include=["documents", "distances", "metadatas"],
         )
         documents = (result.get("documents") or [[]])[0]
         distances = (result.get("distances") or [[]])[0]
+        metadatas = (result.get("metadatas") or [[]])[0]
+        cutoff = time.time() - note_ttl_seconds()
         # Chroma reports cosine *distance* (1 - similarity) in a cosine space.
         return [
             doc
             # strict=True: these come from one query and must be the same
             # length. A mismatch means the filter below is comparing a document
             # against another document's distance, which is worse than raising.
-            for doc, dist in zip(documents, distances, strict=True)
+            for doc, dist, meta in zip(documents, distances, metadatas, strict=True)
             if (1.0 - dist) >= min_similarity
+            and float((meta or {}).get("created_at", 0.0)) > cutoff
         ]
 
     def __len__(self) -> int:
@@ -354,6 +463,14 @@ class PgVectorMemoryStore(MemoryStore):
             );
             CREATE INDEX IF NOT EXISTS {self.table}_embedding_hnsw
                 ON {self.table} USING hnsw (embedding vector_cosine_ops);
+            -- Phase 12. created_at was already here, so only owner is new;
+            -- ADD COLUMN IF NOT EXISTS with a default migrates the live rows
+            -- in place, under the same advisory lock the rest of the DDL
+            -- takes, so both machines can run it and only one does. The two
+            -- pre-Phase-12 notes land on '' -- claimed by nobody, since a real
+            -- identity is a 32-hex uuid -- and the TTL collects them.
+            ALTER TABLE {self.table} ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT '';
+            CREATE INDEX IF NOT EXISTS {self.table}_owner ON {self.table} (owner);
             """
         )
 
@@ -377,12 +494,21 @@ class PgVectorMemoryStore(MemoryStore):
                 f"width -- changing model means a new table, not just a new setting."
             )
 
-    def add(self, text: str) -> None:
+    def add(self, text: str, owner: str = "") -> None:
         embedding = self.embedder.embed_documents([text])[0]
         self._check_dimensions(embedding)
+        # Opportunistic sweep, same shape as the session store's. The interval
+        # is bound as a parameter rather than interpolated into the SQL: the
+        # TTL comes from an environment variable, and the one other thing this
+        # class interpolates (the table name) is validated in __init__ for
+        # exactly that reason.
         self.db.execute(
-            f"INSERT INTO {self.table} (text, embedding) VALUES (%s, %s::vector)",
-            (text, self._literal(embedding)),
+            f"DELETE FROM {self.table} WHERE created_at <= now() - (%s * interval '1 second')",
+            (note_ttl_seconds(),),
+        )
+        self.db.execute(
+            f"INSERT INTO {self.table} (text, embedding, owner) VALUES (%s, %s::vector, %s)",
+            (text, self._literal(embedding), owner),
         )
 
     def query(
@@ -390,6 +516,7 @@ class PgVectorMemoryStore(MemoryStore):
         query_text: str,
         top_k: int = DEFAULT_TOP_K,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
+        owner: str = "",
     ) -> list[str]:
         if not len(self):
             return []
@@ -400,15 +527,22 @@ class PgVectorMemoryStore(MemoryStore):
         # `<=>` is cosine distance, so similarity is 1 - distance. Ordering by
         # the raw operator is what lets the HNSW index serve the query; the
         # relevance floor is applied as a filter on the same expression.
+        #
+        # The owner and TTL predicates are evaluated by the database, so the
+        # expiry line is the *database's* clock -- two machines cannot disagree
+        # about what has expired, the same reason the session store computes
+        # its cutoff server-side.
         rows = self.db.fetchall(
             f"""
             SELECT text, 1 - (embedding <=> %s::vector) AS similarity
             FROM {self.table}
             WHERE 1 - (embedding <=> %s::vector) >= %s
+              AND owner = %s
+              AND created_at > now() - (%s * interval '1 second')
             ORDER BY embedding <=> %s::vector
             LIMIT %s
             """,
-            (literal, literal, min_similarity, literal, top_k),
+            (literal, literal, min_similarity, owner, note_ttl_seconds(), literal, top_k),
         )
         return [row["text"] for row in rows]
 

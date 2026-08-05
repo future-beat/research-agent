@@ -39,6 +39,8 @@ from pydantic import BaseModel, Field
 from research_agent import db, graph, limits
 from research_agent import usage as usage_accounting
 from research_agent.graph import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
+from research_agent.identity import IdentityMiddleware
+from research_agent.limits import LimitsStore, get_limits_store
 from research_agent.metrics import FAILED, MetricsStore, RunRecord, get_metrics_store
 from research_agent.observability import get_logger
 from research_agent.sessions import Session, SessionStore, get_session_store
@@ -112,6 +114,11 @@ class SessionDetail(BaseModel):
     updated_at: float
     task: str
     turns: int
+    # Whose session this is. Declared rather than left to pydantic's
+    # extra-ignore so the detail view and the listing agree; harmless to the
+    # caller, who can only ever reach their own, and the one field that makes
+    # the operator's cross-owner listing legible.
+    owner: str
     topic_type: str
     approved: bool
     latest_answer: str
@@ -133,7 +140,30 @@ def get_metrics(request: Request) -> MetricsStore:
     return request.app.state.metrics
 
 
-def guard(request: Request, metrics: MetricsStore = Depends(get_metrics)) -> None:
+def get_limits(request: Request) -> LimitsStore:
+    """The rate window and spend reservations.
+
+    The one accessor: every metered route reaches the store through this, so a
+    test can point the whole app at one store with a single override and the
+    DELETE route cannot quietly end up metering against a different one.
+    """
+    return request.app.state.limits
+
+
+def rate_limit(request: Request, limits_store: LimitsStore = Depends(get_limits)) -> None:
+    """The rate half of `guard`, without the spend reservation.
+
+    A named dependency rather than `Depends(limits.check_rate_limit)` because
+    the check now needs the injected store, and FastAPI can only supply that to
+    a function whose parameter carries a `Depends` default -- which
+    limits.check_rate_limit deliberately does not, so it stays callable from
+    plain unit tests.
+    """
+    limits.check_rate_limit(request, limits_store)
+
+
+def guard(request: Request, metrics: MetricsStore = Depends(get_metrics),
+          limits_store: LimitsStore = Depends(get_limits)) -> None:
     """Applied to every endpoint that spends money, and to no others.
 
     Ops reads -- /health, /ready, /metrics, /pricing, /memory, /demo -- stay
@@ -141,15 +171,21 @@ def guard(request: Request, metrics: MetricsStore = Depends(get_metrics)) -> Non
     service that is refusing work. A demo that hides /health when it hits its
     budget is a demo you cannot debug.
 
-    Session reads are a different matter and are *not* open: they return other
-    people's research. They are closed by limits.require_sessions_token on
-    sessions_router -- a separate, token-only, unmetered dependency, and
-    deliberately not this one. Applying guard to them would spend the caller's
-    research quota on a listing and 429 every read once the daily cap is hit,
-    which would contradict the cap's own message that read-only endpoints
-    still work.
+    Session reads are a different matter and are *not* open: they return
+    someone's research, and since Phase 12 only that someone's. They go through
+    limits.require_session_access on sessions_router -- a separate, unmetered
+    dependency, and deliberately not this one. Applying guard to them would
+    spend the caller's research quota on a listing and 429 every read once the
+    daily cap is hit, which would contradict the cap's own message that
+    read-only endpoints still work.
+
+    Note what this no longer does: the daily spend cap. The cap now reserves
+    against a specific run, which does not exist until the handler has built
+    the run state, so it is called there (`limits.reserve_or_429`) rather than
+    here. That is the one control on the spending routes a route dependency
+    cannot hold, which is why tests/test_service.py gates it twice over.
     """
-    limits.enforce(request, metrics)
+    limits.enforce(request, metrics, limits_store)
 
 
 @asynccontextmanager
@@ -158,12 +194,14 @@ async def lifespan(app: FastAPI):
     # module only ever sees the interfaces.
     app.state.sessions = get_session_store()
     app.state.metrics = get_metrics_store()
+    app.state.limits = get_limits_store()
     log.info(
         "service starting",
         extra={
             "event": "startup",
             "sessions_backend": type(app.state.sessions).__name__,
             "metrics_backend": type(app.state.metrics).__name__,
+            "limits_backend": type(app.state.limits).__name__,
             "memory_backend": type(graph.memory()).__name__,
         },
     )
@@ -172,6 +210,7 @@ async def lifespan(app: FastAPI):
     finally:
         app.state.sessions.close()
         app.state.metrics.close()
+        app.state.limits.close()
         # Those two close()es release two claims on the shared pool. There is a
         # THIRD Database on this machine -- graph.memory()'s -- that nothing has
         # ever closed, so without this a shutdown leaves a pool and its
@@ -189,6 +228,13 @@ app = FastAPI(
     summary="Supervisor-routed research pipeline with fact-checked reports and follow-ups.",
     lifespan=lifespan,
 )
+
+# A middleware rather than a dependency, because /research/stream, /ask/stream
+# and GET / return Response objects directly and FastAPI drops dependency-set
+# cookies on those -- the three routes a first-time visitor hits first. This
+# runs for every route, sets request.state.identity before any handler, and
+# never refuses anyone (see identity.py).
+app.add_middleware(IdentityMiddleware)
 
 
 def _http_error(exc: BaseException) -> HTTPException | None:
@@ -219,13 +265,21 @@ def _failed_record(state: dict, exc: BaseException, started: float) -> RunRecord
     return record
 
 
-def _execute(state: dict, metrics: MetricsStore, on_complete) -> tuple[str, dict]:
-    """Run the graph to completion, persist the result, and record the run."""
+def _execute(
+    state: dict, metrics: MetricsStore, limits_store: LimitsStore, on_complete
+) -> tuple[str, dict]:
+    """Run the graph to completion, persist the result, and record the run.
+
+    `limits_store` is here for one reason: this function owns both terminal
+    paths, so it is the only place a reservation can be settled on every one of
+    them. Settling in the handler would miss the failure arm.
+    """
     started = time.perf_counter()
     try:
         final_state = graph.app.invoke(state)
     except BaseException as exc:
         metrics.record(_failed_record(state, exc, started))
+        limits.settle(limits_store, state.get("run_id", ""))
         log.warning(
             "run failed",
             extra={
@@ -242,6 +296,10 @@ def _execute(state: dict, metrics: MetricsStore, on_complete) -> tuple[str, dict
     metrics.record(
         RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
     )
+    # Immediately after the record, never before it: the estimate stops
+    # counting against the cap only once the real cost is in the table, or the
+    # spend briefly disappears from both.
+    limits.settle(limits_store, state.get("run_id", ""))
     return session_id, final_state
 
 
@@ -249,7 +307,9 @@ def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
-def _stream(state: dict, metrics: MetricsStore, on_complete) -> Iterator[str]:
+def _stream(
+    state: dict, metrics: MetricsStore, limits_store: LimitsStore, on_complete
+) -> Iterator[str]:
     """Emit one SSE `node` event per finished node, then a single terminal
     event -- `result` or `error`, never both, never neither.
 
@@ -274,12 +334,20 @@ def _stream(state: dict, metrics: MetricsStore, on_complete) -> Iterator[str]:
         metrics.record(
             RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
         )
+        limits.settle(limits_store, state.get("run_id", ""))
         yield _sse("result", RunResponse.build(session_id, final_state).model_dump())
 
     except Exception as exc:  # noqa: BLE001 - the stream must terminate cleanly
         # Headers are long gone by now, so an exception here would otherwise
         # look to the client like a truncated stream rather than a failure.
         metrics.record(_failed_record(state, exc, started))
+        # THE ARM THAT IS EASY TO FORGET. A stream that fails still holds a
+        # reservation, and this is the only place it can be released -- the
+        # handler's own except never sees this exception, because the SSE
+        # contract requires the generator to swallow it and emit an error
+        # event. Missing it leaks $0.20 of budget per failed stream until the
+        # staleness cutoff catches up.
+        limits.settle(limits_store, state.get("run_id", ""))
         # Same treatment /health gives a probe failure, for the same reason:
         # first line only, because a psycopg error is multi-line and the DSN
         # tends to sit below the first; _redact, because the DSN carries a
@@ -346,9 +414,12 @@ def _index_json() -> dict:
             "research_stream": "POST /research/stream",
             "ask": "POST /sessions/{session_id}/ask",
             "ask_stream": "POST /sessions/{session_id}/ask/stream",
-            "sessions": "GET /sessions (X-Demo-Token required)",
-            "session": "GET /sessions/{session_id} (X-Demo-Token required)",
-            "trace": "GET /sessions/{session_id}/trace (X-Demo-Token required)",
+            # Phase 12: these are caller-scoped, not token-gated. They serve
+            # YOUR sessions with no header at all; X-Demo-Token is the
+            # operator credential that widens the view to every owner's.
+            "sessions": "GET /sessions (your own; X-Demo-Token lists everyone's)",
+            "session": "GET /sessions/{session_id} (your own)",
+            "trace": "GET /sessions/{session_id}/trace (your own)",
             "metrics": "GET /metrics",
             "pricing": "GET /pricing",
             "memory": "GET /memory",
@@ -538,6 +609,13 @@ def health(
         "credentials": {
             "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "voyage": bool(os.environ.get("VOYAGE_API_KEY")),
+            # Presence, never the value -- the same posture as the API keys,
+            # and it matters more here: this one signs identity cookies, so
+            # leaking it to anyone who can curl /health would let them forge
+            # any caller. False on a multi-machine fleet means each machine
+            # minted its own ephemeral secret and identities do not survive
+            # being bounced between them (ADR-0007).
+            "identity_signing": bool(os.environ.get("IDENTITY_SIGNING_SECRET")),
         },
     }
 
@@ -567,27 +645,42 @@ def ready(
 
 @app.post("/research", response_model=RunResponse, tags=["research"], dependencies=[Depends(guard)])
 def research(
+    request: Request,
     body: AskRequest,
     store: SessionStore = Depends(get_sessions),
     metrics: MetricsStore = Depends(get_metrics),
+    limits_store: LimitsStore = Depends(get_limits),
 ) -> RunResponse:
     """Full pipeline: classify, search, draft, fact-check. Opens a session."""
     question = body.cleaned()
+    owner = limits.caller_identity(request)
+    # The identity is the note owner as well as the session owner: what this
+    # run recalls and what it writes are both scoped to it, so one visitor's
+    # notes never reach another visitor's critic.
+    run = initial_state(question, owner=owner)
+    limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     session_id, state = _execute(
-        initial_state(question), metrics, lambda final: store.create(question, final)
+        run, metrics, limits_store, lambda final: store.create(question, final, owner=owner)
     )
     return RunResponse.build(session_id, state)
 
 
 @app.post("/research/stream", tags=["research"], dependencies=[Depends(guard)])
 def research_stream(
+    request: Request,
     body: AskRequest,
     store: SessionStore = Depends(get_sessions),
     metrics: MetricsStore = Depends(get_metrics),
+    limits_store: LimitsStore = Depends(get_limits),
 ):
     question = body.cleaned()
+    owner = limits.caller_identity(request)
+    run = initial_state(question, owner=owner)
+    # Before the StreamingResponse is built, so a capped caller gets a real 429
+    # instead of a 200 whose body turns out to be an error event.
+    limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     return _sse_response(
-        initial_state(question), metrics, lambda state: store.create(question, state)
+        run, metrics, limits_store, lambda state: store.create(question, state, owner=owner)
     )
 
 
@@ -598,38 +691,59 @@ def research_stream(
     dependencies=[Depends(guard)],
 )
 def ask(
+    request: Request,
     session_id: str,
     body: AskRequest,
     store: SessionStore = Depends(get_sessions),
     metrics: MetricsStore = Depends(get_metrics),
+    limits_store: LimitsStore = Depends(get_limits),
 ) -> RunResponse:
-    """Follow up on a session's research notes. No new web search."""
-    session = _require(store, session_id)
+    """Follow up on a session's research notes. No new web search.
+
+    Ownership is enforced HERE rather than by adding the session-tree
+    dependency to this route. The dependency set stays grouped by what it
+    protects (ADR-0006 part 4) and this route protects a *run*, not a listing;
+    what it needs from ownership is one line of `_require`, which it already
+    calls. A stranger's session id therefore 404s exactly as it does on a read,
+    while the demo's second turn keeps working -- the follow-up caller holds
+    the cookie that created the session, minted at page load, before the first
+    question was even asked.
+    """
+    owner = limits.caller_identity(request)
+    session = _require(store, session_id, owner)
 
     def on_complete(final: dict) -> str:
         store.append_turn(session_id, final)
         return session_id
 
-    _, state = _execute(followup_state(session.state, body.cleaned()), metrics, on_complete)
+    run = followup_state(session.state, body.cleaned(), owner=owner)
+    # A follow-up is cheaper than a research run, not free -- so it reserves
+    # too. Forgetting it here is the specific regression the four-route gate in
+    # tests/test_service.py exists to catch.
+    limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
+    _, state = _execute(run, metrics, limits_store, on_complete)
     return RunResponse.build(session_id, state)
 
 
 @app.post("/sessions/{session_id}/ask/stream", tags=["research"], dependencies=[Depends(guard)])
 def ask_stream(
+    request: Request,
     session_id: str,
     body: AskRequest,
     store: SessionStore = Depends(get_sessions),
     metrics: MetricsStore = Depends(get_metrics),
+    limits_store: LimitsStore = Depends(get_limits),
 ):
-    session = _require(store, session_id)
+    owner = limits.caller_identity(request)
+    session = _require(store, session_id, owner)
 
     def on_complete(state: dict) -> str:
         store.append_turn(session_id, state)
         return session_id
 
-    return _sse_response(
-        followup_state(session.state, body.cleaned()), metrics, on_complete
-    )
+    run = followup_state(session.state, body.cleaned(), owner=owner)
+    limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
+    return _sse_response(run, metrics, limits_store, on_complete)
 
 
 # The session read/delete group. Membership is structural rather than
@@ -639,22 +753,40 @@ def ask_stream(
 # inherits the guard by construction, with nothing to remember.
 #
 # The ask routes share the /sessions prefix but are NOT here: grouping is by
-# dependency, not by path. They are the demo's second turn and stay anonymous.
+# dependency, not by path. They are the demo's second turn, and ownership is
+# enforced inside their handlers instead -- see `ask`.
+#
+# The router dependency is kept even though every handler injects the same
+# value again. FastAPI caches it within a request, so it costs nothing, and it
+# is what the structural walker test reads: a future
+# `@sessions_router.get("/{id}/notes")` inherits access control by
+# construction, with nothing for its author to remember.
 sessions_router = APIRouter(
     prefix="/sessions",
     tags=["sessions"],
-    dependencies=[Depends(limits.require_sessions_token)],
+    dependencies=[Depends(limits.require_session_access)],
 )
 
 
 @sessions_router.get("")
-def list_sessions(store: SessionStore = Depends(get_sessions)) -> dict:
-    return {"sessions": [s.summary() for s in store.list(SESSION_LIST_LIMIT)]}
+def list_sessions(
+    store: SessionStore = Depends(get_sessions),
+    access: tuple = Depends(limits.require_session_access),
+) -> dict:
+    """The caller's sessions -- or everyone's, for the operator."""
+    mode, owner = access
+    scope = None if mode == "operator" else owner
+    return {"sessions": [s.summary() for s in store.list(SESSION_LIST_LIMIT, owner=scope)]}
 
 
 @sessions_router.get("/{session_id}", response_model=SessionDetail)
-def get_session(session_id: str, store: SessionStore = Depends(get_sessions)) -> SessionDetail:
-    session = _require(store, session_id)
+def get_session(
+    session_id: str,
+    store: SessionStore = Depends(get_sessions),
+    access: tuple = Depends(limits.require_session_access),
+) -> SessionDetail:
+    mode, owner = access
+    session = _require(store, session_id, owner, operator=mode == "operator")
     state = session.state
     conversation = list(state.get("conversation") or [])
     if state["mode"] == "followup" and state["draft"]:
@@ -667,8 +799,13 @@ def get_session(session_id: str, store: SessionStore = Depends(get_sessions)) ->
 
 
 @sessions_router.get("/{session_id}/trace")
-def get_trace(session_id: str, store: SessionStore = Depends(get_sessions)) -> dict:
-    session = _require(store, session_id)
+def get_trace(
+    session_id: str,
+    store: SessionStore = Depends(get_sessions),
+    access: tuple = Depends(limits.require_session_access),
+) -> dict:
+    mode, owner = access
+    session = _require(store, session_id, owner, operator=mode == "operator")
     return {"session_id": session_id, "trace": session.state["trace"]}
 
 
@@ -676,16 +813,33 @@ def get_trace(session_id: str, store: SessionStore = Depends(get_sessions)) -> d
 # destroys anything. Router dependencies run before decorator dependencies, so
 # an unauthorised caller is refused before it can consume a rate-limit slot --
 # the same cheapest-first ordering limits.enforce already argues for. The
-# bucket is deliberately the same one research runs use: a second module global
-# and a second entry in reset_limiter() would buy nothing here.
+# bucket is deliberately the same one research runs use: a second key space
+# would buy nothing here.
+#
+# Metered but NOT capped, which since Phase 12 is a distinction the wiring can
+# express: `rate_limit` is the rate half of `guard` on its own. Reaching for
+# `guard` instead would attach the spend reservation to a delete, and 429 the
+# only cleanup tool the operator has at exactly the moment the budget is gone.
 @sessions_router.delete(
     "/{session_id}",
     status_code=204,
-    dependencies=[Depends(limits.check_rate_limit)],
+    dependencies=[Depends(rate_limit)],
 )
-def delete_session(session_id: str, store: SessionStore = Depends(get_sessions)) -> None:
-    if not store.delete(session_id):
-        raise HTTPException(404, f"No session {session_id!r}.")
+def delete_session(
+    session_id: str,
+    store: SessionStore = Depends(get_sessions),
+    access: tuple = Depends(limits.require_session_access),
+) -> None:
+    """Owner or operator. Everyone else gets the same 404 a stranger's id gets.
+
+    `_require` first, then delete: checking ownership through the same choke
+    point the reads use means a foreign or expired session cannot be destroyed,
+    and cannot be *detected* either -- `store.delete` alone would have
+    distinguished a real id (True) from a made-up one (False).
+    """
+    mode, owner = access
+    _require(store, session_id, owner, operator=mode == "operator")
+    store.delete(session_id)
 
 
 app.include_router(sessions_router)
@@ -733,16 +887,32 @@ def pricing() -> dict:
     }
 
 
-def _require(store: SessionStore, session_id: str) -> Session:
+def _require(
+    store: SessionStore, session_id: str, owner: str | None, *, operator: bool = False
+) -> Session:
+    """The session, or the one refusal shape the session tree ever gives.
+
+    Missing, expired, and belonging-to-someone-else all raise the SAME 404 with
+    the SAME body. Not 403: a 403 confirms the id names a real session, and
+    session ids travel in shared URLs, screenshots and logs, so telling a
+    stranger "that one exists, you just can't have it" is an existence oracle
+    handed out for free. Phase 10.5 chose to leak least; this continues it.
+
+    `store.get` has already applied the expiry filter, so expired arrives here
+    as None and needs no separate branch -- and could not accidentally get a
+    different status code if it did.
+    """
     session = store.get(session_id)
-    if session is None:
+    if session is None or (not operator and session.owner != owner):
         raise HTTPException(404, f"No session {session_id!r}.")
     return session
 
 
-def _sse_response(state: dict, metrics: MetricsStore, on_complete) -> StreamingResponse:
+def _sse_response(
+    state: dict, metrics: MetricsStore, limits_store: LimitsStore, on_complete
+) -> StreamingResponse:
     return StreamingResponse(
-        _stream(state, metrics, on_complete),
+        _stream(state, metrics, limits_store, on_complete),
         media_type="text/event-stream",
         # Without this, an nginx or Fly proxy will happily buffer a
         # progress stream until it is no longer progress.

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: phase-complete
-stopped_at: "Phase 11 COMPLETE — Supabase Postgres live, pooled, two machines on release v7. SC-3 proved over HTTP. Next: PR, then /gsd:plan-phase 12."
-last_updated: "2026-08-05T08:55:00.000Z"
-last_activity: "2026-08-05 — Phase 11 shipped: all three stores on Supabase ap-southeast-2 via the session-mode pooler, one shared psycopg pool per machine, /health bounded at a 9s ceiling, volume detached but kept, two machines on v7, and a session created on 846975f2604548 resolved by d8d0320f751618 over HTTP"
+status: executing
+stopped_at: "Executed 12-06-PLAN.md IN FULL, including Task 4 — the live cutover. IDENTITY_SIGNING_SECRET deployed app-wide; releases v8 then v9; both machines (846975f2604548, d8d0320f751618) healthy on v9. Verified live with recorded output: identity_signing true on both machines, a cookieless caller reaching a working page and a completed research stream with the identity minted on that same response, a cookie minted on A verifying on B with zero re-mints and surviving a fleet restart, and ownership refusing a second identity with a 404 indistinguishable from missing. Both requirements marked Complete. Nothing pushed. Next: /gsd:verify-work on Phase 12, then the phase PR."
+last_updated: "2026-08-05T16:35:00.000Z"
+last_activity: "2026-08-05 — Executed 12-06 IN FULL. Task 4 cut over live (releases v8, v9): both machines report identity_signing true; a genuinely cookieless curl gets 200 + text/html + Set-Cookie on the same response, with a first-paint tag census of 1 form / 1 input / 1 button and zero wall words, and the served bytes sha-identical to the statically gated file; a cookieless POST /research/stream completed and minted on its SSE response; that cookie verified on the machine that did not mint it with zero re-mints, carried POST /sessions/{id}/ask to 200, and survived a full fleet restart; a second identity got an empty listing and a 404 byte-identical to never-existed on both read and write. One bug found by probing prod and fixed as v9: the root index claimed X-Demo-Token was required for three endpoints that answer 200 without it. Gaps recorded not waived: no real-browser session (all curl), rollback untested. Earlier, Tasks 1-3: ADR-0007 (supersedes 0006, carrying forward SESSIONS_TOKEN-as-operator-credential with its fail-closed meaning inverted, the read/cap decomposition, the router grouping and DEMO_TOKEN-never-in-prod); README/OPERATIONS/.env.example corrected including the two items deferred here by waves 2-3; /health reports identity_signing; the demo page gained a footer identity sentence, a two-scope limits line, an owned-session list that is absent from the DOM until populated, a side-effect-free renderTurnCard() and a resume flow; nine criterion-6 gates, 24 of 25 mutations red. Suite 526/47 plain, 572/1 armed, no new skips."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 14
-  percent: 56
+  completed_plans: 19
+  percent: 58
 ---
 
 # Project State
@@ -25,98 +25,38 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **EXECUTING (11-05 BLOCKED)**
-Plan: 5 of 5 started; 11-05 Tasks 1 and 4 complete, Tasks 2 and 3 blocked
-Status: **The repository is in its stateless end state; production is not.** `fly.toml` has no
-`[[mounts]]`, no `*_DB_PATH` vars, the three Postgres backend pins, and `min_machines_running = 2`.
-The fail-closed mechanism is proved at runtime: with `DATABASE_URL` absent and
-`SESSION_BACKEND=postgres`, store construction exits 1 with a `RuntimeError` naming `DATABASE_URL`.
-Both of 11-03's two-armed guards ran their stateless arm for the first time — **12 passed, 0
-skipped**. `11-VALIDATION.md` is reconciled and `docs/OPERATIONS.md` carries the measured latency.
+Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTED, awaiting verify + PR**
+Plan: 6 of 6 executed (12-06 all 4 tasks) · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched, nothing pushed)
+Status: Wave 5 code and docs complete (12-06 Tasks 1–3). **ADR-0007 supersedes ADR-0006** with an explicit `### Carried forward` section — the convention forbids editing a superseded record's body, so the new record is the only honest place to say that `SESSIONS_TOKEN` survives as the *operator* credential with its fail-closed meaning **inverted**, and that 0006's parts 3 (guard stays off the reads) and 4 (structural router grouping) are reaffirmed rather than discarded. README's "rate-limited, not authenticated" bullet — deferred by four consecutive waves — is rewritten honestly, including the free-to-mint fairness ceiling. The demo page shows identity in exactly two muted text deltas and nothing else: an owned-session list that is **not in the document at all** until it has a row, a side-effect-free `renderTurnCard()` that omits absent badges instead of inventing `$0.0000`, and a resume flow. Criterion 6 is now nine machine-checked static gates including a frozen first-paint text baseline (the whole phase's markup delta is one run) and a frozen tag census.
+**Task 4 — the live cutover — is DONE.** `IDENTITY_SIGNING_SECRET` went from `Staged` to `Deployed`; releases **v8** then **v9**; both machines `846975f2604548` and `d8d0320f751618` on v9, checks passing. The three claims the suite structurally cannot reach are now evidenced with recorded command output rather than judgements about it: `/health` reports `identity_signing: true` on **both** machines; a genuinely cookieless caller (no jar, no `-b`) gets **200 + `text/html` + `Set-Cookie` on that same response**, a first-paint tag census of `1 form / 1 input / 1 button`, zero wall words, and served bytes **sha-identical** to the statically gated file; a cookieless `POST /research/stream` completed with the cookie minted on its SSE response; **that cookie verified on the machine that did not mint it with zero re-mints**, carried `POST /sessions/{id}/ask` to a 200, and survived a full fleet restart — which a per-process ephemeral secret cannot do by construction. Ownership bites: a second identity gets `{"sessions":[]}` and a 404 byte-identical to never-existed, on read and write alike. `/demo` still reports `token_required: false`; `DEMO_TOKEN` remains unset.
+**Two gaps recorded rather than waived:** every live check was `curl`, so there was no real-browser dev-tools session (cookie invisibility to `document.cookie` and the reload revealing "Your recent research" rest on mechanism + static/DOM-shim coverage), and the rollback (`fly secrets unset` + redeploy) was **not** exercised.
+Last activity: 2026-08-05 — Executed 12-06 in full (commits ab54fb5, 1c79677, d7d06e2, fc6c56a).
 
-**BLOCKED, and it is the phase's headline claim.** Removing `[[mounts]]` makes `fly deploy` stop
-and ask *"Do you still want to continue and detach the volume? This will replace the machine.
-(y/N)"*. flyctl v0.4.78 accepts `-y` and then ignores it on that path; driving it through a pty
-either panics flyctl (`machines.go:321`, nil pointer, when stdin is flooded) or accepts the
-keystroke and then hangs indefinitely (900s, no output, no release). Three attempts, then stopped —
-escalating to `fly machine destroy` was outside this plan's authorisation and is the one nearby
-step that touches the volume's attachment.
+**Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7. **Phase 12 is now live on v9** but not yet merged — the branch is unpushed.
 
-**Production is untouched and healthy:** release **v6**, ONE machine `78156d2c32d738`, volume
-`vol_vdegz1021w669gx4` still ATTACHED, all three Postgres backends, `dependencies: ok`, all four
-endpoints 200, `/demo` `token_required: false`, `DEMO_TOKEN` absent, `SESSIONS_TOKEN` present.
-`fly volumes destroy` was never run. **SC-2's live half and SC-3 are unproven — there are no
-machine ids to record, because only one machine exists.**
+Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
+Phase 12: [██████████] 6 of 6 plans — executed and live on release v9 (awaiting /gsd:verify-work, then the phase PR)
 
-**Operator action required to unblock:** run `fly deploy -a research-agent` from a real terminal
-and answer `y`; then `fly scale count 2 -a research-agent`; then prove SC-3 over HTTP with
-`fly-force-instance-id` and the `X-Demo-Token` header, recording both machine ids and the session
-id; then check `pg_stat_activity` (expect ~21–26 of 60); then tick README's Phase 11 line and flip
-`11-VALIDATION.md`'s two blocked rows and its Approval.
+**Carry into execution — what breaks the demo if wrong:**
 
-**An edit to publicly reported numbers, recorded deliberately:** the operator deleted the single
-`AuthenticationError` run row from the production metrics table, with consent, on the grounds that
-it recorded a credential outage rather than a pipeline failure. `/metrics` moved from
-`failure_rate 1.0` to `failure_rate 0.0`. `ANTHROPIC_API_KEY` has been rotated (digest
-`9704aee92910b5e7`) and a full research run has since completed on Postgres —
-session `f14905b2fce8438eb716842c9a3b6c92`, $0.204266. See 11-05-SUMMARY.md.
+- **Minting is pure-ASGI middleware, mint-on-response, NEVER 401.** `/research/stream`,
+  `/ask/stream`, `GET /` return Response objects where a dependency's set_cookie is dropped.
+  A first-time COOKIELESS caller's stream must not break — this is criterion 6's hinge.
+- **The global daily cap SURVIVES.** Identities are free to mint (clear storage → fresh
+  limits), so per-identity limits alone cannot bound the bill. Removing the global cap because
+  "limits are per-identity now" is the failure mode.
+- **The cap reservation is race-free only inside `pg_advisory_xact_lock`** (transaction-scoped;
+  a new `Database.transaction()` helper — the pool is autocommit). Settlement on BOTH success
+  and SSE-error arms; 900s staleness reclaim or a crashed run throttles the demo forever.
+- **`reserve_or_429` now has a structural walker gate** (like `guard`) so it can't be silently
+  forgotten on a route — the exact failure ADR-0006 exists to prevent.
+- **Secure cookie + TestClient:** tests need `base_url="https://testserver"` or the cookie
+  never sets and auth tests pass vacuously.
+- **chromadb joins the `dev` extra**; the contract suite runs 4 arms that must PASS in CI (not
+  skip). SC-5 depends on it.
 
-Previously (11-04): **Production runs on external Postgres.** Fly release v5 carries waves 1–3
-plus the staged `DATABASE_URL`; `/health` reports `PostgresSessionStore`, `PostgresMetricsStore`
-and `PgVectorMemoryStore` with `dependencies: ok`, `unreachable: []` and
-`machine: 78156d2c32d738`, at 0.27–0.43s across eleven samples. The Fly-syd → Supabase-syd hop is
-**connect+TLS 119.2ms, query p50 2.73ms / p95 6.37ms**; the three real `/health` store probes cost
-2.84 / 3.23 / 3.39ms p50 against a 3000ms `HEALTH_PROBE_BUDGET`. `pg_stat_activity` 15–16 of 60.
-Zero `prepared statement` errors over 74 probe-triggering responses. **Nothing irreversible
-happened:** `[[mounts]]` present, one machine, volume attached, and `/data` still holds 1 session,
-3 runs and 3 notes — exactly the pre-cutover counts.
-Last activity: 2026-08-05 — Executed 11-05-PLAN.md partially (Tasks 1 and 4 committed; Tasks 2 and 3 blocked on an interactive `fly deploy`).
-
-**11-02 ran the Postgres-gated suite for real.** Docker was unavailable, so PostgreSQL 17 +
-pgvector were installed via Homebrew and run on port 54329 (stopped and data dir deleted after;
-no `brew services` entry). This was load-bearing, not thoroughness theatre: the suite was green
-locally and red against a server, and the run found three `db.py` bugs — see 11-02-SUMMARY.md
-§ "The inherited breakage, and what it actually was".
-
-**Phase 10 is closed** — PR #4 merged, both required checks green, so the SC-5 push gate that
-held it open is satisfied and `REQ-adr-promotion` is complete.
-
-Progress: [██████░░░░] 59% (10 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 10.5: [██████████] 5 of 5 plans — complete
-Phase 10:   [██████████] 5 of 5 plans — complete (PR #4 merged)
-Phase 11:   [████████░░] 4 of 5 plans — 11-05 partial, BLOCKED on an interactive deploy
-
-**Carry into execution — the four findings the plans are built around:**
-
-- ~~**`psycopg_pool.PoolTimeout` subclasses `psycopg.OperationalError`**~~ — **CLOSED by 11-01.**
-  Both `PoolTimeout` and `PoolClosed` are now caught and re-raised in an arm placed *before* the
-  `OperationalError` arm. Measured against an unreachable DSN with `PG_POOL_TIMEOUT=0.5`: 0.505s
-  with the exclusion, 1.007s without it — the naive port was mutated in and observed red.
-- ~~**`/health` already blows its budget today**~~ — **CLOSED by 11-02.** Every probe now runs
-  under `HEALTH_PROBE_BUDGET` (3.0s default), giving a 9s ceiling that holds cold, warm *and*
-  partitioned. Measured 0.32s against a store that never answers; removing the deadline was
-  mutated in and observed **hanging** for 31.4s before failing.
-- ~~**`pg_advisory_lock` is session-scoped**~~ — **CLOSED by 11-02.** The unit half landed in
-  11-01 (one `cursor()`, unlock boolean checked, splitting observed red); the real-server half is
-  now `test_advisory_lock_is_exclusive_across_connections`, which shows a second connection
-  refused a held lock and an unlock from a non-holder returning `False` — the exact signature a
-  split across checkouts produces.
-- **Removing the three `*_DB_PATH` env vars does NOT prevent SQLite fallback.** `sessions.py:43`
-  has a module-dir default and `default_backend()` returns `sqlite` whenever `DATABASE_URL` is
-  empty — two mountless machines would each boot their own ephemeral database and `/health` would
-  report `ok`. The fix is pinning `SESSION_BACKEND`/`METRICS_BACKEND`/`VECTOR_STORE` so a missing
-  DSN fails closed at construction. **Half closed by 11-02:** `-k fails_closed` asserts that a
-  pinned Postgres backend with no `DATABASE_URL` raises, and a companion test pins the negative
-  (unpinned + no DSN boots happily on container-local storage). That is a *property* test, not a
-  progress gate — it passes against today's tree. The gate that the pins are actually **set in
-  production** is still owed: the stateless arm of `test_local_store_paths_live_under_the_mount`,
-  written in 11-03 and armed by 11-05.
-
-Plan 11-05 is `autonomous: false` — it drops the mount, pins the three backends and scales to two
-machines. The volume `agent_data` is **kept as backup, never destroyed**. 11-04 is done: Supabase
-is provisioned in `ap-southeast-2`, `DATABASE_URL` is a deployed Fly secret against the session-mode
-pooler on 5432 with `sslmode=require`, and everything up to this point is still reversible with
-`fly secrets unset DATABASE_URL` — **a path that is verified-supported but not itself tested.**
+Wave 5 (12-06) is `autonomous: false` — sets the `IDENTITY_SIGNING_SECRET` Fly secret, deploys,
+and needs a real browser + two machines to verify criterion 6 and identity continuity.
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
@@ -137,6 +77,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
+| 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
 
 **Recent Trend:**
 
@@ -159,6 +100,10 @@ Recent decisions affecting current work:
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
 - [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
+- [Phase 12-05]: Notes are bounded by a 7-day TTL and nothing else. Dedup-on-write was evaluated and rejected — it has no semantics that json, memory, chroma and pgvector can implement identically, and identical behaviour is the claim SC-5's shared suite exists to make.
+- [Phase 12-05]: `owner=""` is an exact value on every store, never a wildcard. The orphaned notes and sessions therefore belong to nobody the moment the code ships, and are collected by the TTL rather than by a migration script.
+- [Phase 12-05]: The service reads the caller through `limits.caller_identity(request)`, not `request.state.identity` directly — 12-03 made it the single reader, and it carries the never-fall-back-to-client_ip reasoning that the raw attribute does not.
+- [Phase 12-05]: A structural gate must assert against the parsed CALL, not against the handler's source text. Three of four run-starting handlers pass `owner=` to something else as well, so the substring form stays green when the thing it guards is deleted.
 - [Phase 10.5-01]: `require_sessions_token` fails closed (403 when no credential is configured), deliberately diverging from `check_token`'s open-when-unset convention. A control that goes inert on a missing env var is precisely the defect this hotfix exists to fix.
 - [Phase 10.5-02]: The four session routes are grouped on an `APIRouter`, not given four per-route dependency lists. The defect was four routes each independently forgetting a credential, so membership had to become structural — a new route on `sessions_router` is guarded by construction.
 - [Phase 10.5-02]: `check_rate_limit` on `DELETE /sessions/{id}` only, sharing the research bucket. Reads stay unmetered so the daily cap's "Read-only endpoints still work" message stays true.
@@ -204,6 +149,38 @@ Recent decisions affecting current work:
 - [Phase 11-04]: **The HTTP round trip and the database round trip are separable, and worth separating when one is blocked.** Every HTTP write path runs the model first, so a dead model key blocks the session round trip through `/research`. Proving it at the store layer over `fly ssh console` — same classes, same pool, same DSN, same `::vector` cast — discharged the database claim honestly, with the gap (FastAPI's dependency wiring, already covered by `/health`) named rather than papered over.
 - [Phase 11-04]: **`fly ssh console -C` takes no shell**, so RESEARCH's `python - <<'PY'` heredoc never reaches Python, and the container has no `curl`. base64-encode the script locally and run `python -c "import base64;exec(base64.b64decode('...'))"`. This also keeps credentials inside the machine — the script reads `os.environ['DATABASE_URL']` and never prints it.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
+- [Phase 12-01]: **The dev extra composes `research-agent[chroma]` rather than repeating the pin.** chromadb==1.4.1 stays pinned once, in the chroma extra; a SQLite/JSON deploy installing `[service]` alone still never pulls it. The contract fixture's chroma arm skips ONLY on a genuinely missing chromadb import — never on HAS_POSTGRES — so CI (which installs dev) collects and runs it.
+- [Phase 12-01]: **`CAP_LOCK_KEY` (11165997) is a different advisory-lock key from `SCHEMA_LOCK_KEY` (3895545195)**, and the inequality test is deliberately not Postgres-gated so a keyless local run still catches a collapsed-constants edit. A shared key would serialise cap accounting against schema DDL.
+- [Phase 12-01]: **The xact-lock test's held-half is what makes it falsifiable.** `pg_advisory_xact_lock` on an autocommit connection degenerates to a one-statement lock, so a `transaction()` that silently stopped opening a transaction would still pass an after-the-block acquisition check. The test therefore also asserts a rival connection is REFUSED the lock while the block is open. `transaction()` mirrors `cursor()`'s PoolTimeout/PoolClosed-before-OperationalError ordering.
+- [Phase 12-01]: **The full-suite baselines moved and are fully explained**: plain 436/34 → 443/37 (+6 chroma-arm, +1 key-inequality; +3 Postgres-gated transaction skips), armed 469/1 → 479/1. README's "470 tests, ~10s" was falsified by this wave and updated to "480 tests, ~25s" in the same wave — the chroma client's startup is most of the wall-clock growth.
+- [Phase 12-02]: **The HMAC gate is falsifiable by construction, not by presence.** One test mints under secret A and asserts verify returns the id under A AND None under B on the same token. A `grep -c compare_digest` gate alone proves wiring, not rejection.
+- [Phase 12-02]: **Tests authenticate through the real path.** `IdentityMiddleware` is not dependency-overridable, so `mint_cookie(monkeypatch, secret=...)` mints genuine tokens under a pinned `IDENTITY_SIGNING_SECRET` and tests present them as the `ra_id` cookie. Later waves (limits, ownership, note scoping) key on this seam.
+- [Phase 12-02]: **`Secure` is unconditional; the tests adapt, never the attribute.** `make_client` uses `base_url="https://testserver"` because httpx's jar withholds a Secure cookie over http — under the default base_url every request silently re-mints and per-identity tests pass vacuously. Do not fork the cookie attributes on env.
+- [Phase 12-02]: **A bare ASGI stub cannot sit inside `with TestClient(...)`** — the context manager drives lifespan, which the stub answers with http messages and Starlette asserts. Raw-middleware tests use the client without the context manager.
+- [Phase 12-02]: **README's identity narrative is left to the wave that owns it.** "guardrails … don't identify callers" stays true until Wave 3 rekeys the limits; Wave 5 owns the deployed-identity story. Only the falsified test count (480 → 504) was corrected in-wave.
+- [Phase 12-03]: **The two halves of `LimitsStore` have deliberately different strictness, and confusing them is the expensive mistake.** `check_rate` is a fairness tool: one statement, one round trip, and a small concurrent-insert overshoot costs nothing. `reserve` is a money tool: check-and-insert inside `db.transaction()` holding `pg_advisory_xact_lock(CAP_LOCK_KEY)`, because a single conditional INSERT is **not** race-free under READ COMMITTED — two guards each evaluate the WHERE against a snapshot excluding the other's uncommitted row and both pass. The reason is written at the seam so nobody "simplifies" the reserve into the rate shape.
+- [Phase 12-03]: **`caller_identity()` falls back to one SHARED bucket, never to `client_ip`.** A shared bucket is more restrictive than the truth, which is the safe direction; an address fallback would quietly reinstate the forgeable key this phase removed, and would do it exactly when the identity layer was broken — i.e. when nobody was looking. `client_ip` and `TRUST_FORWARDED_FOR` survive for **logging only**, with a do-not-key-limits-on-this comment.
+- [Phase 12-03]: **The cap left `enforce()` rather than gaining a `run_id` parameter there.** A reservation needs state the guard cannot see (the run does not exist until the handler builds it), and a guard that half-enforces the cap is worse than one that visibly does not. `reserve_or_429` raises **synchronously inside the handler**, before any StreamingResponse is constructed, so a capped caller gets a real 429 rather than a 200 whose body turns out to be an error event.
+- [Phase 12-03]: **An in-handler control needs two gates, not one.** `reserve_or_429` is not a route dependency, so the `api_routes()` walker structurally cannot see it — the exact ADR-0006 shape, on the same `/sessions` routes that forgot a credential four times. It is held by a parametrized four-route 429 test **and** a structural `inspect.getsource` invariant with a non-vacuity floor asserted first. Falsified, not assumed: deleting the reserve from `ask()` alone turns both red.
+- [Phase 12-03]: **Settle goes next to `metrics.record`, never in the handler's `except`.** `_stream` swallows its exception to terminate the SSE cleanly, so the handler's own `except` never runs on a failed stream — a settle placed there leaks a reservation on every stream failure. Four terminal arms, four settles. `limits.settle()` itself never raises: a failed settle must not turn a finished run into a 500 or truncate a stream that already delivered, and `RESERVATION_STALE_SECONDS` (900s) makes the failure survivable while the warning keeps the leak visible.
+- [Phase 12-03]: **The process-global `RateLimiter` instance is gone.** It was what made "the rate limit" mean something different on each machine, and a module global is not something a request can be pointed away from. The window now lives in the injected store; `RateLimiter` survives only as `InMemoryLimits`' internals.
+- [Phase 12-03]: **Baselines moved and are fully explained**: plain 467/37 → 493/41, armed 503/1 → 533/1, collected 504 → 534. The four extra plain skips are exactly the Postgres-gated `test_limits.py` tests, so **a green plain run is not evidence for the no-overshoot race** — the armed run against `:54329` is. README's falsified spend-cap limitation was corrected by the wave that falsified it; the "rate-limited, not authenticated" line still belongs to Wave 5.
+- [Phase 12-04]: **A dependency assertion over routes cannot see WHERE the dependency came from.** Every session handler injects `require_session_access` as a parameter to read its value, so `dependency_names(route)` is satisfied with or without the router-level declaration — deleting `sessions_router`'s own `dependencies=[...]` left the new structural gate GREEN. Observed by mutation, not reasoned about. `service.sessions_router.dependencies` is now asserted directly. Structural membership is the entirety of ADR-0006 part 4; a gate that cannot see it removed is not guarding it.
+- [Phase 12-04]: **404 for foreign, expired and missing alike — asserted as an equality between two live responses**, not as two status codes. Equal status, equal key sets, and detail strings differing only in the echoed id. A 403 confirms an id names a real session, and session ids travel in shared URLs and screenshots.
+- [Phase 12-04]: **`delete_session` calls `_require` before `store.delete`.** `store.delete` returns True/False, which distinguishes a real id from an invented one even while refusing both — the oracle rebuilt one layer down. Ownership is checked at the same choke point the reads use.
+- [Phase 12-04]: **Expiry is derived from `updated_at`, never a second column, and Postgres evaluates it with `EXTRACT(EPOCH FROM now())`.** Two machines then read one clock; a Python-side cutoff would make "expired" mean something slightly different on each. `SESSION_TTL_DAYS` (7) is read per call. Reads must never renew — otherwise "7 days after last activity" silently becomes "7 days after last glance" and the table never shrinks (contract-tested on both backends, the renewal half asserted on a live session *before* the expiry half).
+- [Phase 12-04]: **The fail-closed property of `SESSIONS_TOKEN` inverted, and that is the honest reading.** It used to raise 403 when unset because the token was the only thing between a stranger and someone else's research. Ownership is now that thing, and ownership cannot be left unset — so an unset token closes the operator view alone. `require_session_access` never raises. ADR-0007 (Wave 5) records it.
+- [Phase 12-04]: **`client.cookies.set(name, value, domain="testserver")` silently does not send the cookie**; hand cookies to the `TestClient` constructor instead. 12-03's `test_delete_rate_limited_check_runs_after_the_token_check` used the broken form, so its stated premise ("carries the VICTIM'S cookie") was false while the test still passed.
+- [Phase 12-04]: **Pre-Phase-12 rows need no migration step.** `owner=''` matches no caller (identities are 32-hex uuids), so orphans resolve for nobody the moment the filter lands and are swept once past the seven-day line. Claim-by-nobody-and-expire: no manual deletion, no special case in code, and the operator can still inspect them until they age out.
+- [Phase 12-04]: **Baselines moved and are fully explained**: plain 493/41 → 506/45, armed 533/1 → 550/1, collected 534 → 551 (+17 in both arms). The four extra plain skips are exactly the postgres arms of the four new session-contract tests, so the **armed** run is what proves DB-clock expiry. README/OPERATIONS/.env.example corrected for ownership, expiry and `SESSIONS_TOKEN`; the "rate-limited, not authenticated" line at ~210 remains Wave 5's.
+- [Phase 12-06]: **A superseding ADR must carry an explicit `### Carried forward` section.** The convention forbids editing a superseded record's Context/Decision/Consequences, so a bare supersession leaves the parts that survived discoverable only by reading a record stamped "Superseded" and guessing which sentences still apply. ADR-0007 names all four of 0006's parts, and records `SESSIONS_TOKEN`'s survival as an **inversion** (it still fails closed; what changed is that failing closed now costs the operator's cross-owner view rather than every visitor's access) — "it survives" alone would be true and useless.
+- [Phase 12-06]: **Freeze a measured SET, never a count.** Adding a font size *raises* the number of `font-size:` declarations, so a count-based or `>= 1` gate stays green for exactly the change it exists to catch. The same applies to the escape hatches: the `font:` shorthand carries a size and a weight, and script-set styles bypass CSS entirely — both are gated, and both mutate red.
+- [Phase 12-06]: **Freeze the markup's tag census alongside its text.** A textless element — an empty `<button>`, a blank-summary `<details>` — contributes no text run and walks straight past a text-only first-paint gate, while being exactly the "new interactive element reachable before the first question" AC1 forbids. Found by mutating the text gate, not by reading it.
+- [Phase 12-06]: **Build-and-insert-when-populated beats declare-and-hide.** The owned-session list is constructed in script and inserted only while it has rows, so there is no empty state to get wrong and no first-paint delta. Consequence for gating: the plan's `grep '<details id="mine">'` **cannot** be satisfied honestly — the literal only exists if the element ships in the first-paint DOM (which criterion 6 forbids) or sits in a comment (which the grep would accept). The gate asserts the construction AND that no `<details` tag appears anywhere in the file.
+- [Phase 12-06]: **Badge on field PRESENCE (`in` / `typeof`), never truthiness.** `Number(payload.cost_usd || 0).toFixed(4)` renders a fabricated `$0.0000` for a stored turn that carries no cost, in the same styling as a measured fact; but a truthiness test would also drop a genuine `$0` and a genuine zero-revision run. The presence form is the only one that omits the absent without hiding the real.
+- [Phase 12-06]: **The twelfth vacuous gate, and the narrow lesson.** The fix for "the session list is appended unconditionally" searched the whole of `syncMine()` for `"rows &&"` — which the `else if (!rows && …)` branch satisfies, so the gate passed under the exact mutation it had just been written for. A substring gate over a *region* is unsafe whenever the region contains a **negation** of the thing being asserted; assert on the specific line.
+- [Phase 12-06]: **Never `git checkout` a file to revert a mutation while uncommitted work sits on it.** A mutation script failed silently (`python` is not on `PATH` in this environment — only `.venv/bin/python`), and the `git checkout --` that "reverted" it discarded a real uncommitted edit instead. Use a file copy as the restore point.
+- [Phase 12-06]: **12-06 Task 4 (the live cutover) is deferred by the user and unstarted.** Criterion 6 is therefore proven **statically** against the served file, not in a real browser against the deployed service; two-machine identity continuity is untested; and `IDENTITY_SIGNING_SECRET` is unset in production, so the fleet mints per-process ephemeral identities. `/health`'s new `credentials.identity_signing` is what makes that visible.
 
 ### Pending Todos
 
@@ -262,17 +239,23 @@ None yet.
   completes. The SSE handler redacts and truncates. The cutover also carried Phase 10's three
   pending commits, so the deployed tree now equals `main` and the deploy drift is gone.
 
-  **Residual, now owned by Phase 12:** the token proves *authorised*, not *who* — there is
-  still no per-caller ownership or session expiry, and `GET /sessions` still lists every
-  session to any token holder. Two orphaned notes from the sessions deleted on 2026-08-04
-  remain in the memory store. `_index_json` does not advertise `DELETE /sessions/{id}`.
+  **Residual, owned by Phase 12 — session half RESOLVED 2026-08-05, plan 12-04.** Sessions now
+  carry the identity that created them, `GET /sessions` is caller-scoped (a valid `SESSIONS_TOKEN`
+  switches to the unscoped operator view), a foreign or expired session returns 404 identical to
+  missing, and sessions expire 7 days after their last turn. The two pre-Phase-12 rows carry
+  `owner=''`, resolve for nobody, and are swept on the first `create()` past their TTL — no manual
+  deletion needed. **Still open:** the two orphaned *notes* from the 2026-08-04 deletions (Wave 4,
+  12-05, which scopes and bounds notes), and `_index_json` does not advertise
+  `DELETE /sessions/{id}`.
 
 - **Other findings from codebase mapping, not yet phased.** Notes are written to a shared
   store with no tenant scoping (`graph.py:274`) and recalled into other visitors' runs
   (`graph.py:248`), and the critic reads the same untrusted text it polices
-  (`graph.py:385`) — so injection can force `APPROVED`. The daily spend cap counts only
-  completed runs (`limits.py:198` vs `service.py:222`), so ~16 concurrent runs can overshoot
-  the $5 cap roughly 3×. `pydantic` is unpinned — used by every API model, absent from
+  (`graph.py:385`) — so injection can force `APPROVED`. ~~The daily spend cap counts only
+  completed runs, so ~16 concurrent runs can overshoot the $5 cap roughly 3×.~~
+  **RESOLVED 2026-08-05, plan 12-03** — the cap reserves `DEMO_RESERVED_RUN_USD` per in-flight
+  run and check+insert is serialised under `pg_advisory_xact_lock`; a two-thread race against
+  real Postgres asserts exactly one of two concurrent reserves is admitted. `pydantic` is unpinned — used by every API model, absent from
   `pyproject.toml`, floating in via FastAPI. `requires-python = ">=3.10"` while Docker and
   CI run 3.14, so the floor is untested. Voyage embedding spend is accounted nowhere.
   Decide in Phase 12 planning which of these belong there versus a later phase.
@@ -298,12 +281,154 @@ None yet.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Docs drift | `docs/OPERATIONS.md` still says the spend cap counts completed runs only and "this is not fixed" (12-03 closed it), describes `DEMO_RATE_LIMIT_PER_HOUR` as per-visitor-IP (12-03 rekeyed it to identity), and omits `DEMO_RESERVED_RUN_USD` from the env table | **CLOSED 2026-08-05 by 12-06 Task 1 (`ab54fb5`)** — all three corrected, plus `IDENTITY_SIGNING_SECRET` added, the `TRUST_FORWARDED_FOR` row marked log-only, and the same per-visitor-IP error found and fixed in `.env.example` | 12-04 |
+| Live cutover | **12-06 Task 4** — `fly secrets set IDENTITY_SIGNING_SECRET`, `fly deploy`, then verify `/health` `identity_signing: true` on BOTH machines, cross-machine cookie verification (record both `FLY_MACHINE_ID`s), and criterion 6 in a real cleared-storage browser with the `ra_id` cookie HttpOnly/Secure/SameSite=Lax | Open — **deferred by the user**; unstarted, nothing touched live | 12-06 |
 
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 11-04-PLAN.md — production is on Supabase, and every step is still
+Stopped at: **Executed 12-06-PLAN.md Tasks 1–3 — Wave 5's code and docs are in; Task 4 is deferred.**
+Three commits on `gsd/phase-12-caller-identity`: `ab54fb5` (**ADR-0007**, `Accepted — supersedes
+ADR-0006`, `**Source:** Phase 12` — the reversal, the fairness ceiling, the cookie transport with its
+CSRF reasoning, 404-not-403, `TRUST_FORWARDED_FOR` demoted; and a `### Carried forward from ADR-0006`
+section naming all four surviving parts, with `SESSIONS_TOKEN` recorded as an **inversion** rather
+than a survival. ADR-0006: status line only, a 1-line diff. `docs/adr/README.md`: the 0007 row, both
+records' cells, and the "All six records are Accepted" sentence corrected. **README's "rate-limited,
+not authenticated" bullet**, deferred by waves 1–4, rewritten. `/health` reports
+`credentials.identity_signing`, presence never value. `.env.example` + `docs/OPERATIONS.md`:
+`IDENTITY_SIGNING_SECRET`, plus the two claims `deferred-items.md` assigned here and two more found
+alongside), `1c79677` (the demo page — footer sentence, a `#limits` line naming both scopes, an
+owned-session `<details>` **built in script and inserted only while it has rows**, a side-effect-free
+`renderTurnCard()` whose badges are conditional on field *presence* so a stored turn gets none rather
+than a fabricated `$0.0000`, and a resume flow that posts follow-ups to the existing
+`/sessions/{id}/ask/stream`), and `d7d06e2` (nine criterion-6 static gates).
+Suite: **526 passed / 47 skipped plain, 572 passed / 1 skipped armed** against 516/47 and 562/1 —
+**+10 in both arms and ZERO new skips**, the first wave of this phase with nothing to justify: 1 new
+health test + 9 page gates, all static-file or in-memory. `ruff` clean.
+**The two-delta claim is now measured.** The served markup's visible text runs were diffed against the
+pre-phase file: the whole phase's markup delta is **one run**, the footer sentence. That baseline is
+frozen in `page_first_paint_text_is_frozen`; the `#limits` delta is not a markup delta (the `<p>` ships
+empty and is filled from `/demo`) and is gated separately.
+**Falsified, not assumed — 25 mutations, 24 red**, tree byte-identical after each batch. Three of the
+plan's own gates were vacuous as specified and were fixed before commit: the session list could be
+appended unconditionally, `renderTurnCard` could go back to fabricating a cost, and a **textless**
+interactive element could be added before the first question — all three stayed green. Then the fix
+for the first was **itself** vacuous (searching all of `syncMine()` for `"rows &&"`, which the
+`else if (!rows && …)` branch satisfies): this project's **twelfth** vacuous gate and the first written
+by the wave that found it. The one mutation that stays green — changing an `--accent` value inside
+`:root` — is recorded as correctly green, since AC7 freezes which properties new rules use, not the
+palette's values; the falsifying mutation for that gate is *hardcoding* a colour, which is red.
+**Task 4 (T-06-4, `checkpoint:human-action`) is DEFERRED BY THE USER and unstarted.** No Fly secret
+set, no `fly deploy`, live service untouched, nothing pushed. Consequences: criterion 6 is proven
+**statically against the served file, not in a real browser**; two-machine identity continuity is
+untested; and with `IDENTITY_SIGNING_SECRET` unset the fleet mints per-process ephemeral identities,
+which `/health`'s new field now makes visible. Both `REQ-demo-authentication` and
+`REQ-store-lifecycle-and-ownership` therefore stay **Pending** — both are deployed-behaviour
+requirements, and 12-05 handed the second one here explicitly noting it depends on the first.
+Resume file: None
+
+Superseded — previous session: **Completed 12-05-PLAN.md — Wave 4 of Phase 12 is in.** Three commits on
+`gsd/phase-12-caller-identity`: `27e46bc` (`add(text, owner="")` / `query(..., owner="")` on the
+`MemoryStore` ABC and all four backends, with owner matching EXACT — `owner=""` retrieves only
+`owner=""` notes and never acts as a wildcard; `NOTE_TTL_DAYS` (7, deliberately the same number as
+`SESSION_TTL_DAYS`) enforced by a lazy filter in `query()` plus an opportunistic sweep in `add()`;
+`owner`/`created_at` keys on the brute-force entry dicts, chroma metadata with a `where` owner
+filter and a Python TTL post-filter, and `ALTER TABLE … ADD COLUMN IF NOT EXISTS owner` appended to
+pgvector's advisory-locked lazy DDL — `created_at` was already there and is NOT re-added; chroma ids
+became uuids because a sweep makes `count()` non-monotonic and a repeated id is an upsert), `bb9e80f`
+(`AgentState["owner"]`, `initial_state(task, owner="")`, `followup_state(previous, question,
+owner="")` with carry-forward and a `.get` for pre-Phase-12 state blobs, `researcher_node` scoping
+BOTH `store.query` and `store.add`, and all four run-starting handlers passing the identity they
+already resolve), and `8a8582e` (README's "Notes grow without bound" bullet — false in both halves —
+`NOTE_TTL_DAYS` into OPERATIONS and `.env.example`, and the test count in the two places it appears,
+one of which had been stale at 480 since 12-01).
+Suite: **516 passed / 47 skipped plain, 562 passed / 1 skipped armed** against 506/45 and 550/1.
+Collected 551 → 563, +12 in both arms. The two extra plain skips are exactly the **pgvector** arms of
+`note_scoping` and `note_ttl` (`DATABASE_URL is not set`); the **chroma** arm collects and passes in
+both runs, which is the difference between SC-5 being true and SC-5 being claimed. `ruff` clean.
+Nothing deployed; no push.
+**Falsified, not assumed — 21 mutations, all reverted:** all nine ways to break the store layer (owner
+filter, TTL filter and sweep, per backend family) go red on exactly the arms they own; both
+`researcher_node` call sites, the `AgentState` key, the follow-up carry-forward and all four handlers
+go red. Two mutations that stayed green are recorded as findings, not holes: renaming a key inside the
+shared `_summarise` helper cannot fail a gate that compares two backends, and an unread extra column
+in the SQLite query is not read by `_summarise`; the falsifying mutation for that gate is a
+one-backend dialect drift, which is red.
+**The eleventh vacuous gate, and its second-order form.** The plan's end-to-end injection test, written
+over `/research` only, stayed GREEN when `owner=` was deleted from `/research/stream` — the route the
+demo page actually calls. It is now parametrized over both. Worse, the obvious structural fix ("the
+handler source contains `owner=`") is ALSO vacuous, because three of the four handlers pass
+`owner=owner` to `store.create` or `reserve_or_429` as well; the gate parses the state-construction
+call with balanced parentheses instead. Both mutations are red.
+**Owed to 12-06:** `REQ-store-lifecycle-and-ownership` is now delivered in code in both halves
+(sessions in 12-04, notes here) but stays **Pending** — 12-06 carries it in its frontmatter alongside
+`REQ-demo-authentication`, which it explicitly depends on and which is only demonstrable at the
+deployed cutover. `docs/OPERATIONS.md` still carries the two claims 12-03 falsified (see Deferred
+Items). README's "rate-limited, not authenticated" line at ~210 remains Wave 5's, untouched on
+purpose. Task 3 of this plan produced no code change: all four route-guard assertions and the
+cross-backend metrics invariant already existed, pass after the owner threading, and were mutated red
+— and one of its acceptance criteria names `check_daily_cap`, a function 12-03 retired, where the
+live assertion covers both current ways to acquire the cap and is strictly stronger.
+**A trap worth carrying forward:** `addopts = "-q"` is already set, so passing `-q` again on the
+command line makes pytest doubly quiet and it prints **no `N passed` summary line at all**. Run
+`.venv/bin/pytest` with no `-q`.
+Resume file: None
+
+Superseded — previous session: **Completed 12-04-PLAN.md — Wave 3 of Phase 12 (session owner, derived 7-day expiry, the operator dual-mode, one 404 for missing/expired/foreign; commits `82af2cc`, `b87a088`, `6b52781`; suite 506/45 plain, 550/1 armed; the walker strengthened after its plan-specified form proved vacuous against deleting the router-level dependency).**
+
+Superseded — earlier session: **Completed 12-03-PLAN.md — Wave 2 of Phase 12 is in.** Five commits on
+`gsd/phase-12-caller-identity`: `fe50a83` (the `LimitsStore` ABC with `InMemoryLimits` and
+`PostgresLimits`; two new tables under the lazy advisory-locked `ensure_schema`; `get_limits_store()`
+defaulting on `DATABASE_URL` like sessions and metrics), `9db9125` (`DEMO_RESERVED_RUN_USD`;
+`enforce` reduced to token + identity-rate; `reserve_or_429` carrying the verbatim
+"Read-only endpoints still work." 429; `app.state.limits` + the `get_limits` accessor; the reserve
+in all four spending handlers and `settle` after every `metrics.record` in `_execute` and
+`_stream`; `status()` extended additively with `rate_limit_scope` and `reserved_run_usd`),
+`40d2de9` (the doubled gate — parametrized four-route 429 plus the `inspect.getsource` structural
+invariant with a non-vacuity floor; **falsified by deleting `ask`'s reserve and observing both go
+red**), `7fb1c72` (the two-thread `cap_reservation_no_overshoot` race and the stale-reclaim test
+against real Postgres on `:54329`, using two `_dsn_tagged` handles so the threads hold separate
+pool connections), and `fd5267f` (README: the spend-cap known-limitation entry rewritten to what
+is now true plus the residual it leaves — the 900s stale window and estimate accuracy — and
+504 → 534 tests).
+Suite: **493 passed / 41 skipped plain, 533 passed / 1 skipped armed** against 467/37 and 503/1.
+Collected 504 → 534; the four extra plain skips are exactly the Postgres-gated `test_limits.py`
+tests, each reporting `DATABASE_URL is not set` — so the plain run is **not** evidence for the
+race gate. `ruff` clean. Nothing deployed; no push. `REQ-demo-authentication` stays Pending until
+the Wave 5 cutover.
+**Owed to 12-04/12-05:** `status()` now exposes `rate_limit_scope` and `reserved_run_usd` for the
+UI wave to render, and `README.md`'s "rate-limited, not authenticated" line at ~210 is now
+half-false — the limits *do* identify callers — and is Wave 5's to correct.
+Resume file: None
+
+Superseded — previous session: **Completed 12-02-PLAN.md — Wave 1 of Phase 12 is in.** Four commits on
+`gsd/phase-12-caller-identity`: `ea204cd` (17 failing identity unit tests, TDD RED observed at
+collection), `f7e2494` (`identity.py` — stdlib-HMAC `v1.<uuid4hex>.<sha256>` mint/verify with
+`compare_digest`, never-raise verify, per-call `IDENTITY_SIGNING_SECRET` with a cached
+per-process ephemeral degrade and one warning, `set_cookie_value` with the LOCKED attributes,
+and the pure-ASGI `IdentityMiddleware`), `39ea349` (`app.add_middleware(IdentityMiddleware)`;
+`make_client` on `base_url="https://testserver"`; `mint_cookie()` seam; 7 API tests proving the
+mint lands on the SSE stream, the FileResponse demo page and a JSON route, that a valid cookie
+is never re-minted, that a tampered cookie gets 200-not-401 plus a fresh mint, and that
+`request.state.identity` is populated before any handler), and `a828ef1` (README 480 → 504).
+Suite: 467 passed / 37 skipped plain, 503 passed / 1 skipped armed — +24 in both runs, every one
+named (17 unit + 7 API), skip counts unchanged. `ruff` clean. Zero JS changes; nothing deployed;
+no push. `REQ-demo-authentication` stays Pending until the Wave 5 cutover proves it deployed.
+Resume file: None
+
+Superseded — previous session: **Completed 12-01-PLAN.md — Wave 0 of Phase 12 is in.** Three commits on
+`gsd/phase-12-caller-identity`: `0dbf46f` (chromadb into the dev extra by composing the existing
+chroma extra, pin unchanged; the notes fixture parametrizes json/memory/chroma/pgvector and the
+chroma arm passes all 6 note contract tests locally), `ea1bb8f` (`Database.transaction()` — one
+pooled connection, `conn.transaction()`, cursor on that same connection; `CAP_LOCK_KEY` exported
+for Wave 2; 4 tests proving commit-visible, rollback-absent, and the advisory lock held against a
+rival while open then taken freely afterwards, run green against local Postgres :54329), and
+`1cd461f` (README 470 → 480 tests, ~10s → ~25s). Suite: 443 passed / 37 skipped plain,
+479 passed / 1 skipped armed — every delta from the 436/34 and 469/1 baselines named. `ruff`
+clean. Nothing deployed; no push.
+Resume file: None
+
+Superseded — previous session: **Completed 11-04-PLAN.md — production is on Supabase, and every step is still
 reversible.** Task 1 (provisioning) was done by the operator beforehand and was verified, not
 redone. One `fly deploy -a research-agent` landed the branch code and the staged `DATABASE_URL` in
 **release v5** — deliberately *not* `fly secrets deploy`, which would have put the new DSN on the
@@ -458,7 +583,31 @@ Resume file: None
   dict. And `research_notes`'s text column is `text`, not `content`. Both cost a failed probe in
   11-04.
 
-Next: **11-05** — remove `[[mounts]]` and the three `*_DB_PATH` vars, add the three backend pins,
+- **`addopts = "-q"` is already set in `pyproject.toml`.** Passing `-q` on the command line makes
+  pytest doubly quiet and it prints **no `N passed` summary line at all** — a run that looks like it
+  produced no result has produced every result except the one you were reading for. Run
+  `.venv/bin/pytest` with no `-q`.
+
+- **`python` is not on `PATH` in this environment; `.venv/bin/python` is.** A `python - <<'PY'`
+  heredoc fails with `command not found` and, in a `&&` chain, silently skips the step it was meant
+  to perform. This cost an uncommitted edit in 12-06 when the "revert" that followed a no-op mutation
+  was a `git checkout --`. Restore from a file copy, not from git, while work is uncommitted.
+
+- **The demo page now has a frozen first-paint baseline.** `tests/test_service.py` freezes the served
+  markup's visible text runs AND its tag census, plus the font-size/weight/shorthand sets and the
+  literal-colour set. Any future phase touching `src/research_agent/static/index.html` must update
+  those baselines deliberately — they are measured constants, and a failure is the gate working.
+
+Next: **12-06 Task 4** — the deferred live cutover. Generate the secret, `fly secrets set
+IDENTITY_SIGNING_SECRET=…` (app-wide, so both machines verify each other's cookies), `fly deploy`,
+then verify `/health` reports `identity_signing: true` on BOTH machines, that a cookie minted on one
+verifies on the other (record both `FLY_MACHINE_ID`s), and criterion 6 in a real cleared-storage
+browser. Only after that can `REQ-demo-authentication` and `REQ-store-lifecycle-and-ownership` be
+checked off. Then the phase PR — one PR for the whole phase, no direct push to `main`.
+Note the standing blocker below: `ANTHROPIC_API_KEY` is revoked in production, so a research run
+still cannot complete there regardless of this cutover.
+
+Superseded — Next was: **11-05** — remove `[[mounts]]` and the three `*_DB_PATH` vars, add the three backend pins,
 raise `min_machines_running` to 2 and `fly scale count 2`. This is the point of no return for
 per-machine state, and 11-04 has cleared its precondition: the database is reachable and proven.
 `tests/test_deploy_config.py` makes that a four-part change or it fails. Also owed there:

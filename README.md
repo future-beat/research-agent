@@ -10,7 +10,7 @@ until every claim is grounded. Watch the critic push back — that's the part
 worth seeing.
 
 A production service, not a notebook: bounded loops, per-run cost accounting,
-a spend cap, swappable Postgres/pgvector backends, an eval harness, and 470
+a spend cap, swappable Postgres/pgvector backends, an eval harness, and 563
 tests that run with no API keys.
 
 **Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
@@ -78,8 +78,8 @@ and ruff. A worker that imports the graph never pulls in a web server.
 | `GET` | `/` | Demo page in a browser, JSON index to `curl` |
 | `POST` | `/research` · `/research/stream` | Full pipeline; blocking or SSE |
 | `POST` | `/sessions/{id}/ask` · `/ask/stream` | Follow-up from that session's notes — no new search |
-| `GET` | `/sessions` · `/sessions/{id}` · `/{id}/trace` | Session list, thread, node-by-node trace — `X-Demo-Token` required |
-| `DELETE` | `/sessions/{id}` | Delete a session — `X-Demo-Token` required |
+| `GET` | `/sessions` · `/sessions/{id}` · `/{id}/trace` | Session list, thread, node-by-node trace — your own sessions; `X-Demo-Token` lists everyone's |
+| `DELETE` | `/sessions/{id}` | Delete a session — the owner, or `X-Demo-Token` |
 | `GET` | `/health` · `/ready` | Liveness (always 200) · readiness (503 when a store is down) |
 | `GET` | `/metrics` · `/pricing` · `/demo` | Volume, approval rate, cost, latency · live rates · guardrail state |
 
@@ -158,7 +158,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 470 tests, ~10s, no API keys, no network
+pytest                    # 563 tests, ~25s, no API keys, no network
 python -m evals           # 12 golden cases, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 ```
@@ -202,12 +202,12 @@ Known, and deliberate for the scope.
 - **The critic shares the writer's model.** Independent enough to catch ungrounded claims, not a genuinely independent evaluator. The eval judge runs on a stronger model precisely because of this.
 - **Offline evals can't measure answer quality**, and twelve live cases are a smoke test, not a benchmark.
 - **Cost is computed from list prices** — no enterprise discounts or `inference_geo` multiplier, so `/metrics` tracks the shape of the bill, not the bill. List prices are also effective-dated rather than fixed: Claude Sonnet 5's introductory window runs through `2026-08-31` and the standard window applies from `2026-09-01`, so any rate quoted as permanent is wrong by some date. `/pricing` reports whichever window accounting is using today — read it there, not from a number in a document.
-- **Stores grow without bound.** No eviction, dedup, or summarisation for notes; no expiry or ownership for sessions.
+- **Notes and sessions expire after seven days, and neither is shared.** Both belong to the identity that created them; a session stops resolving seven days after its last turn, a note seven days after it was written, and the next write sweeps what has aged out. Reads deliberately don't renew that clock — otherwise "seven days since you used it" would quietly mean "seven days since you looked at it". Scoping notes is a safety fix as much as a hygiene one: recalled notes are pasted into the researcher's prompt and the critic reviews what comes back, so a communal store put one visitor's text on the path to another visitor's verdict. What remains unbounded is *within* one identity — no dedup or summarisation, because neither has semantics that four different vector backends can agree on, and the whole claim here is that they behave identically.
 - **Running on SQLite pins you to one machine.** That's the local and container default: a second machine would hold its own database and 404 on sessions that exist. Production points `DATABASE_URL` at Supabase Postgres, which is what removes the constraint — the deploy config asserts the two can't drift apart in either direction.
 - **The database is a single region and a free tier.** Supabase Nano in `ap-southeast-2`, no read replica, and a 60-connection ceiling of which the fleet holds ten. Fine at this traffic; the first thing to look at if it isn't.
-- **The demo spend cap counts completed runs only.** A burst of concurrent runs can overshoot `DEMO_DAILY_USD_CAP` before any of them settle, and running two machines raises how far. Bounded by the per-run cap and the rate limit, not by the daily one.
+- **The demo spend cap reserves against an estimate, not the real cost.** A starting run claims `DEMO_RESERVED_RUN_USD` ($0.20, about what a run costs) against `DEMO_DAILY_USD_CAP` and settles to the actual figure when it finishes, so in-flight runs count and concurrency can no longer overshoot — the check and the insert share one transaction holding a Postgres advisory lock, and the state is shared across machines rather than held per process. What remains: a run whose process dies keeps its reservation for 900s before it is reclaimed, and a wrong estimate makes the cap slightly early or slightly late, never absent.
 - **Changing embedding model means a new pgvector table.** The column width is fixed at creation; the dimension check fails loudly but can't migrate for you.
-- **The public demo is rate-limited, not authenticated.** Running research is deliberately open to anyone — guardrails bound the spend, they don't identify callers. Reading or deleting a stored session is not: those endpoints need a token, but the token says *authorised*, not *who*.
+- **Callers are identified, but only as an anonymous browser.** The demo is still open to anyone — the first request mints a signed `HttpOnly` cookie silently, so a stranger following a link reaches a working demo with no signup, no wall, and nothing to dismiss. What that identity is worth is exactly possession of the cookie: it's the right strength for a public demo, and it is *not* a verified person. It buys two real things — your sessions and notes are yours, and the hourly rate limit is fair between visitors instead of shared by everyone behind one NAT. It doesn't bound the bill, because identities are free to mint: clear your browser storage and you get fresh limits. That's a documented ceiling, not an oversight, which is why the **global** rolling daily spend cap survives as the actual backstop. `SESSIONS_TOKEN` remains, now as the operator's cross-owner debugging view rather than the visitor's credential. Recorded as [ADR-0007](docs/adr/0007-anonymous-identity-fairness-global-cap.md), which supersedes [ADR-0006](docs/adr/0006-separate-sessions-token-fails-closed.md).
 
 ---
 

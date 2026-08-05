@@ -26,7 +26,12 @@ from research_agent import db
 from research_agent import memory as vm
 from research_agent import metrics as metrics_module
 from research_agent import sessions as sessions_module
-from research_agent.memory import InMemoryStore, JSONMemoryStore, PgVectorMemoryStore
+from research_agent.memory import (
+    ChromaMemoryStore,
+    InMemoryStore,
+    JSONMemoryStore,
+    PgVectorMemoryStore,
+)
 from research_agent.metrics import (
     COMPLETED,
     FAILED,
@@ -90,7 +95,7 @@ def runs(request, tmp_path):
     store.close()
 
 
-@pytest.fixture(params=["json", "memory", "pgvector"])
+@pytest.fixture(params=["json", "memory", "chroma", "pgvector"])
 def notes(request, tmp_path):
     embedder = FakeEmbedder()
     if request.param == "pgvector":
@@ -100,6 +105,17 @@ def notes(request, tmp_path):
             embedder=embedder, table=CONTRACT_NOTES_TABLE, dimensions=FAKE_DIMENSIONS
         )
         store.db.execute(f"TRUNCATE {CONTRACT_NOTES_TABLE}")
+    elif request.param == "chroma":
+        # CI installs the dev extra, which composes chroma -- so this arm
+        # COLLECTS and runs there. The guard is only for a local checkout
+        # without the extra; it must never gate on HAS_POSTGRES.
+        try:
+            import chromadb  # noqa: F401
+        except ImportError:
+            pytest.skip("chromadb not installed")
+        store = ChromaMemoryStore(
+            path=str(tmp_path / "chroma"), collection=CONTRACT_NOTES_TABLE, embedder=embedder
+        )
     elif request.param == "json":
         store = JSONMemoryStore(path=str(tmp_path / "notes.json"), embedder=embedder)
     else:
@@ -223,6 +239,122 @@ def test_session_path_never_leaks_a_password(sessions):
     """`path` is returned by /health."""
     assert "password" not in sessions.path
     assert "sup3rsecret" not in sessions.path
+
+
+# -- ownership and expiry (Phase 12) ---------------------------------------
+#
+# These run on BOTH session backends deliberately. The two stores compute the
+# expiry cutoff from different clocks -- Python's for SQLite, the database's own
+# for Postgres -- and the whole point of deriving expiry that way is that the
+# *observable* behaviour is identical. A test that only ran on SQLite would
+# leave the multi-machine backend, the one that actually serves the deployment,
+# unproven.
+
+
+def _rewind(sessions, session_id: str, seconds: float) -> None:
+    """Drag a session's last-write time `seconds` into the past.
+
+    Reaching past the store's API on purpose: the alternative is sleeping for
+    seven days. `updated_at` is a plain epoch column on both backends, so this
+    produces exactly the row an idle week produces.
+    """
+    if isinstance(sessions, PostgresSessionStore):
+        sessions.db.execute(
+            "UPDATE sessions SET updated_at = updated_at - %s WHERE id = %s",
+            (seconds, session_id),
+        )
+    else:
+        with sessions._lock:
+            sessions._conn.execute(
+                "UPDATE sessions SET updated_at = updated_at - ? WHERE id = ?",
+                (seconds, session_id),
+            )
+            sessions._conn.commit()
+
+
+def test_expiry_lazy_and_reads_do_not_renew(sessions, monkeypatch):
+    """Idle past the TTL stops resolving; a read does not push the line back.
+
+    Both halves matter and only together. Expiry alone is satisfiable by a
+    store whose reads renew `updated_at`, which is the failure mode that makes
+    "7 days after last activity" mean "7 days after last glance" and leaves the
+    table growing forever. So the renewal half is asserted on a LIVE session
+    before the expiry half is asserted on an idle one.
+    """
+    monkeypatch.setenv("SESSION_TTL_DAYS", "7")
+
+    live = sessions.create("live one", finished_state(), owner="alice")
+    before = sessions.get(live).updated_at
+    for _ in range(3):
+        assert sessions.get(live) is not None
+        assert sessions.list(owner="alice")
+    assert sessions.get(live).updated_at == before, "a read renewed updated_at"
+
+    # Eight days idle: past the seven-day line, still physically present.
+    _rewind(sessions, live, 8 * 86400)
+    assert sessions.count() == 1, "the row is still there; only the filter should hide it"
+    assert sessions.get(live) is None
+    assert sessions.list() == []
+    assert sessions.list(owner="alice") == []
+
+    # The TTL is a knob, not a constant: widen it and the same row is live
+    # again, which proves the filter is reading the setting rather than a
+    # hardcoded seven.
+    monkeypatch.setenv("SESSION_TTL_DAYS", "30")
+    assert sessions.get(live) is not None
+
+
+def test_sweep_deletes_expired(sessions, monkeypatch):
+    """A create() bounds the table: the expired row is gone, not merely hidden.
+
+    Asserted on count(), which is unfiltered -- against get()/list() a lazy
+    filter alone would look identical to a sweep, and only one of them keeps
+    the store from growing without limit.
+    """
+    monkeypatch.setenv("SESSION_TTL_DAYS", "7")
+
+    stale = sessions.create("old", finished_state(), owner="alice")
+    orphan = sessions.create("pre-phase-12", finished_state())  # owner='' by default
+    _rewind(sessions, stale, 8 * 86400)
+    _rewind(sessions, orphan, 8 * 86400)
+    assert sessions.count() == 2  # non-vacuity: there is something to sweep
+
+    fresh = sessions.create("new", finished_state(), owner="bob")
+
+    assert sessions.count() == 1, "the sweep on create() did not remove the expired rows"
+    assert [s.id for s in sessions.list()] == [fresh]
+    assert sessions.get(stale) is None
+    assert sessions.get(orphan) is None
+
+
+def test_list_scopes_to_an_owner_and_none_is_unscoped(sessions):
+    """The data path behind the dual-mode listing.
+
+    `owner=None` is the operator's unscoped view, a string is one caller's.
+    Exact match, never "empty means all": the pre-Phase-12 rows carry owner=''
+    and must resolve for nobody.
+    """
+    mine = sessions.create("mine", finished_state(), owner="alice")
+    theirs = sessions.create("theirs", finished_state(), owner="bob")
+    orphan = sessions.create("orphaned", finished_state())
+
+    assert [s.id for s in sessions.list(owner="alice")] == [mine]
+    assert [s.id for s in sessions.list(owner="bob")] == [theirs]
+    assert sorted(s.id for s in sessions.list()) == sorted([mine, theirs, orphan])
+
+    # owner='' is a real owner value, not a wildcard.
+    assert [s.id for s in sessions.list(owner="")] == [orphan]
+    assert sessions.list(owner="carol") == []
+
+
+def test_owner_round_trips_and_defaults_to_empty(sessions):
+    """A session remembers who minted it, and a caller-less create is claimed
+    by nobody rather than by everybody."""
+    owned = sessions.get(sessions.create("q", finished_state(), owner="alice"))
+    assert owned.owner == "alice"
+    assert owned.summary()["owner"] == "alice"
+
+    assert sessions.get(sessions.create("q", finished_state())).owner == ""
 
 
 # --------------------------------------------------------------------------
@@ -370,6 +502,85 @@ def test_the_relevance_floor_excludes_unrelated_notes(notes):
 def test_describe_reports_the_count(notes):
     notes.add("langgraph")
     assert "1 note(s)" in notes.describe()
+
+
+# -- note ownership and expiry (Phase 12) ----------------------------------
+#
+# These two run on all FOUR note backends, which is the whole of SC-5: the
+# roadmap promises notes behave identically across json, memory, chroma and
+# pgvector, and four hand-written filters agreeing is exactly the kind of
+# thing that quietly stops being true. Three of the arms need no server; the
+# pgvector arm skips without DATABASE_URL and runs in CI, where the multi-
+# machine backend is the one actually serving the deployment.
+
+
+def test_note_scoping(notes):
+    """A note is recalled for its owner and for nobody else.
+
+    This is the prompt-injection fix, asserted at the store. Notes are read
+    back into a researcher prompt whose output the critic then reviews, so a
+    note one visitor caused to be written could steer another visitor's
+    report. All three notes here embed IDENTICALLY -- the extra word is
+    outside the fake embedder's vocabulary -- so similarity cannot be what
+    separates them. Drop the owner filter from any backend and a query for
+    one owner returns all three.
+    """
+    notes.add("langgraph supervisor alice-note", owner="alice")
+    notes.add("langgraph supervisor bob-note", owner="bob")
+    notes.add("langgraph supervisor orphan-note")  # owner='' by default
+
+    # Both directions, per arm: mine comes back, theirs does not.
+    assert notes.query("langgraph supervisor", owner="alice") == [
+        "langgraph supervisor alice-note"
+    ]
+    assert notes.query("langgraph supervisor", owner="bob") == ["langgraph supervisor bob-note"]
+
+    # owner='' is a real, exact owner value and never a wildcard. If it meant
+    # "all", every pre-Phase-12 note would still leak into every run and the
+    # REPL's own notes would be readable by the service.
+    assert notes.query("langgraph supervisor", owner="") == [
+        "langgraph supervisor orphan-note"
+    ]
+
+    # And an identity that wrote nothing recalls nothing, rather than
+    # inheriting the communal store.
+    assert notes.query("langgraph supervisor", owner="carol") == []
+
+
+def test_note_ttl(notes, monkeypatch):
+    """Past the TTL a note stops being recalled, and the next add sweeps it.
+
+    The age is produced by moving the line rather than the note: NOTE_TTL_DAYS
+    is read per call on every backend, so setting it to 0 puts an existing note
+    on the far side of the cutoff without reaching into four different storage
+    layouts to forge a timestamp. It also proves the backends read the setting
+    rather than a hardcoded seven.
+
+    Both halves are needed and neither implies the other. The filter is what
+    makes expiry immediate; the sweep is what stops the store growing forever,
+    and against query() alone a lazy filter looks exactly like a sweep. So the
+    sweep is asserted on len(), which is unfiltered on all four backends --
+    and then on the note staying gone once the TTL is widened back out, which
+    a merely-hidden note would not.
+    """
+    monkeypatch.setenv("NOTE_TTL_DAYS", "7")
+    notes.add("langgraph supervisor", owner="alice")
+    # Non-vacuity: it is genuinely recallable before the line moves, so a
+    # backend that returned [] for unrelated reasons cannot pass the next half.
+    assert notes.query("langgraph supervisor", owner="alice") == ["langgraph supervisor"]
+
+    monkeypatch.setenv("NOTE_TTL_DAYS", "0")
+    assert notes.query("langgraph supervisor", owner="alice") == []
+    assert len(notes) == 1, "the note should still be present, only filtered out"
+
+    notes.add("chroma voyage", owner="alice")
+    assert len(notes) == 1, "add() did not sweep the expired note"
+
+    monkeypatch.setenv("NOTE_TTL_DAYS", "7")
+    assert notes.query("langgraph supervisor", owner="alice") == [], (
+        "widening the TTL brought the note back; it was hidden, not swept"
+    )
+    assert notes.query("chroma voyage", owner="alice") == ["chroma voyage"]
 
 
 # --------------------------------------------------------------------------

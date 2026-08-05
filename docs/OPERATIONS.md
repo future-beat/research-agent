@@ -29,8 +29,16 @@ compose passes keys through from the environment, and Fly uses `fly secrets`.
 ```bash
 fly volumes create agent_data --size 1 -a research-agent
 fly secrets set ANTHROPIC_API_KEY=... VOYAGE_API_KEY=... -a research-agent
+fly secrets set IDENTITY_SIGNING_SECRET="$(python -c 'import secrets;print(secrets.token_hex(32))')" -a research-agent
 fly deploy -a research-agent
 ```
+
+Fly secrets are app-wide, which is the point of that third line: every machine
+gets the same signing key, so an identity cookie minted by one verifies on the
+other. Leave it unset and each process invents its own ephemeral secret — the
+demo still works, but a caller bounced between machines becomes a new visitor
+and loses their sessions. `/health` reports `credentials.identity_signing` so
+you can tell which of the two you are running, without exposing the value.
 
 `fly.toml` pins `min_machines_running = 1` on purpose: SQLite with a single
 writer and a per-machine volume does not scale horizontally, because a second
@@ -273,10 +281,14 @@ Environment variables:
 | `AGENT_MAX_ATTEMPTS` | Attempts per node, including the first | `4` |
 | `AGENT_RETRY_BASE_DELAY` · `AGENT_RETRY_MAX_DELAY` | Backoff bounds, seconds | `1.0` / `30.0` |
 | `DEMO_DAILY_USD_CAP` | Rolling 24h ceiling across all callers; `0` disables | `5.00` |
-| `DEMO_RATE_LIMIT_PER_HOUR` | Requests per visitor IP; `0` disables | `10` |
+| `DEMO_RATE_LIMIT_PER_HOUR` | Requests per **caller identity** (the signed cookie), not per IP; `0` disables | `10` |
+| `DEMO_RESERVED_RUN_USD` | What a starting run claims against the daily cap up front, settled to the real cost when it ends; `0` reserves nothing | `0.20` |
+| `IDENTITY_SIGNING_SECRET` | Signs the anonymous caller-identity cookie. Set app-wide so a cookie minted by one machine verifies on the other; unset, each process invents an ephemeral one and identities don't survive a bounce | *(unset)* |
 | `DEMO_TOKEN` | When set, write endpoints need an `X-Demo-Token` header. Also accepted as a fallback for `SESSIONS_TOKEN` | *(unset)* |
-| `SESSIONS_TOKEN` | Credential for the session read and delete endpoints, sent as `X-Demo-Token`. **Fails closed** — while unset those endpoints refuse everyone with 403 | *(unset)* |
-| `TRUST_FORWARDED_FOR` | Believe `X-Forwarded-For` for client IP | `false` |
+| `SESSIONS_TOKEN` | Operator credential, sent as `X-Demo-Token`: lists and deletes **every** owner's sessions. While unset, only the operator view is closed — callers still reach their own | *(unset)* |
+| `SESSION_TTL_DAYS` | A session stops resolving this long after its last turn, and is swept on the next run. Reads don't renew it | `7` |
+| `NOTE_TTL_DAYS` | A stored note stops being recalled this long after it was written, and is swept on the next `add()`. Same value and same mechanics as sessions, on all four vector backends | `7` |
+| `TRUST_FORWARDED_FOR` | Believe `X-Forwarded-For` for the client IP in **log lines only** — since Phase 12 nothing keys fairness on it (ADR-0007) | `false` |
 | `LOG_FORMAT` · `LOG_LEVEL` | `json` or `text`; level | `json` / `INFO` |
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is installed | `true` |
 
@@ -304,20 +316,36 @@ the server to be listening and `tcp_user_timeout` needs unACKed data. That case
 is why the wall-clock deadline exists. Measured: 0.32s against a store that
 never answers, versus 31.4s with the deadline removed.
 
-**Concurrency and the spend cap interact, and this is not fixed.** The rolling
-daily cap counts only *completed* runs, so runs already in flight don't yet show
-against it. With `hard_limit = 16` a burst can already overshoot
-`DEMO_DAILY_USD_CAP` by roughly 3×, and 32 concurrent requests across two
-machines roughly doubles that ceiling. Nothing here makes the race more likely
-per request; what changes is how far a single burst can exceed the cap before
-the cap notices. Tracked for Phase 12 under `REQ-store-lifecycle-and-ownership`.
+**Concurrency and the spend cap used to interact badly; Phase 12 fixed it.**
+The rolling daily cap once counted only *completed* runs, so a burst of 16 could
+overshoot `DEMO_DAILY_USD_CAP` by roughly 3×, and two machines each holding the
+count in process memory doubled that again. Both halves are closed. A starting
+run now **reserves** `DEMO_RESERVED_RUN_USD` against the cap before it does any
+work and settles to the real figure when it finishes, so in-flight runs count;
+the check and the reservation share one transaction holding a Postgres advisory
+lock, so two concurrent guards cannot both pass; and the state lives in Postgres
+rather than per-machine memory, so the fleet reads one number. What remains is
+smaller and bounded: a run whose process dies keeps its reservation for 900s
+before it is reclaimed, and a wrong estimate makes the cap fire slightly early or
+slightly late, never not at all.
 
-The two tokens are not interchangeable in production. `SESSIONS_TOKEN` guards
-`GET /sessions`, `/sessions/{id}`, `/{id}/trace` and `DELETE /sessions/{id}`,
-and setting it leaves the demo untouched. `DEMO_TOKEN` fronts
-`POST /research/stream`, which the demo page calls with no header — setting it
-on the public app 401s every anonymous visitor and takes the demo offline. To
-close the session endpoints, set `SESSIONS_TOKEN` and leave `DEMO_TOKEN` unset.
+The two tokens are not interchangeable in production, and since Phase 12 they
+no longer do comparable jobs. A session now records the identity that created
+it, and `GET /sessions`, `/sessions/{id}`, `/{id}/trace` and
+`DELETE /sessions/{id}` serve that identity its own and refuse everyone else's
+with a 404 identical to a missing one — no token involved either way.
+`SESSIONS_TOKEN` buys the one thing an identity cannot: the unscoped view
+across all owners, for debugging, plus delete on any session. `DEMO_TOKEN`
+still fronts `POST /research/stream`, which the demo page calls with no header
+— setting it on the public app 401s every anonymous visitor and takes the demo
+offline.
+
+Note what this changed about failing closed. `SESSIONS_TOKEN` used to refuse
+everyone with 403 while unset, so that forgetting the secret could not silently
+reopen the world-readable leak of Phase 10.5. Forgetting it is now survivable
+for a different reason: what keeps a stranger out is ownership, not the secret,
+and ownership cannot be left unset. An unset `SESSIONS_TOKEN` costs you the
+operator view and nothing else.
 
 Both are secrets: `fly secrets set SESSIONS_TOKEN=… -a research-agent`, never
 `fly.toml`'s `[env]` block — that file is committed.

@@ -6,9 +6,13 @@ these exercise genuine SQLite persistence and genuine graph traversal -- the
 only thing faked is the network.
 """
 
+import inspect
 import json
+import re
 import threading
 import time
+from collections import Counter
+from html.parser import HTMLParser
 
 import anthropic
 import httpx
@@ -17,22 +21,45 @@ from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
 from test_memory_stores import FakeEmbedder
 
-from research_agent import db, graph, limits, service
+from research_agent import db, graph, identity, limits, service
 from research_agent.memory import InMemoryStore, PgVectorMemoryStore
 from research_agent.metrics import PostgresMetricsStore, SQLiteMetricsStore
 from research_agent.sessions import PostgresSessionStore, SQLiteSessionStore
 
-# The session read/delete routes fail closed, so every client the suite builds
-# needs a credential. Configuring it here -- and sending it as a default header
-# -- keeps the fixture the one place that knows about it, the way it already
-# owns DEMO_RATE_LIMIT_PER_HOUR and SESSION_BACKEND. A test that wants the
-# anonymous case builds a bare TestClient instead.
+# Since Phase 12 this is the OPERATOR credential, not the visitor's: the
+# default client sends it, so it sees every owner's sessions -- which is what
+# most of this suite wants, since most of it is not about ownership. A test
+# that wants a plain visitor drops the header (see `as_visitor`).
 SESSIONS_TOKEN = "sessions-s3cret"
 
-# The dependencies that count as "this route is not anonymous". `guard` fronts
-# the money-spending routes; `require_sessions_token` fronts the session
-# read/delete group. A route under /sessions carrying neither is open.
-AUTH_DEPENDENCIES = {"guard", "require_sessions_token"}
+# The dependencies that count as "this route decides who is asking". `guard`
+# fronts the money-spending routes; `require_session_access` fronts the session
+# read/delete group. A route under /sessions carrying neither cannot know whose
+# sessions it is serving, and is therefore open.
+AUTH_DEPENDENCIES = {"guard", "require_session_access"}
+
+
+def as_visitor(client):
+    """The same client without the operator token: an ordinary caller.
+
+    Mutates in place and returns it, because the identity cookie already in the
+    jar is the point -- a fresh TestClient would be a different person.
+    """
+    client.headers.pop("x-demo-token", None)
+    return client
+
+
+def mint_cookie(monkeypatch, secret="test-identity-secret"):
+    """A real signed identity token the middleware will accept.
+
+    IdentityMiddleware is not a dependency, so it cannot be overridden the way
+    the stores are -- and should not be: tests that need a fixed identity mint
+    a genuine token under a pinned secret and present it as the ra_id cookie,
+    exercising the real verify path. Later waves key limits and session
+    ownership on this.
+    """
+    monkeypatch.setenv("IDENTITY_SIGNING_SECRET", secret)
+    return identity.mint()
 
 
 def api_routes(app):
@@ -80,6 +107,35 @@ def dependency_names(route) -> set[str]:
     return {getattr(d.call, "__name__", "") for d in route.dependant.dependencies}
 
 
+class RecordingLimits(limits.InMemoryLimits):
+    """The real in-memory store, plus a note of what it was asked to do.
+
+    Behaviour is unchanged -- every call delegates -- so a test asserting on
+    `reserved`/`settled` is reading the app's actual traffic, not a fake's idea
+    of it. Needed because "the reservation was released" and "no reservation
+    was ever made" look identical from the outside, and only one of them is the
+    property being claimed.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.reserved: list[str] = []
+        self.settled: list[str] = []
+
+    def reserve(self, run_id, identity, est_usd, cap, spent_24h):
+        self.reserved.append(run_id)
+        return super().reserve(run_id, identity, est_usd, cap, spent_24h)
+
+    def settle(self, run_id):
+        self.settled.append(run_id)
+        super().settle(run_id)
+
+
+def limits_store() -> RecordingLimits:
+    """The store make_client injected into the app under test."""
+    return service.app.dependency_overrides[service.get_limits]()
+
+
 @pytest.fixture
 def make_client(tmp_path, monkeypatch):
     """Returns a factory so a test can script the critic before the app boots."""
@@ -98,7 +154,6 @@ def make_client(tmp_path, monkeypatch):
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0")
     monkeypatch.delenv("DEMO_TOKEN", raising=False)
     monkeypatch.setenv("SESSIONS_TOKEN", SESSIONS_TOKEN)
-    limits.reset_limiter()
     # The lifespan calls the backend factories, which follow DATABASE_URL.
     # Pinning them keeps these tests about the API rather than about whichever
     # database the surrounding environment happens to expose.
@@ -112,10 +167,26 @@ def make_client(tmp_path, monkeypatch):
 
         store = SQLiteSessionStore(str(tmp_path / "sessions.db"))
         metrics = SQLiteMetricsStore(str(tmp_path / "metrics.db"))
+        # A fresh limits store per client, injected the same way. The rate
+        # window and the spend reservations used to be process globals reset by
+        # hand between cases; a per-client store means a test can no longer
+        # inherit another's hits, and `limits_store()` below lets a test read
+        # the reservations the app actually made.
+        limits_backend = RecordingLimits()
         service.app.dependency_overrides[service.get_sessions] = lambda: store
         service.app.dependency_overrides[service.get_metrics] = lambda: metrics
+        service.app.dependency_overrides[service.get_limits] = lambda: limits_backend
 
-        client = TestClient(service.app, headers={"x-demo-token": SESSIONS_TOKEN})
+        # https, not TestClient's default http: the identity cookie is Secure
+        # (unconditionally -- no prod/test fork in a security attribute), and
+        # httpx's jar silently withholds a Secure cookie over http. Under the
+        # default base_url every request would re-mint a fresh identity and
+        # the per-identity tests would pass vacuously.
+        client = TestClient(
+            service.app,
+            base_url="https://testserver",
+            headers={"x-demo-token": SESSIONS_TOKEN},
+        )
         created.append((client, store, metrics))
         return client, fake
 
@@ -123,7 +194,6 @@ def make_client(tmp_path, monkeypatch):
 
     service.app.dependency_overrides.clear()
     graph.set_memory(None)
-    limits.reset_limiter()
     for client, store, metrics in created:
         client.close()
         store.close()
@@ -272,11 +342,24 @@ def test_follow_ups_accumulate_into_the_session_conversation(make_client):
 
 def test_a_follow_up_survives_a_restart(make_client):
     """The whole reason sessions are on disk: the follow-up arrives as a
-    separate request, and may not reach the same process."""
+    separate request, and may not reach the same process.
+
+    The reborn client carries the same identity cookie, because that is what a
+    real returning browser does -- the cookie outlives the process by 400 days.
+    Since Phase 12 a session belongs to whoever created it, so a genuinely
+    different caller would (correctly) get a 404 here, and asserting on that
+    would be asserting the opposite of what this test is about.
+
+    Handed to the constructor rather than set on the jar afterwards:
+    `client.cookies.set(..., domain="testserver")` looks equivalent and is
+    silently not sent, which shows up as a mysterious fresh identity.
+    """
     client, fake = make_client()
     session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
 
-    with TestClient(service.app) as reborn:  # new app instance, same store
+    with TestClient(  # new client, same store, same caller
+        service.app, base_url="https://testserver", cookies={"ra_id": client.cookies["ra_id"]}
+    ) as reborn:
         fake.calls.clear()
         body = reborn.post(f"/sessions/{session_id}/ask", json={"question": "and?"}).json()
 
@@ -331,43 +414,67 @@ def test_unknown_sessions_are_404(make_client, path):
 
 
 @pytest.mark.parametrize("path", ["/sessions/nope", "/sessions/nope/trace"])
-def test_unknown_sessions_are_401_without_a_token(make_client, path):
-    """Auth runs before the handler, so an anonymous caller gets 401, not 404.
+def test_unknown_sessions_are_404_without_a_token(make_client, path):
+    """A credential-less caller gets 404 -- and so does everyone else.
 
-    That ordering is the point: answering 404 first would tell an
-    unauthenticated caller which session IDs exist.
+    This asserted 401 before Phase 12, and the reasoning was that answering 404
+    first would tell an unauthenticated caller which ids exist. The concern was
+    right; the mechanism has been replaced by a stronger one. There is no
+    longer any answer that distinguishes ids, for any caller: missing, expired
+    and foreign are one 404 with one body. The oracle is closed by making every
+    door look the same rather than by refusing to open any of them.
     """
     make_client()  # for the env and the dependency overrides
-    with TestClient(service.app) as anonymous:
-        assert anonymous.get(path).status_code == 401
+    with TestClient(service.app, base_url="https://testserver") as visitor:
+        assert visitor.get(path).status_code == 404
 
 
 # --------------------------------------------------------------------------
 # The guarded sessions group
 # --------------------------------------------------------------------------
 #
-# The defect this phase fixes passed a green suite for months because no test
-# ever asked an unauthenticated question. These do.
+# The defect Phase 10.5 fixed passed a green suite for months because no test
+# ever asked an unauthenticated question. These do -- and since Phase 12 the
+# answer they must get has changed shape: a stranger is refused because the
+# session is not theirs, not because they hold no shared secret.
 
 
 @pytest.mark.parametrize(
     "method,template",
     [
-        ("GET", "/sessions"),
         ("GET", "/sessions/{sid}"),
         ("GET", "/sessions/{sid}/trace"),
         ("DELETE", "/sessions/{sid}"),
     ],
 )
-def test_unauthenticated_sessions_routes_are_refused(make_client, method, template):
-    """All four routes, against a real session id, from a caller with no header."""
+def test_a_stranger_is_refused_on_every_session_route(make_client, method, template):
+    """A real session id, a caller who is not its owner, all three id routes.
+
+    404 rather than 401/403, uniformly: see `_require`. The stranger here holds
+    a perfectly valid identity of their own -- this is not "no credential", it
+    is "not yours", which is the harder case and the one that actually happens
+    when a session id is pasted into a chat.
+    """
     client, _ = make_client()
     sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
 
-    with TestClient(service.app) as anonymous:
-        response = anonymous.request(method, template.format(sid=sid))
+    with TestClient(service.app, base_url="https://testserver") as stranger:
+        response = stranger.request(method, template.format(sid=sid))
 
-    assert response.status_code == 401
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"No session {sid!r}."
+
+
+def test_a_stranger_sees_an_empty_listing_not_someone_elses(make_client):
+    """The collection route's half of the same property: 200 and nothing."""
+    client, _ = make_client()
+    client.post("/research", json={"question": "why?"})
+
+    with TestClient(service.app, base_url="https://testserver") as stranger:
+        listed = stranger.get("/sessions")
+
+    assert listed.status_code == 200
+    assert listed.json()["sessions"] == []
 
 
 def test_authorised_sessions_routes_still_work(make_client):
@@ -384,34 +491,301 @@ def test_authorised_sessions_routes_still_work(make_client):
     assert client.delete(f"/sessions/{sid}").status_code == 204
 
 
-def test_sessions_token_unset_fails_closed(make_client, monkeypatch):
-    """Nothing configured means nobody passes -- 403, not 401 and not 200.
+def test_an_unset_sessions_token_closes_only_the_operator_view(make_client, monkeypatch):
+    """The Phase 12 inversion, end to end.
 
-    The assertion is on 403 specifically. 401 would mean a caller could get in
-    by guessing a token, and 200 would mean the hotfix had regressed to the
-    original bug. That bug was not a missing control: it was a control that
-    was present in the code and inert in production, which is exactly what an
-    open-when-unset default reproduces.
+    Before, an unset SESSIONS_TOKEN meant nobody could read any session -- the
+    fail-closed posture that kept a forgotten secret from silently reopening
+    the world-readable leak. Now the leak is closed by ownership instead, so an
+    unset token closes exactly one thing: the cross-owner debugging view. The
+    caller still reaches their own sessions, and -- the half that matters --
+    still cannot reach anyone else's, with the operator header now inert.
     """
     client, _ = make_client()
+    mine = client.post("/research", json={"question": "mine"}).json()["session_id"]
+
+    with TestClient(service.app, base_url="https://testserver") as other:
+        theirs = other.post("/research", json={"question": "theirs"}).json()["session_id"]
+
     monkeypatch.delenv("SESSIONS_TOKEN", raising=False)
     monkeypatch.delenv("DEMO_TOKEN", raising=False)
 
-    assert client.get("/sessions").status_code == 403
+    # Still sending the now-unconfigured operator header: it must buy nothing.
+    listed = client.get("/sessions")
+    assert listed.status_code == 200
+    assert [s["session_id"] for s in listed.json()["sessions"]] == [mine]
+    assert client.get(f"/sessions/{theirs}").status_code == 404
 
 
-def test_demo_token_fallback_protects_the_session_routes(make_client, monkeypatch):
-    """Setting only DEMO_TOKEN closes the group rather than leaving it open."""
+def test_demo_token_fallback_still_reaches_the_operator_view(make_client, monkeypatch):
+    """Setting only DEMO_TOKEN still buys the operator view, as it always has.
+
+    The fallback is what makes "setting DEMO_TOKEN protects the session
+    endpoints" true rather than quietly false; Phase 12 changed what the token
+    unlocks, not which variables name it.
+    """
     client, _ = make_client()
-    client.post("/research", json={"question": "why?"})
+    mine = client.post("/research", json={"question": "why?"}).json()["session_id"]
     monkeypatch.delenv("SESSIONS_TOKEN", raising=False)
     monkeypatch.setenv("DEMO_TOKEN", "demo-only")
 
-    with TestClient(service.app) as anonymous:
-        assert anonymous.get("/sessions").status_code == 401
+    with TestClient(service.app, base_url="https://testserver") as visitor:
+        assert visitor.get("/sessions").json()["sessions"] == []
 
-    with TestClient(service.app, headers={"x-demo-token": "demo-only"}) as holder:
-        assert holder.get("/sessions").status_code == 200
+    with TestClient(
+        service.app, base_url="https://testserver", headers={"x-demo-token": "demo-only"}
+    ) as operator:
+        listed = operator.get("/sessions")
+        assert listed.status_code == 200
+        # Not merely 200: the operator sees a session it does not own.
+        assert mine in [s["session_id"] for s in listed.json()["sessions"]]
+
+
+# --------------------------------------------------------------------------
+# Session ownership (Phase 12, criterion 3)
+# --------------------------------------------------------------------------
+
+
+def _two_owners(make_client):
+    """Two real identities with one session each, plus an operator client.
+
+    The operator client is the fixture's own (it sends SESSIONS_TOKEN); the
+    two visitors are separate TestClients, each minted its own cookie by the
+    middleware on its first response, with the operator header removed. Real
+    cookies through the real verify path -- IdentityMiddleware is not a
+    dependency and must not be faked into agreeing.
+    """
+    operator, _ = make_client()
+    alice = as_visitor(TestClient(service.app, base_url="https://testserver"))
+    bob = as_visitor(TestClient(service.app, base_url="https://testserver"))
+    a_sid = alice.post("/research", json={"question": "alice's"}).json()["session_id"]
+    b_sid = bob.post("/research", json={"question": "bob's"}).json()["session_id"]
+    assert alice.cookies["ra_id"] != bob.cookies["ra_id"], "the two clients are the same caller"
+    return operator, alice, a_sid, bob, b_sid
+
+
+def test_sessions_listing_scoped_and_dual_mode(make_client):
+    """GET /sessions shows you yours; the operator token shows everyone's."""
+    operator, alice, a_sid, bob, b_sid = _two_owners(make_client)
+
+    assert [s["session_id"] for s in alice.get("/sessions").json()["sessions"]] == [a_sid]
+    assert [s["session_id"] for s in bob.get("/sessions").json()["sessions"]] == [b_sid]
+
+    all_sessions = {s["session_id"] for s in operator.get("/sessions").json()["sessions"]}
+    assert {a_sid, b_sid} <= all_sessions, "the operator view is not unscoped"
+
+    alice.close()
+    bob.close()
+
+
+def test_foreign_session_is_indistinguishable(make_client):
+    """The 404 for someone else's session is byte-identical to a missing one.
+
+    Asserted as an equality between two responses rather than as two separate
+    status-code checks, because the property is *indistinguishability*: a 403,
+    a differing detail string, or even a differing set of keys would each hand
+    a stranger an existence oracle on ids that travel in shared URLs. Run over
+    both id-shaped read routes.
+    """
+    operator, alice, a_sid, bob, _ = _two_owners(make_client)
+    missing = "0" * 32
+
+    for template in ("/sessions/{}", "/sessions/{}/trace"):
+        foreign = bob.get(template.format(a_sid))
+        absent = bob.get(template.format(missing))
+
+        assert foreign.status_code == absent.status_code == 404
+        assert foreign.json()["detail"] == f"No session {a_sid!r}."
+        assert absent.json()["detail"] == f"No session {missing!r}."
+        # Same shape, same wording, differing only in the id echoed back.
+        assert foreign.json().keys() == absent.json().keys()
+        assert foreign.json()["detail"].replace(a_sid, missing) == absent.json()["detail"]
+
+    # Non-vacuity: the id really does name a live session for its owner.
+    assert alice.get(f"/sessions/{a_sid}").status_code == 200
+
+    alice.close()
+    bob.close()
+
+
+def test_expired_session_is_indistinguishable_from_missing(make_client, monkeypatch):
+    """And so is one that timed out -- same route, same body, same status."""
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    assert client.get(f"/sessions/{sid}").status_code == 200  # live first
+
+    # Zero days: everything written before this instant is already idle too long.
+    monkeypatch.setenv("SESSION_TTL_DAYS", "0")
+
+    expired = client.get(f"/sessions/{sid}")
+    absent = client.get("/sessions/" + "0" * 32)
+    assert expired.status_code == 404
+    assert expired.json()["detail"] == f"No session {sid!r}."
+    assert expired.json().keys() == absent.json().keys()
+    assert client.get("/sessions").json()["sessions"] == []
+    # Even the operator, who bypasses ownership, does not bypass expiry.
+    assert client.get(f"/sessions/{sid}/trace").status_code == 404
+
+
+def test_delete_owner_or_operator(make_client):
+    """Owner: 204. Operator: 204. Anyone else: the missing-session 404."""
+    operator, alice, a_sid, bob, b_sid = _two_owners(make_client)
+    missing = "0" * 32
+
+    # A third party is refused exactly as they would be on an invented id.
+    refused = bob.delete(f"/sessions/{a_sid}")
+    absent = bob.delete(f"/sessions/{missing}")
+    assert refused.status_code == absent.status_code == 404
+    assert refused.json()["detail"] == f"No session {a_sid!r}."
+    # ...and the refusal is a refusal, not a silent success.
+    assert alice.get(f"/sessions/{a_sid}").status_code == 200
+
+    assert alice.delete(f"/sessions/{a_sid}").status_code == 204  # the owner
+    assert operator.delete(f"/sessions/{b_sid}").status_code == 204  # the operator
+    assert bob.get(f"/sessions/{b_sid}").status_code == 404  # really gone
+
+    alice.close()
+    bob.close()
+
+
+def test_a_session_records_the_identity_that_created_it(make_client):
+    """The thread from the cookie to the row, asserted end to end."""
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    owner = client.get(f"/sessions/{sid}").json()["owner"]
+    assert owner, "the session was created with no owner"
+    # The cookie is v1.<id>.<hmac>; the stored owner is that middle id.
+    assert client.cookies["ra_id"].split(".")[1] == owner
+
+
+def _run_and_count_recall(client, path: str, question: str) -> int:
+    """Start a research run and report how many stored notes its researcher
+    pulled into the prompt.
+
+    Handles both shapes: the blocking route answers with a session id whose
+    trace is read back, the streaming one carries the trace in its final
+    `result` event. Parametrising over the two is not decoration -- the demo
+    page uses the streaming route, so an owner threaded only through the
+    blocking one would be scoping the path nobody uses.
+    """
+    response = client.post(path, json={"question": question})
+    assert response.status_code == 200, response.text
+    if path.endswith("/stream"):
+        trace = sse_events(response)[-1][1]["trace"]
+    else:
+        session_id = response.json()["session_id"]
+        trace = client.get(f"/sessions/{session_id}/trace").json()["trace"]
+    researcher = [entry for entry in trace if entry.get("node") == "researcher"][-1]
+    return researcher["recalled_from_memory"]
+
+
+@pytest.mark.parametrize("path", ["/research", "/research/stream"])
+def test_one_visitors_notes_never_reach_another_visitors_run(make_client, path):
+    """The cross-visitor prompt-injection path, closed end to end.
+
+    This is the reason note scoping exists, and it is worth being precise
+    about the attack: recalled notes are pasted verbatim into the researcher
+    prompt, the researcher's output becomes the draft, and the critic reviews
+    that draft. Text one visitor caused to be written was therefore text that
+    reached another visitor's critic -- untrusted input on the path to
+    APPROVED. Bounding it to the caller is what closes that.
+
+    Both directions, because either alone is satisfiable by a bug. Alice
+    recalling her own note proves the recall path still works at all -- a
+    store that returned nothing to anybody would pass the isolation half
+    vacuously. And the shared-store assertion at the end proves Bob's zero is
+    isolation rather than an empty store: all three notes are sitting in one
+    backend, which is exactly the deployed topology.
+    """
+    question = "langgraph supervisor retry patterns"
+    alice, _ = make_client()  # the fixture installs one InMemoryStore for the app
+
+    assert _run_and_count_recall(alice, path, question) == 0, "nothing was stored yet"
+    assert _run_and_count_recall(alice, path, question) >= 1, "a visitor lost their own memory"
+
+    # A different visitor, same question, same note store, no operator token:
+    # an ordinary stranger holding a valid identity of their own.
+    with TestClient(service.app, base_url="https://testserver") as bob:
+        assert _run_and_count_recall(bob, path, question) == 0, (
+            "another visitor's notes reached this run's researcher, and therefore its critic"
+        )
+
+    assert len(graph.memory()) == 3, (
+        "the three runs did not share one note store; the isolation above proved nothing"
+    )
+
+
+def _state_constructions(source: str) -> list[str]:
+    """Every initial_state(...) / followup_state(...) call in a handler.
+
+    Parentheses are matched rather than regexed to the first `)`, because
+    `followup_state(session.state, body.cleaned(), owner=owner)` would
+    otherwise be truncated at `cleaned(` and the owner argument -- the only
+    thing this is looking for -- would never be seen.
+    """
+    found = []
+    for match in re.finditer(r"(?:initial|followup)_state\(", source):
+        depth, index = 0, match.end() - 1
+        while index < len(source):
+            if source[index] == "(":
+                depth += 1
+            elif source[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        found.append(source[match.start():index + 1])
+    return found
+
+
+def test_every_run_starting_route_scopes_the_run_to_its_caller():
+    """No route may start a run that does not know whose notes it may read.
+
+    A tripwire, not the proof -- the proof is the behavioural test above, and
+    it covers the two routes that actually touch the note store (a follow-up
+    never runs the researcher). This exists because that behavioural test
+    cannot cover the ask routes at all, and a control that only two of four
+    call sites are checked for is the exact shape of the bug this codebase has
+    now hit eleven times.
+
+    Written as "every state construction carries an owner" rather than "the
+    handler source mentions owner=" on purpose: three of these handlers pass
+    `owner=owner` to something ELSE as well (store.create, reserve_or_429), so
+    the looser form stays green when the state construction alone loses it.
+    That mutation was run.
+    """
+    starters = {}
+    for path, route in api_routes(service.app):
+        constructions = _state_constructions(inspect.getsource(route.endpoint))
+        if constructions:
+            starters[(sorted(route.methods)[0], path)] = constructions
+
+    # Non-vacuity: /research, /research/stream, and the two ask routes.
+    assert len(starters) == 4, f"walker found {sorted(starters)}"
+
+    unscoped = [
+        (key, call)
+        for key, calls in starters.items()
+        for call in calls
+        if "owner=" not in call
+    ]
+    assert unscoped == [], f"runs started without an owner: {unscoped}"
+
+
+def test_a_reads_do_not_extend_a_sessions_life(make_client, monkeypatch):
+    """Listing your sessions must not renew them. The service half of the
+    store contract test, over the real HTTP path, because a renewal added in a
+    handler rather than in the store would slip past that one."""
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    first = client.get(f"/sessions/{sid}").json()["updated_at"]
+
+    for _ in range(3):
+        assert client.get("/sessions").status_code == 200
+        assert client.get(f"/sessions/{sid}/trace").status_code == 200
+
+    assert client.get(f"/sessions/{sid}").json()["updated_at"] == first
 
 
 def test_session_reads_not_metered_by_the_rate_limit_or_daily_cap(make_client, monkeypatch):
@@ -429,19 +803,17 @@ def test_session_reads_not_metered_by_the_rate_limit_or_daily_cap(make_client, m
     # Rate limit: one slot in the bucket, then several reads. If reads were
     # metered, the second one would be 429.
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
-    limits.reset_limiter()
     for _ in range(3):
         assert client.get("/sessions").status_code == 200
     assert client.get(f"/sessions/{sid}").status_code == 200
     assert client.get(f"/sessions/{sid}/trace").status_code == 200
 
     # Daily cap. This half only means anything if the cap is genuinely
-    # exhausted: check_daily_cap returns early for a cap of 0, which is what
-    # the fixture ships, so a read asserted under the defaults would pass
+    # exhausted: the reservation is skipped entirely for a cap of 0, which is
+    # what the fixture ships, so a read asserted under the defaults would pass
     # even if the cap were wired onto it. So record real spend first, then
     # set a positive-but-tiny cap, then prove the cap is live.
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "0")  # unlimited again
-    limits.reset_limiter()
     client.post("/research", json={"question": "spend something"})
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0.0000001")
 
@@ -457,17 +829,16 @@ def test_delete_rate_limited_after_the_hourly_limit(make_client, monkeypatch):
     """The destructive path is the one read-only reasoning does not cover.
 
     Order matters. Creating the sessions goes POST /research -> guard ->
-    check_rate_limit, which shares the DELETE's per-IP bucket. Lowering the
-    limit first would let the setup requests eat the only slot: the test would
-    still go green, but for the wrong reason, and it would break the moment
-    anyone raised the limit. Create first, then lower and reset.
+    check_rate_limit, which shares the DELETE's per-identity bucket. Lowering
+    the limit first would let the setup requests eat the only slot: the test
+    would still go green, but for the wrong reason, and it would break the
+    moment anyone raised the limit. Create first, then lower.
     """
     client, _ = make_client()
     first = client.post("/research", json={"question": "one"}).json()["session_id"]
     second = client.post("/research", json={"question": "two"}).json()["session_id"]
 
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
-    limits.reset_limiter()
 
     assert client.delete(f"/sessions/{first}").status_code == 204
     refused = client.delete(f"/sessions/{second}")
@@ -476,43 +847,67 @@ def test_delete_rate_limited_after_the_hourly_limit(make_client, monkeypatch):
     assert "Retry-After" in refused.headers
 
 
-def test_delete_rate_limited_check_runs_after_the_token_check(make_client, monkeypatch):
-    """An unauthorised caller must not be able to burn someone else's quota.
+def test_a_stranger_cannot_burn_the_owners_delete_quota(make_client, monkeypatch):
+    """A refused DELETE must cost the refused caller, never the owner.
 
-    Router dependencies run before decorator ones, so the credential check
-    fires first and the request never reaches the limiter -- the same ordering
-    limits.enforce already argues for.
+    Phase 10.5 got this from ordering: the shared-credential check sat on the
+    router and fired before the limiter, so an unauthorised caller never
+    reached the bucket at all. Phase 12 removed that check, and the refusal
+    (404, in the handler) now happens *after* the limiter runs. The property
+    survives anyway, for a better reason: the bucket is keyed on identity, so
+    the slot a stranger burns is their own. Asserted by leaving the owner with
+    a working DELETE after the stranger has spent the only slot there is.
+
+    (A stolen cookie is out of scope by construction: replaying it makes you
+    the owner for every purpose, including deleting the session outright, so a
+    rate-limit slot is not the interesting loss. That is the documented meaning
+    of "identity is possession of the token".)
     """
     client, _ = make_client()
     sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
 
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
-    limits.reset_limiter()
-    before = limits.limiter().tracked_keys()
 
-    with TestClient(service.app) as anonymous:
-        assert anonymous.delete(f"/sessions/{sid}").status_code == 401
+    with TestClient(service.app, base_url="https://testserver") as stranger:
+        assert stranger.delete(f"/sessions/{sid}").status_code == 404
+        # The stranger's own slot is the one that went.
+        assert stranger.delete(f"/sessions/{sid}").status_code == 429
 
-    assert limits.limiter().tracked_keys() == before
-    # The slot the refused caller could have burned is still there.
     assert client.delete(f"/sessions/{sid}").status_code == 204
 
 
-def test_ask_still_anonymous_for_the_demos_second_turn(make_client):
+def test_ask_needs_no_operator_token_for_the_demos_second_turn(make_client):
     """POST /sessions/{id}/ask shares the prefix and must not share the guard.
 
-    This is the demo's second turn. Grouping the endpoints by path prefix
-    instead of by dependency would have swept it up and broken follow-ups for
-    every anonymous visitor.
+    This is the demo's second turn, taken by a visitor who has never seen
+    SESSIONS_TOKEN. Grouping the endpoints by path prefix instead of by
+    dependency would have swept it up and broken follow-ups for every visitor.
+    The caller here is the session's owner -- as the real one always is, since
+    the cookie is minted at page load, before the first question -- and carries
+    no credential at all.
     """
     client, _ = make_client()
     sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
 
-    with TestClient(service.app) as anonymous:
-        response = anonymous.post(f"/sessions/{sid}/ask", json={"question": "and?"})
+    response = as_visitor(client).post(f"/sessions/{sid}/ask", json={"question": "and?"})
 
     assert response.status_code not in (401, 403)
     assert response.status_code == 200
+
+
+def test_ask_on_someone_elses_session_is_404(make_client):
+    """The follow-up route enforces ownership in the handler, not in its
+    dependency set -- so this is the assertion that it enforces it at all."""
+    client, fake = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    fake.calls.clear()
+
+    with TestClient(service.app, base_url="https://testserver") as stranger:
+        response = stranger.post(f"/sessions/{sid}/ask", json={"question": "and?"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"No session {sid!r}."
+    assert fake.calls == [], "a refused follow-up must not have spent anything"
 
 
 def test_demo_stays_open_when_sessions_token_is_set(make_client):
@@ -568,6 +963,61 @@ def test_route_guard_invariant_over_the_sessions_tree():
     assert unguarded == [], f"routes under /sessions with no auth dependency: {unguarded}"
 
 
+def test_the_session_group_and_the_ask_routes_carry_different_dependencies():
+    """The structural half of Phase 12's ownership surgery.
+
+    Two assertions that are easy to conflate and must not be. Every route in
+    the read/delete group carries `require_session_access`, so a future
+    `/sessions/{id}/notes` cannot ship not knowing whose sessions it is
+    serving. And the ask routes deliberately do NOT carry it: they enforce
+    ownership inside the handler instead, because dependency sets group by what
+    they protect (ADR-0006 part 4) and a run is not a listing. Attaching the
+    session dependency to them would re-fight that argument silently.
+    """
+    session_group = []
+    ask_routes = []
+    for path, route in api_routes(service.app):
+        if not path.startswith("/sessions"):
+            continue
+        (ask_routes if "/ask" in path else session_group).append((path, route))
+
+    assert len(session_group) >= 4, f"walker found only {session_group}"
+    assert len(ask_routes) >= 2, f"walker found only {ask_routes}"
+
+    # The ROUTER's own declaration, not just the routes'. Every handler also
+    # injects `access` to read the value, and `dependency_names` cannot tell
+    # the two sources apart -- so deleting the router-level dependency leaves
+    # the per-route assertion below still green while quietly removing the
+    # thing it is really protecting: that the NEXT route under this prefix
+    # inherits access control without its author having to remember anything.
+    # That inheritance is the entire argument of ADR-0006 part 4, and it is
+    # exactly what four routes forgot four times before Phase 10.5.
+    router_level = {
+        getattr(d.dependency, "__name__", "") for d in service.sessions_router.dependencies
+    }
+    assert "require_session_access" in router_level, (
+        f"sessions_router declares {router_level or 'no'} dependencies; membership must be "
+        "structural, not repeated per route"
+    )
+
+    missing = [
+        (sorted(route.methods), path)
+        for path, route in session_group
+        if "require_session_access" not in dependency_names(route)
+    ]
+    assert missing == [], f"session routes not carrying require_session_access: {missing}"
+
+    for path, route in ask_routes:
+        names = dependency_names(route)
+        assert "guard" in names, f"{path} lost the spending guard"
+        assert "require_session_access" not in names, (
+            f"{path} took the session-tree dependency; ownership belongs in its handler"
+        )
+        # And it does enforce ownership, in the only place the route table
+        # cannot see -- the same in-handler shape the reserve gate reads.
+        assert "_require(store, session_id, owner)" in inspect.getsource(route.endpoint)
+
+
 def test_delete_carries_the_rate_limiter():
     """The destructive route is metered and the reads are not.
 
@@ -593,23 +1043,37 @@ def test_delete_carries_the_rate_limiter():
     assert len(session_routes) >= 4, f"found only {sorted(session_routes)}"
 
     delete = session_routes[("DELETE", "/sessions/{session_id}")]
-    assert "check_rate_limit" in dependency_names(delete)
+    assert "rate_limit" in dependency_names(delete)
 
     gets = [(key, route) for key, route in session_routes.items() if key[0] == "GET"]
     assert len(gets) == 3, sorted(key for key, _ in gets)
-    metered_reads = [key for key, route in gets if "check_rate_limit" in dependency_names(route)]
+    metered_reads = [key for key, route in gets if "rate_limit" in dependency_names(route)]
     # Reads must stay unmetered: listing sessions may not consume the caller's
     # research quota (CONTEXT, Dependency composition).
     assert metered_reads == [], f"session reads must not be rate limited: {metered_reads}"
 
     # And none of the four may acquire the spend cap, so a later refactor
-    # cannot quietly reach for `guard` -- which bundles check_daily_cap and
-    # would 429 every read once the $5/day budget is gone, contradicting the
-    # cap's own "Read-only endpoints still work" message.
+    # cannot quietly reach for `guard` -- which would 429 every read once the
+    # $5/day budget is gone, contradicting the cap's own "Read-only endpoints
+    # still work" message.
+    #
+    # Two ways to acquire it since Phase 12, so both are checked: as the
+    # `guard` dependency, and as an in-handler `reserve_or_429` call, which no
+    # amount of reading the route's dependencies would ever reveal.
+    #
+    # Note what this assertion is and is not, now that the cap has moved. It is
+    # a structural tripwire against a future edit re-attaching the cap to a
+    # read; it is NOT the proof that a capped caller can still read. That proof
+    # is behavioural and lives in 12-03's gates:
+    # test_all_spending_routes_reserve (below) asserts GET /sessions and
+    # GET /sessions/{id} answer 200 while the cap is exhausted, and
+    # test_limits.test_reads_survive_the_cap asserts the refusal still makes
+    # the promise those reads keep.
     capped = [
         key
         for key, route in session_routes.items()
-        if "check_daily_cap" in dependency_names(route)
+        if "guard" in dependency_names(route)
+        or "reserve_or_429" in inspect.getsource(route.endpoint)
     ]
     assert capped == [], f"session routes must not carry the daily cap: {capped}"
 
@@ -922,11 +1386,29 @@ def test_health_reports_credential_presence_never_values(make_client, monkeypatc
     client, _ = make_client()
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret-value")
     monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    # The signing secret is the one credential here whose leak is directly
+    # exploitable: it forges any caller's identity cookie. It gets the same
+    # presence-not-value treatment and its own leak assertion.
+    monkeypatch.setenv("IDENTITY_SIGNING_SECRET", "hunter2-secret-value")
 
     body = client.get("/health").json()
 
-    assert body["credentials"] == {"anthropic": True, "voyage": False}
+    assert body["credentials"] == {
+        "anthropic": True,
+        "voyage": False,
+        "identity_signing": True,
+    }
     assert "secret-value" not in json.dumps(body)
+
+
+def test_health_reports_an_unset_signing_secret_as_false(make_client, monkeypatch):
+    """False here is the operator's only signal that a two-machine fleet is
+    minting per-process ephemeral identities -- a cookie from one machine will
+    not verify on the other, and visitors silently lose their sessions."""
+    client, _ = make_client()
+    monkeypatch.delenv("IDENTITY_SIGNING_SECRET", raising=False)
+
+    assert client.get("/health").json()["credentials"]["identity_signing"] is False
 
 
 def test_health_treats_an_empty_key_as_absent(make_client, monkeypatch):
@@ -972,9 +1454,50 @@ def test_every_advertised_endpoint_actually_exists(make_client):
     assert ("GET", "/health") in served  # the walker found something
 
     for advertised in client.get("/").json()["endpoints"].values():
-        # Entries may carry a trailing annotation, e.g. "(X-Demo-Token required)".
+        # Entries may carry a trailing annotation, e.g. "(your own)".
         method, path = advertised.split(" ")[:2]
         assert (method, path) in served, advertised
+
+
+def test_index_does_not_claim_a_token_is_required_for_a_reachable_endpoint(make_client):
+    """The index's auth annotations must not be false.
+
+    test_every_advertised_endpoint_actually_exists checks only that the
+    method+path is served -- the annotation text rides along unchecked, which
+    is exactly how three entries went on claiming `X-Demo-Token required` for
+    a full phase after Phase 12 made the session reads caller-scoped. A live
+    GET /sessions with no header returned 200 against release v8 while the
+    index still called the token required.
+
+    The gate: for every advertised GET whose annotation says a token is
+    required, a plain tokenless caller must actually be refused. An endpoint
+    that answers 200 without the header makes the annotation a lie.
+    """
+    client, _ = make_client()
+    index = client.get("/").json()["endpoints"]
+
+    checked = 0
+    for advertised in index.values():
+        if "required" not in advertised.lower():
+            continue
+        method, path = advertised.split(" ")[:2]
+        if method != "GET" or "{" in path:
+            continue
+        checked += 1
+        response = client.get(path)
+        assert response.status_code in (401, 403), (
+            f"index advertises {advertised!r} but a tokenless caller got "
+            f"{response.status_code} -- the annotation is false"
+        )
+
+    # Non-vacuity: today NO entry claims a token is required, so `checked` is
+    # legitimately 0. Assert the shape we actually expect rather than letting
+    # a silently-empty loop pass for a real check.
+    assert checked == 0, (
+        "an entry now claims a token is required; the loop above verified it "
+        "-- update this baseline deliberately"
+    )
+    assert "X-Demo-Token required" not in " ".join(index.values())
 
 
 # --------------------------------------------------------------------------
@@ -1278,7 +1801,6 @@ def test_demo_endpoint_reports_the_limits(make_client, monkeypatch):
     client, _ = make_client()
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "7")
     monkeypatch.setenv("DEMO_DAILY_USD_CAP", "5.00")
-    limits.reset_limiter()
 
     body = client.get("/demo").json()
 
@@ -1290,7 +1812,6 @@ def test_demo_endpoint_reports_the_limits(make_client, monkeypatch):
 def test_the_rate_limit_refuses_a_flood(make_client, monkeypatch):
     client, fake = make_client()
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "2")
-    limits.reset_limiter()
 
     first = client.post("/research", json={"question": "one"})
     second = client.post("/research", json={"question": "two"})
@@ -1315,6 +1836,130 @@ def test_the_daily_cap_refuses_new_runs(make_client, monkeypatch):
     assert response.status_code == 429
     assert "daily budget" in response.json()["detail"]
     assert fake.calls == []  # nothing billable ran
+
+
+# --------------------------------------------------------------------------
+# The spend reservation: every spending route, every terminal arm
+# --------------------------------------------------------------------------
+#
+# `guard` gets its structural guarantee for free -- it is a route dependency,
+# so the walker can see it, and test_route_guard_invariant_over_the_sessions_tree
+# fails the moment a route appears without one. `reserve_or_429` cannot have
+# that: the reservation needs a run_id, which does not exist until the handler
+# has built the run state, so it is an IN-HANDLER call that no amount of
+# reading route.dependant would ever reveal.
+#
+# That is precisely the shape ADR-0006 was written about -- "a control you have
+# to remember to repeat is a control that will be forgotten" -- and it was
+# forgotten four times before, on these same /sessions routes. So the reserve
+# is held by two gates instead of one: a behavioural test that drives all four
+# routes to a real 429, and a structural one that reads each handler's source.
+# Deleting the reserve from `ask` alone fails both.
+
+SPENDING_PATHS = [
+    "/research",
+    "/research/stream",
+    "/sessions/{session_id}/ask",
+    "/sessions/{session_id}/ask/stream",
+]
+
+
+@pytest.mark.parametrize("path", SPENDING_PATHS)
+def test_all_spending_routes_reserve(make_client, monkeypatch, path):
+    """Every route that spends money is refused once the budget is gone.
+
+    The follow-up routes are in the parametrization deliberately: they are the
+    cheap ones, they are the ones a reader is most likely to think do not need
+    the check, and they are the ones that were missed last time.
+    """
+    client, fake = make_client()
+    session_id = client.post("/research", json={"question": "seed"}).json()["session_id"]
+    fake.calls.clear()
+
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "0.0000001")
+    response = client.post(path.format(session_id=session_id), json={"question": "one more"})
+
+    assert response.status_code == 429, f"{path} did not reserve against the cap"
+    assert "Read-only endpoints still work." in response.json()["detail"]
+    assert fake.calls == []  # refused before anything billable ran
+
+    # And the sentence in that refusal is true: reads still answer while capped.
+    assert client.get("/sessions").status_code == 200
+    assert client.get(f"/sessions/{session_id}").status_code == 200
+
+
+def test_every_spending_route_calls_reserve():
+    """The structural half. Costs no run, so it holds even for a route whose
+    behavioural test someone deletes as flaky."""
+    endpoints = {
+        path: route for path, route in api_routes(service.app) if path in SPENDING_PATHS
+    }
+    # Non-vacuity first: a walker that found nothing would pass the loop below
+    # over an empty dict, which is how a gate like this goes quietly green.
+    assert len(endpoints) >= 4, f"found only {sorted(endpoints)}"
+
+    missing = [
+        path
+        for path, route in endpoints.items()
+        if "reserve_or_429" not in inspect.getsource(route.endpoint)
+    ]
+    assert missing == [], f"spending routes with no cap reservation: {missing}"
+
+
+def test_reservation_settles_on_the_success_arms(make_client, monkeypatch):
+    """A finished run's estimate must stop counting: its real cost is in the
+    metrics table by then, and leaving both would double-count the run."""
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "100.00")  # generous, but live
+    store = limits_store()
+
+    assert client.post("/research", json={"question": "why?"}).status_code == 200
+    assert client.post("/research/stream", json={"question": "and?"}).status_code == 200
+
+    assert len(store.reserved) == 2, store.reserved  # non-vacuity: it did reserve
+    assert sorted(store.settled) == sorted(store.reserved)
+    assert store.reservation_ids() == set()
+
+
+def test_a_failed_run_settles_its_reservation(make_client, monkeypatch):
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "100.00")
+    store = limits_store()
+
+    def explode(state):
+        # An upstream failure rather than a bug in ours: _http_error maps it to
+        # a 503, so the response is a real one and TestClient does not re-raise
+        # it -- which would leave this asserting on an exception rather than on
+        # the reservation.
+        raise anthropic.APIConnectionError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+
+    monkeypatch.setattr(graph.app, "invoke", explode)
+    assert client.post("/research", json={"question": "why?"}).status_code >= 500
+
+    assert store.reserved  # non-vacuity
+    assert store.reservation_ids() == set()
+
+
+def test_a_failed_stream_settles_its_reservation(make_client, monkeypatch):
+    """The arm that is easy to forget. `_stream` swallows the exception to
+    terminate the SSE cleanly, so the handler's own except never runs -- if the
+    settle is not next to the failure record, every failed stream leaks a
+    reservation until the staleness cutoff catches it."""
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "100.00")
+    store = limits_store()
+
+    def explode(state):
+        raise RuntimeError("the graph fell over mid-stream")
+
+    monkeypatch.setattr(graph.app, "stream", explode)
+    response = client.post("/research/stream", json={"question": "why?"})
+
+    assert [name for name, _ in sse_events(response)] == ["error"]  # it did fail
+    assert store.reserved  # and it did reserve
+    assert store.reservation_ids() == set()
 
 
 def test_a_demo_token_gates_writes_but_not_reads(make_client, monkeypatch):
@@ -1367,3 +2012,463 @@ def test_the_guard_runs_before_anything_is_spent(make_client, monkeypatch):
 
     assert client.get("/sessions").json()["sessions"] == []
     assert client.get("/metrics").json()["runs"]["total"] == 0
+
+
+# --------------------------------------------------------------------------
+# Caller identity: mint-on-response, never 401
+# --------------------------------------------------------------------------
+#
+# The property that breaks the demo if it regresses: a first-time visitor with
+# no cookie hits POST /research/stream first, and that route returns a
+# StreamingResponse directly -- where a dependency-set cookie is silently
+# dropped. The middleware must carry the mint on every response shape the
+# service produces, and must never refuse anyone.
+
+
+def _cookie_header(response) -> str:
+    """The raw Set-Cookie header for ra_id, or '' if none was sent."""
+    for value in response.headers.get_list("set-cookie"):
+        if value.startswith(f"{identity.COOKIE_NAME}="):
+            return value
+    return ""
+
+
+def _assert_locked_attributes(header: str) -> None:
+    assert header, "no ra_id Set-Cookie on the response"
+    assert "HttpOnly" in header
+    assert "SameSite=Lax" in header
+    assert "Secure" in header
+    assert f"Max-Age={identity.COOKIE_MAX_AGE}" in header
+
+
+def test_mint_on_response_reaches_the_sse_stream(make_client):
+    """The load-bearing shape: headers go out at http.response.start, before
+    the stream body, so the SSE response can and must carry the cookie -- and
+    the stream itself still completes with its terminal event."""
+    make_client()
+    with TestClient(service.app, base_url="https://testserver") as cookieless:
+        response = cookieless.post("/research/stream", json={"question": "why?"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    names = [name for name, _ in sse_events(response)]
+    assert names[-1] == "result"  # the stream completed, body unaffected
+    _assert_locked_attributes(_cookie_header(response))
+
+
+def test_mint_on_response_reaches_the_demo_page(make_client):
+    """GET / with an html Accept returns a FileResponse directly -- the second
+    shape where a dependency-set cookie would vanish."""
+    make_client()
+    with TestClient(service.app, base_url="https://testserver") as cookieless:
+        response = cookieless.get("/", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    _assert_locked_attributes(_cookie_header(response))
+
+
+def test_mint_on_response_reaches_a_json_route(make_client):
+    """The ordinary shape, asserted so all three are proven, not two."""
+    make_client()
+    with TestClient(service.app, base_url="https://testserver") as cookieless:
+        response = cookieless.get("/health")
+
+    assert response.status_code == 200
+    _assert_locked_attributes(_cookie_header(response))
+
+
+def test_a_valid_cookie_is_not_reminted(make_client, monkeypatch):
+    """Mint only on absent-or-invalid: a caller presenting a good token keeps
+    it, otherwise every response would rotate the identity that later waves
+    key limits and ownership on."""
+    make_client()
+    token = mint_cookie(monkeypatch)
+    with TestClient(service.app, base_url="https://testserver") as holder:
+        holder.cookies.set(identity.COOKIE_NAME, token)
+        response = holder.get("/health")
+
+    assert response.status_code == 200
+    assert _cookie_header(response) == ""
+
+
+def test_a_returning_caller_keeps_the_identity_they_were_minted(make_client):
+    """The round trip through the client's own jar: first response mints, the
+    jar stores it (Secure, hence the https base_url), the second request
+    presents it back, and no new mint happens."""
+    make_client()
+    with TestClient(service.app, base_url="https://testserver") as visitor:
+        first = visitor.get("/health")
+        second = visitor.get("/health")
+
+    _assert_locked_attributes(_cookie_header(first))
+    assert _cookie_header(second) == ""
+
+
+def test_invalid_token_reminted_never_401(make_client, monkeypatch):
+    """A tampered cookie is treated as absent: the request succeeds -- 200,
+    explicitly not 401 -- and a fresh identity arrives on the response. An
+    attacker who forges a token gains a new empty identity, never an error
+    and never someone else's."""
+    make_client()
+    token = mint_cookie(monkeypatch)
+    version, ident, sig = token.split(".")
+    tampered = f"{version}.{ident}.{sig[:-1]}{'0' if sig[-1] != '0' else '1'}"
+
+    with TestClient(service.app, base_url="https://testserver") as forger:
+        forger.cookies.set(identity.COOKIE_NAME, tampered)
+        stream = forger.post("/research/stream", json={"question": "why?"})
+
+    assert stream.status_code != 401
+    assert stream.status_code == 200
+    assert [name for name, _ in sse_events(stream)][-1] == "result"
+    fresh = _cookie_header(stream)
+    _assert_locked_attributes(fresh)
+    assert tampered not in fresh  # a fresh mint, not the forgery echoed back
+
+
+def test_identity_state_is_populated_before_the_handler(monkeypatch):
+    """request.state.identity is the contract every later wave keys on, so it
+    must exist before any handler runs -- proven against the middleware
+    directly, since no current route echoes it."""
+    monkeypatch.setenv("IDENTITY_SIGNING_SECRET", "state-test-secret")
+    seen = {}
+
+    async def inner(scope, receive, send):
+        seen["identity"] = scope["state"]["identity"]
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    # No `with`: the context manager runs lifespan, which this bare stub does
+    # not speak. A plain request is all the property needs.
+    client = TestClient(identity.IdentityMiddleware(inner), base_url="https://testserver")
+    assert client.get("/anything").status_code == 200
+
+    assert len(seen["identity"]) == 32 and seen["identity"].isalnum()
+
+
+# --------------------------------------------------------------------------
+# Criterion 6: the first paint a stranger sees
+#
+# ROADMAP criterion 6 is that someone following a link from a resume reaches a
+# working demo with zero added friction. Phase 12 gave the page an identity, an
+# owned-session list and a resume flow, and the whole risk of that work is that
+# it shows up before the first question. The constraint (12-UI-SPEC AC1) is that
+# a cleared-storage first visit differs from the pre-phase page by exactly TWO
+# text deltas -- the footer identity sentence, and the reworded #limits line --
+# and by nothing else.
+#
+# These are static-file assertions: they read the file the service serves and
+# need no client, no server and no browser. They are gates on a property a human
+# would otherwise have to re-check by eye on every future edit, which is the
+# same as not checking it.
+# --------------------------------------------------------------------------
+
+
+def _demo_page() -> str:
+    """The exact file `GET /` serves, located the way the service locates it.
+
+    Via service.DEMO_PAGE rather than a path assembled here, so moving the file
+    cannot leave these gates reading a stale copy and passing.
+    """
+    with open(service.DEMO_PAGE, encoding="utf-8") as handle:
+        return handle.read()
+
+
+class _FirstPaintText(HTMLParser):
+    """Every run of visible text in the markup, in document order.
+
+    Script and style contents are skipped -- they are not paint. Whitespace is
+    collapsed so that reindenting the markup is not a "change".
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._suppressed = 0
+        self.runs: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._suppressed += 1
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self._suppressed -= 1
+
+    def handle_data(self, data):
+        if self._suppressed:
+            return
+        text = re.sub(r"\s+", " ", data).strip()
+        if text:
+            self.runs.append(text)
+
+
+# Measured on the pre-phase tree (2026-08-05) and then re-measured after the
+# Phase 12 page work: the ONLY difference between the two is the footer
+# sentence, inserted at index 4. Anything else -- a banner, a consent line, an
+# empty-state message, a "loading your sessions" placeholder -- adds or changes
+# a run here and turns this red.
+class _MarkupTags(HTMLParser):
+    """Every element the served markup declares."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tags: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.append(tag)
+
+    def census(self) -> dict[str, int]:
+        return dict(sorted(Counter(self.tags).items()))
+
+
+# Measured: identical to the pre-phase census except `div` 2 -> 3, which is the
+# footer identity sentence. Note what is NOT here and must never be: `details`
+# and `summary`. The owned-session list is built in script and inserted only
+# when it has rows, so an empty one cannot render on a first visit.
+FIRST_PAINT_TAGS = {
+    "a": 4, "body": 1, "button": 1, "div": 3, "footer": 1, "form": 1,
+    "h1": 1, "head": 1, "header": 1, "html": 1, "input": 1, "meta": 2,
+    "p": 2, "script": 1, "span": 1, "style": 1, "title": 1,
+}
+
+FIRST_PAINT_TEXT = (
+    "Research agent",
+    "Research agent",
+    "Asks a question, searches the web, drafts a report, then fact-checks that "
+    "draft against its own research notes and revises until every claim is "
+    "grounded. Watch the critic push back.",
+    "Research",
+    "Your sessions and notes are private to this browser and expire after 7 days of inactivity.",
+    "/docs",
+    "·",
+    "/metrics",
+    "·",
+    "/health",
+    "·",
+    "/pricing",
+)
+
+# Measured baseline, 12-UI-SPEC AC7, unchanged by this phase. Asserted as SETS:
+# adding a value fails even though the count of declarations went up, which is
+# what makes "no new sizes or weights" falsifiable rather than decorative.
+FONT_SIZES = {".78rem", ".82rem", ".85em", ".88em", ".9rem", ".95rem", "1.15rem", "1.6rem"}
+FONT_WEIGHTS = {"600", "700"}
+
+# The `font:` shorthand also sets a size and a weight, so a gate that only reads
+# the longhands can be walked straight past with `font: 1.1rem/1.6 serif`. These
+# are the only two shorthand values on the page.
+FONT_SHORTHANDS = {
+    "inherit",
+    '16px/1.6 ui-serif, Georgia, "Times New Roman", serif',
+}
+
+
+def test_page_keeps_innerhtml_at_zero():
+    """Measured baseline on the current tree: 0.
+
+    Session task text and model output are both untrusted input, and the page
+    renders both. `el()`/`textContent` is the rule; one `innerHTML` anywhere in
+    this file is a stored-XSS primitive, so the gate is zero rather than "not
+    many".
+    """
+    page = _demo_page()
+
+    # Non-vacuity: prove we read the real file before asserting an absence.
+    assert "textContent" in page and len(page) > 5000
+
+    assert page.count("innerHTML") == 0
+
+
+def test_page_font_sets_unchanged():
+    """The SETS of declared font sizes and weights equal the AC7 baselines.
+
+    Set equality, not a count and not a `>= 1`: a new size raises the number of
+    declarations, so a count-based gate stays green for exactly the change it
+    exists to catch. This is the machine-checkable half of "the first visit
+    looks like it always did".
+    """
+    page = _demo_page()
+    # Real declarations only. Scanning the whole file matched a CSS comment
+    # that quotes `font: inherit` while explaining why it is there -- a gate
+    # that reads prose is a gate that can be fooled by prose in either
+    # direction.
+    declared = re.search(r"<style>(.*?)</style>", page, re.S).group(1)
+    css = re.sub(r"/\*.*?\*/", "", declared, flags=re.S)
+
+    sizes = {m.strip() for m in re.findall(r"font-size:\s*([^;}]+)", css)}
+    weights = {m.strip() for m in re.findall(r"font-weight:\s*([^;}]+)", css)}
+    shorthands = {m.strip() for m in re.findall(r"(?<!-)\bfont:\s*([^;}]+)", css)}
+
+    assert sizes == FONT_SIZES
+    assert weights == FONT_WEIGHTS
+    assert shorthands == FONT_SHORTHANDS
+
+    # The other way a size could arrive: set from script, where no CSS gate
+    # would ever see it. The page styles nothing from JS and must not start.
+    script = re.search(r"<script>(.*?)</script>", page, re.S).group(1)
+    assert "style" not in script
+
+
+def test_page_first_paint_has_no_new_interactive_element():
+    """AC1's other half: no new interactive element reachable before the first
+    question.
+
+    The text gate below cannot see this one -- an empty `<button>` or a
+    `<details>` with a blank summary contributes no text run and sails past it,
+    which was found by mutating that gate rather than by reading it. So the
+    served markup's tag census is frozen outright. The measured baseline is the
+    pre-phase census: Phase 12 adds ONE `div` (the footer sentence) and no
+    interactive tag at all -- the session list is constructed at runtime and is
+    the reason `details`/`summary` must not appear here.
+    """
+    parser = _MarkupTags()
+    parser.feed(_demo_page())
+
+    assert parser.census() == FIRST_PAINT_TAGS
+
+
+def test_page_first_paint_text_is_frozen():
+    """The visible text of the served markup, against a measured baseline.
+
+    This is criterion 6 itself, as close as a static test gets: the pre-phase
+    page produced these runs minus the footer sentence, so the markup delta of
+    the whole phase is exactly one line of text. The second permitted delta --
+    the reworded #limits line -- is not here because `<p id="limits">` ships
+    empty and is filled from `/demo` at runtime; its copy is asserted below.
+
+    A banner, a prompt, a consent notice, an empty-state message or a rendered
+    session list would all appear here.
+    """
+    parser = _FirstPaintText()
+    parser.feed(_demo_page())
+
+    assert tuple(parser.runs) == FIRST_PAINT_TEXT
+
+
+def test_page_copy_and_dom_present():
+    """The Phase 12 additions are actually in the file, with the agreed copy.
+
+    Verbatim strings, because the copywriting contract is the deliverable: a
+    paraphrase of "private to this browser" that promises more than the cookie
+    delivers would be the one dishonest sentence on an otherwise honest page.
+    """
+    page = _demo_page()
+
+    assert (
+        "Your sessions and notes are private to this browser "
+        "and expire after 7 days of inactivity." in page
+    )
+    assert "Your recent research" in page
+    assert "requests/hour for this browser" in page
+    assert "spent by all visitors in the last 24h" in page
+    assert "That session has expired" in page
+    assert (
+        "Sessions are kept for 7 days after their last activity. "
+        "Ask a new question to start fresh." in page
+    )
+    # The follow-up placeholder is now set from two places (a completed run and
+    # a resume) and must stay one string.
+    assert page.count("Follow up on that — answered from its notes, no new search") == 1
+
+    # The side-effect-free renderer exists and `result()` goes through it, so a
+    # stored turn cannot pick up result()'s fabricated cost and revision count.
+    assert re.search(r"function renderTurnCard\(", page)
+    assert re.search(r"out\.appendChild\(renderTurnCard\(payload", page)
+
+    # The owned-session list is CONSTRUCTED, never declared in the markup. That
+    # is the "not in the DOM until populated" rule: an empty disclosure element
+    # in the served HTML would render a stray triangle on a first visit.
+    # Note the shape of this gate -- a grep for the literal `<details id="mine">`
+    # would be satisfied by a code comment mentioning it, and would be green in
+    # exactly the state (the element shipped in the markup) it is meant to
+    # forbid. So: assert the construction, and assert the tag is absent.
+    assert 'mine.id = "mine"' in page
+    assert re.search(r'el\("details"\)', page)
+    assert "<details" not in page
+
+    # The two new call sites, and the resumed session's follow-up target.
+    assert 'fetch("/sessions")' in page
+    assert "/sessions/${encodeURIComponent(id)}" in page
+    assert "ask/stream" in page
+
+
+def test_page_renderer_omits_absent_badges_instead_of_inventing_them():
+    """The specific defect the renderer was extracted to remove.
+
+    The old `result()` did `Number(payload.cost_usd || 0).toFixed(4)` and
+    `payload.revision_count + " revision(s)"`, which for a stored turn -- whose
+    payload carries only a question and an answer -- renders "$0.0000" and
+    "undefined revision(s)". Both are inventions presented in the same badge
+    style as measured facts, which is worse than showing nothing.
+
+    Gated separately and by *presence* tests rather than truthiness, because
+    truthiness would also drop a genuine $0 or a genuine zero-revision run.
+    Found by mutation: restoring the `|| 0` fallback left every other gate in
+    this block green.
+    """
+    body = re.search(
+        r"function renderTurnCard\(.*?\n}\n", _demo_page(), re.S
+    ).group(0)
+
+    assert '"approved" in turn' in body
+    assert 'typeof turn.cost_usd === "number"' in body
+    assert 'typeof turn.revision_count === "number"' in body
+    assert 'typeof turn.usage.calls === "number"' in body
+    # The fallbacks that did the inventing.
+    assert "|| 0" not in body
+    assert "revision_count +" not in body or 'typeof turn.revision_count === "number"' in body
+
+
+def test_page_session_list_enters_the_dom_only_when_populated():
+    """The rule criterion 6 actually rests on.
+
+    An empty `<details>` in the document renders a stray disclosure triangle, so
+    "you have no sessions yet" would be visible to someone who has never asked
+    anything -- the added friction the whole constraint forbids. Keeping the
+    element out of the markup (asserted above) is only half of it; the other
+    half is that script must not append it unconditionally either, and mutating
+    that line to `if (!mine.parentNode)` left every other gate here green.
+    """
+    page = _demo_page()
+
+    # Asserted on the insertion and removal LINES, not on the enclosing
+    # function. The first version of this gate searched the whole of syncMine()
+    # for "rows &&" -- which the `else if (!rows && ...)` branch satisfies, so
+    # it stayed green under exactly the mutation it was written for. Twelfth
+    # vacuous gate in this project, and the first one I wrote myself.
+    insertion = re.search(r"^.*insertBefore\(mine, out\).*$", page, re.M).group(0)
+    removal = re.search(r"^.*mine\.remove\(\).*$", page, re.M).group(0)
+
+    assert re.search(r"\bif \(rows\b", insertion)   # only while it has rows
+    assert "!rows" in removal                       # and back out when it has none
+    # And nothing else in the file puts it in the document.
+    assert page.count("insertBefore(mine, out)") == 1
+
+
+def test_page_introduces_no_new_colour():
+    """AC7's colour half: every new rule uses the existing custom properties.
+
+    Dark mode is inherited for free precisely because nothing hardcodes a
+    colour, so this is also what keeps the page working in both schemes with no
+    new `@media` rule. Measured baseline: the only literal colour outside the
+    two `:root` blocks is the `#fff` on the accent button's label.
+    """
+    declared = re.search(r"<style>(.*?)</style>", _demo_page(), re.S).group(1)
+    outside_root = re.sub(r":root \{.*?\}", "", declared, flags=re.S)
+
+    assert set(re.findall(r"#[0-9a-fA-F]{3,8}\b", outside_root)) == {"#fff"}
+
+
+def test_page_is_self_contained():
+    """No external resource of any kind.
+
+    A strict CSP can then allow nothing external, the Dockerfile stays one COPY,
+    and the demo cannot be taken down by someone else's CDN. Case-insensitive
+    and wider than the plan's grep, since `HTTPS://` and `//cdn...` would both
+    slip past a lowercase literal.
+    """
+    page = _demo_page()
+
+    assert not re.search(r'(src|href)\s*=\s*"\s*(https?:)?//', page, re.IGNORECASE)
+    assert not re.search(r"@import|url\(\s*['\"]?https?:", page, re.IGNORECASE)

@@ -33,6 +33,11 @@ service = [
 ]
 dev = [
     "research-agent[service]",
+    # Compose the chroma extra rather than repeat the pin: CI installs `dev`
+    # and the shared contract suite parametrizes a chroma arm, so chromadb has
+    # to reach CI -- while a SQLite/JSON deploy installing `service` alone
+    # still never pulls it.
+    "research-agent[chroma]",
     "pytest==9.1.1",
     "ruff==0.16.1",
 ]

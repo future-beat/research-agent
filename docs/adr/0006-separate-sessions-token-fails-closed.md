@@ -1,6 +1,6 @@
 # ADR-0006 — Session endpoints use a separate, fail-closed `SESSIONS_TOKEN`
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0007 (Phase 12)
 **Source:** Phase 10.5 (2026-08-04), shipped as Fly release v4
 
 ## Context
