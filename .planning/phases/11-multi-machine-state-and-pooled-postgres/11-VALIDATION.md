@@ -1,11 +1,12 @@
 ---
 phase: 11
 slug: multi-machine-state-and-pooled-postgres
-status: blocked
+status: complete
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-08-05
 reconciled: 2026-08-05
+closed: 2026-08-05
 ---
 
 # Phase 11 — Validation Strategy
@@ -217,3 +218,69 @@ which is what `nyquist_compliant: true` records. The phase's headline claim (SC-
 proven: `fly deploy` cannot complete the mount-removal release non-interactively on flyctl
 v0.4.78, so production still runs one machine on release v6 with the volume attached. Sign-off
 needs the operator to land that deploy. See `11-05-SUMMARY.md` § The blocker.
+
+---
+
+## SC-2 and SC-3 — live evidence, recorded verbatim
+
+Closed 2026-08-05 after the operator ran the two interactive commands flyctl would not accept
+non-interactively (`fly deploy`'s volume-detach prompt ignores `-y` on that path).
+
+**Release v7. Two machines, both `started`, both checks passing:**
+
+```
+app │ 846975f2604548 │ 7 │ syd │ started │ 1 total, 1 passing
+app │ d8d0320f751618 │ 7 │ syd │ started │ 1 total, 1 passing
+```
+
+The first `fly status` after scale-out showed `1 critical` on `846975f2604548`. That was the
+boot window before uvicorn bound port 8000 — the logs show the check passing 8 seconds later.
+Recorded because a stale snapshot reading "critical" is exactly the kind of thing that gets
+waved away when it is real.
+
+**SC-3 — a session created on one machine resolved from the other, over HTTP:**
+
+- Created on `846975f2604548` (pinned via `fly-force-instance-id`):
+  session `02c59c8a2e3a49cb9d949726e8f98431`, approved, $0.249488
+- Follow-up forced onto `d8d0320f751618`: **HTTP 200**, same `session_id`, answer grounded in
+  the *first* machine's research notes
+
+`POST /sessions/{id}/ask` calls `_require(store, session_id)`, which 404s on a missing session —
+so a 200 here is a positive proof of shared state, not an absence of error. Before this phase the
+second machine would have had its own SQLite file and returned 404. That is the exact failure named
+in the README limitation this phase closes.
+
+The proof used `ask`, which is deliberately unguarded (it is the demo's second turn), so no
+`SESSIONS_TOKEN` value was needed or handled.
+
+**Both machines report identical state:**
+
+```
+846975f2604548 | sessions: 2 | runs: 3 | notes: 2 | deps: ok
+d8d0320f751618 | sessions: 2 | runs: 3 | notes: 2 | deps: ok
+```
+
+`/`, `/demo`, `/metrics` all 200; `/demo` still reports `token_required: false`, so the demo
+remains anonymous.
+
+**The volume survived.** `vol_vdegz1021w669gx4` still exists with an empty `ATTACHED VM` column —
+detached, not destroyed, and available as the backup the CONTEXT required.
+
+## Two things this phase did NOT prove
+
+- **The rollback is untested.** `fly secrets unset DATABASE_URL` + redeploy is the documented
+  escape hatch. Every mechanism it relies on is verified, but the path itself was never run —
+  doing so would have meant reverting a working cutover. Do not describe it as proven.
+- **`research_agent.migrate` is still unexercised.** The phase started against an empty database
+  by decision, giving up the cumulative `/metrics` history. A later phase needing a real migration
+  cannot assume that path works.
+
+## One edit to publicly reported numbers
+
+Before the scale-out, a single `runs` row was deleted from the Postgres metrics store with the
+operator's explicit consent: `run_id 3d8650566c6d4d29940d5ddfb8982761`, `status=failed`,
+`error_type=AuthenticationError`, `cost_usd=0`, duration 297ms. It recorded a revoked
+`ANTHROPIC_API_KEY` — a credential outage unrelated to the cutover, whose secret digest was
+byte-identical before and after — rather than a pipeline failure. The delete was scoped by
+`run_id` plus three corroborating columns and affected exactly 1 row. It is recorded here because
+`/metrics` is public and an edit to reported numbers should never look incidental.

@@ -250,10 +250,20 @@ def _configure(conn) -> None:
     """Runs once per connection the pool opens.
 
     Supabase installs pgvector into the `extensions` schema, not `public`, so
-    memory.py's unqualified `vector(N)` column types and `%s::vector` casts do
-    not resolve on the default search_path. Harmless on CI's stock
-    pgvector/pgvector:pg16 image, where `extensions` does not exist -- Postgres
-    tolerates missing schemas in search_path.
+    memory.py's unqualified `vector(N)` column types and `%s::vector` casts
+    depend on `extensions` being on the search_path.
+
+    This is insurance, not a fix for an observed break. Verified against the
+    live Supabase project on 2026-08-05: its default search_path ALREADY
+    contains `extensions`, and the casts resolve with this callback removed.
+    The callback stays because depending on a provider's default is a silent
+    dependency -- if Supabase changed it, or the project moved to a Postgres
+    that puts the extension elsewhere, the failure would be an unqualified-type
+    error at first use rather than anything obviously about search_path. Being
+    explicit costs one statement per connection.
+
+    Harmless on CI's stock pgvector/pgvector:pg16 image, where `extensions`
+    does not exist -- Postgres tolerates missing schemas in search_path.
     """
     conn.execute("SET search_path TO public, extensions")
 

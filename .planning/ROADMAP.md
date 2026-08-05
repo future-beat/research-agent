@@ -52,7 +52,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 10: ADRs and doc correctness** - Promote the load-bearing five to numbered ADRs; fix verified-false docs; redeploy so live matches `main`
 - [x] **Phase 10.5: Close the live endpoint exposure (hotfix)** - Guard the unauthenticated session read/delete paths and stop leaking exception text; ship immediately
-- [ ] **Phase 11: Multi-machine state and pooled Postgres** - Take the `DATABASE_URL` path, run more than one machine, replace the single connection with a pool
+- [x] **Phase 11: Multi-machine state and pooled Postgres** - Take the `DATABASE_URL` path, run more than one machine, replace the single connection with a pool
 - [ ] **Phase 12: Caller identity, session ownership, bounded stores** - The demo identifies callers; sessions have owners and expiry; notes stop growing forever
 - [ ] **Phase 13: Embedding model migration** - A real, reversible path when the embedding model or dimension changes
 - [ ] **Phase 14: Real cost accounting** - Discounts and `inference_geo` so reported cost approximates the invoice

@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: executing
-stopped_at: "11-05 PARTIAL — Tasks 1 and 4 done and committed; Tasks 2 and 3 BLOCKED. fly.toml declares the stateless two-machine topology with the three fail-closed backend pins and both deploy guards pass on their stateless arm, but `fly deploy` cannot answer its own volume-detach prompt non-interactively on flyctl v0.4.78 (three attempts: -y ignored, pty+yes panics flyctl, pty+expect hangs). Production is UNCHANGED and healthy on release v6, one machine, volume attached. NEXT ACTION IS THE OPERATOR'S: run `fly deploy -a research-agent` from a real terminal and answer y, then `fly scale count 2`, then prove SC-3."
+status: phase-complete
+stopped_at: "Phase 11 COMPLETE — Supabase Postgres live, pooled, two machines on release v7. SC-3 proved over HTTP. Next: PR, then /gsd:plan-phase 12."
 last_updated: "2026-08-05T08:55:00.000Z"
-last_activity: "2026-08-05 — Executed 11-05 partially. fly.toml went stateless (mount out, three *_DB_PATH out, SESSION_BACKEND/METRICS_BACKEND/VECTOR_STORE pinned, min_machines_running 2); the pins proved fail-closed at runtime (absent DSN exits 1 with RuntimeError naming DATABASE_URL); 11-03's guards ran their stateless arm for the first time — 12 passed, 0 skipped. 11-VALIDATION.md reconciled (real task IDs and waves, two comment-blind config gates and one vacuous SC-6 gate replaced, three stale criteria rewritten, skip count 28→34 recorded, anti-pattern guards labelled). Measured latency recorded in OPERATIONS. BLOCKED: the mount-removal deploy needs an interactive terminal, so SC-2's live half and SC-3 are unproven and no machine ids exist."
+last_activity: "2026-08-05 — Phase 11 shipped: all three stores on Supabase ap-southeast-2 via the session-mode pooler, one shared psycopg pool per machine, /health bounded at a 9s ceiling, volume detached but kept, two machines on v7, and a session created on 846975f2604548 resolved by d8d0320f751618 over HTTP"
 progress:
   total_phases: 19
   completed_phases: 9
