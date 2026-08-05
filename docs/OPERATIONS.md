@@ -198,9 +198,19 @@ orphaned notes and the old demo sessions are disposable. The volume is kept as
 the backup, so nothing is destroyed — it is simply left behind.
 
 `python -m research_agent.migrate` is therefore deliberately **not exercised**
-by this cutover. A later phase that needs a real migration must not assume that
-path is proven: it has not been run against this data, and it should be
-dry-run first.
+by this cutover.
+
+**Since Phase 13 it is exercised by tests.** Leaving it unproven turned out to
+cost something: read against the Phase 12 schema, `migrate_notes` was inserting
+only `(text, embedding)`, so every migrated note would have landed on
+`owner=''` — belonging to nobody, since a real identity is a 32-hex uuid — with
+`created_at` defaulting to `now()` and its seven-day TTL restarted.
+`migrate_sessions` dropped `owner` the same way. Both are fixed, and
+`tests/test_migrate.py` now asserts field-level owner and timestamp fidelity
+across a real SQLite-to-Postgres round trip.
+
+That is a proof about the *code*, not about your data. It has still never been
+run against the volume, so dry-run first.
 
 ### Supabase specifics
 
