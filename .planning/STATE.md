@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Completed 12-04-PLAN.md (Wave 3): sessions carry an owner and a derived 7-day expiry; SESSIONS_TOKEN is now the operator dual-mode credential; foreign/expired/missing are one 404. Next: 12-05."
-last_updated: "2026-08-05T13:55:00.000Z"
-last_activity: "2026-08-05 — Executed 12-04: session owner column (lazy migration, both backends), derived 7-day expiry against the DB clock with a sweep on create, require_session_access dual-mode, owner-checked _require returning one 404 for missing/expired/foreign, and the walker extended with the router-level assertion its per-route form was vacuous against. Suite 506/45 plain, 550/1 armed; README/OPERATIONS/.env.example corrected."
+stopped_at: "Completed 12-05-PLAN.md (Wave 4): notes scope to the caller and expire after 7 days, identically on all four backends; the cross-visitor injection path is closed end to end. SC-5 is literally true. Next: 12-06."
+last_updated: "2026-08-05T14:45:00.000Z"
+last_activity: "2026-08-05 — Executed 12-05: add(text, owner)/query(..., owner) plus a 7-day NOTE_TTL_DAYS across json/memory/chroma/pgvector, proven by a four-arm behavioural suite in which the chroma arm collects and passes; the owner threaded from the identity cookie through AgentState into researcher_node, closing the path by which one visitor's notes reached another visitor's critic. Suite 516/47 plain, 562/1 armed; README/OPERATIONS/.env.example corrected."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 17
+  completed_plans: 18
   percent: 57
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTING**
-Plan: 4 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
-Status: Wave 3 complete (12-04). Sessions now belong to the identity that created them and stop resolving seven days after their last write (derived from `updated_at`, evaluated against the *database's* clock, swept opportunistically on `create()`; reads never renew). `SESSIONS_TOKEN` survives as the **operator** credential — a valid token lists every owner's sessions, without one the listing is caller-scoped — and a foreign, expired or invented session id all return the same 404 with the same body. Criterion 3 and criterion 4 are in; the third named defect (sessions immortal and world-readable to any token holder) is closed.
-Last activity: 2026-08-05 — Executed 12-04 (commits 82af2cc, b87a088, 6b52781).
+Plan: 5 of 6 executed · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched)
+Status: Wave 4 complete (12-05). Notes are no longer communal or immortal. `add()` and `query()` take an `owner` on all four backends (json, memory, chroma, pgvector) with exact-match semantics — `owner=""` is a real value that matches nobody, so the two orphaned notes belong to no one from the moment this ships — and `NOTE_TTL_DAYS` (7, matching sessions) is enforced by a lazy filter plus a sweep on write. The owner is threaded from the identity cookie through `AgentState` and `initial_state`/`followup_state` into `researcher_node`, which scopes **both** recall and write: one visitor's untrusted note text can no longer reach another visitor's critic. **SC-5 is now literally true** — the shared contract suite runs `note_scoping` and `note_ttl` on all four arms, with the chroma arm collecting and passing rather than skipping. Criterion 5 is in.
+Last activity: 2026-08-05 — Executed 12-05 (commits 27e46bc, bb9e80f, 8a8582e).
 
 **Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7.
 
@@ -75,7 +75,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 1–9 | pre-GSD | — | — |
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
-| 12 | 4 of 6 (12-01, 12-02, 12-03, 12-04) | 86min | 22min |
+| 12 | 5 of 6 (12-01, 12-02, 12-03, 12-04, 12-05) | 127min | 25min |
 
 **Recent Trend:**
 
@@ -98,6 +98,10 @@ Recent decisions affecting current work:
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
 - [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
+- [Phase 12-05]: Notes are bounded by a 7-day TTL and nothing else. Dedup-on-write was evaluated and rejected — it has no semantics that json, memory, chroma and pgvector can implement identically, and identical behaviour is the claim SC-5's shared suite exists to make.
+- [Phase 12-05]: `owner=""` is an exact value on every store, never a wildcard. The orphaned notes and sessions therefore belong to nobody the moment the code ships, and are collected by the TTL rather than by a migration script.
+- [Phase 12-05]: The service reads the caller through `limits.caller_identity(request)`, not `request.state.identity` directly — 12-03 made it the single reader, and it carries the never-fall-back-to-client_ip reasoning that the raw attribute does not.
+- [Phase 12-05]: A structural gate must assert against the parsed CALL, not against the handler's source text. Three of four run-starting handlers pass `owner=` to something else as well, so the substring form stays green when the thing it guards is deleted.
 - [Phase 10.5-01]: `require_sessions_token` fails closed (403 when no credential is configured), deliberately diverging from `check_token`'s open-when-unset convention. A control that goes inert on a missing env var is precisely the defect this hotfix exists to fix.
 - [Phase 10.5-02]: The four session routes are grouped on an `APIRouter`, not given four per-route dependency lists. The defect was four routes each independently forgetting a credential, so membership had to become structural — a new route on `sessions_router` is guarded by construction.
 - [Phase 10.5-02]: `check_rate_limit` on `DELETE /sessions/{id}` only, sharing the research bucket. Reads stay unmetered so the daily cap's "Read-only endpoints still work" message stays true.
@@ -272,39 +276,56 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-05
-Stopped at: **Completed 12-04-PLAN.md — Wave 3 of Phase 12 is in.** Three commits on
-`gsd/phase-12-caller-identity`: `82af2cc` (the `owner` column on both session backends — an
-idempotent `ALTER TABLE … IF NOT EXISTS` appended to `POSTGRES_SCHEMA` so it runs inside the
-existing advisory-locked lazy DDL, and a `PRAGMA table_info(sessions)` probe for SQLite, whose
-owner index is created *after* the probe because a pre-Phase-12 file already has the table;
-`session_ttl_seconds()` reading `SESSION_TTL_DAYS` (7) per call; a lazy expiry filter in
-`get`/`list` computed from `EXTRACT(EPOCH FROM now())` on Postgres so two machines share one
-clock; `list(limit, owner=None)`; an opportunistic sweep on `create()`; four contract tests over
-BOTH backends), `b87a088` (`require_sessions_token` → `require_session_access` returning
-`("operator", None)` or `("identity", id)` and never raising; `_require(store, id, owner, *,
-operator)` raising one 404 for missing, expired and foreign; caller-scoped listing with the
-operator dual-mode; `delete_session` going through `_require` *before* `store.delete`; the ask
-routes keeping `guard` and enforcing ownership in-handler; `owner=` threaded into both
-`store.create` call sites; the walker extended and then **strengthened after mutation showed the
-plan's own form was vacuous**), and `6b52781` (README's API table and known-limitation bullet,
-OPERATIONS' `SESSIONS_TOKEN` row and two-tokens paragraph, `SESSION_TTL_DAYS` into both env
-tables, and `deferred-items.md`).
-Suite: **506 passed / 45 skipped plain, 550 passed / 1 skipped armed** against 493/41 and 533/1.
-Collected 534 → 551; the four extra plain skips are exactly the postgres arms of the four new
-session-contract tests, so the plain run is **not** evidence for DB-clock expiry — the armed run
-on `:54329` is. `ruff` clean. Nothing deployed; no push.
-**Falsified, not assumed:** dropping the owner check from `_require` turns 7 tests red; forcing
-the listing unscoped turns 3 red; and deleting `sessions_router`'s own `dependencies=[...]`
-initially turned **nothing** red, which is why the gate now asserts the router's dependency list
-directly.
-**Owed to 12-05/12-06:** `REQ-store-lifecycle-and-ownership` stays Pending until the notes half
-lands in Wave 4. `docs/OPERATIONS.md` still carries two claims 12-03 falsified (see Deferred
-Items). README's "rate-limited, not authenticated" line at ~210 is still Wave 5's, and is now
-false in both halves. The two orphaned *notes* from 2026-08-04 are Wave 4's to deal with; the
-orphaned *sessions* need no action — `owner=''` matches nobody and the sweep collects them.
+Stopped at: **Completed 12-05-PLAN.md — Wave 4 of Phase 12 is in.** Three commits on
+`gsd/phase-12-caller-identity`: `27e46bc` (`add(text, owner="")` / `query(..., owner="")` on the
+`MemoryStore` ABC and all four backends, with owner matching EXACT — `owner=""` retrieves only
+`owner=""` notes and never acts as a wildcard; `NOTE_TTL_DAYS` (7, deliberately the same number as
+`SESSION_TTL_DAYS`) enforced by a lazy filter in `query()` plus an opportunistic sweep in `add()`;
+`owner`/`created_at` keys on the brute-force entry dicts, chroma metadata with a `where` owner
+filter and a Python TTL post-filter, and `ALTER TABLE … ADD COLUMN IF NOT EXISTS owner` appended to
+pgvector's advisory-locked lazy DDL — `created_at` was already there and is NOT re-added; chroma ids
+became uuids because a sweep makes `count()` non-monotonic and a repeated id is an upsert), `bb9e80f`
+(`AgentState["owner"]`, `initial_state(task, owner="")`, `followup_state(previous, question,
+owner="")` with carry-forward and a `.get` for pre-Phase-12 state blobs, `researcher_node` scoping
+BOTH `store.query` and `store.add`, and all four run-starting handlers passing the identity they
+already resolve), and `8a8582e` (README's "Notes grow without bound" bullet — false in both halves —
+`NOTE_TTL_DAYS` into OPERATIONS and `.env.example`, and the test count in the two places it appears,
+one of which had been stale at 480 since 12-01).
+Suite: **516 passed / 47 skipped plain, 562 passed / 1 skipped armed** against 506/45 and 550/1.
+Collected 551 → 563, +12 in both arms. The two extra plain skips are exactly the **pgvector** arms of
+`note_scoping` and `note_ttl` (`DATABASE_URL is not set`); the **chroma** arm collects and passes in
+both runs, which is the difference between SC-5 being true and SC-5 being claimed. `ruff` clean.
+Nothing deployed; no push.
+**Falsified, not assumed — 21 mutations, all reverted:** all nine ways to break the store layer (owner
+filter, TTL filter and sweep, per backend family) go red on exactly the arms they own; both
+`researcher_node` call sites, the `AgentState` key, the follow-up carry-forward and all four handlers
+go red. Two mutations that stayed green are recorded as findings, not holes: renaming a key inside the
+shared `_summarise` helper cannot fail a gate that compares two backends, and an unread extra column
+in the SQLite query is not read by `_summarise`; the falsifying mutation for that gate is a
+one-backend dialect drift, which is red.
+**The eleventh vacuous gate, and its second-order form.** The plan's end-to-end injection test, written
+over `/research` only, stayed GREEN when `owner=` was deleted from `/research/stream` — the route the
+demo page actually calls. It is now parametrized over both. Worse, the obvious structural fix ("the
+handler source contains `owner=`") is ALSO vacuous, because three of the four handlers pass
+`owner=owner` to `store.create` or `reserve_or_429` as well; the gate parses the state-construction
+call with balanced parentheses instead. Both mutations are red.
+**Owed to 12-06:** `REQ-store-lifecycle-and-ownership` is now delivered in code in both halves
+(sessions in 12-04, notes here) but stays **Pending** — 12-06 carries it in its frontmatter alongside
+`REQ-demo-authentication`, which it explicitly depends on and which is only demonstrable at the
+deployed cutover. `docs/OPERATIONS.md` still carries the two claims 12-03 falsified (see Deferred
+Items). README's "rate-limited, not authenticated" line at ~210 remains Wave 5's, untouched on
+purpose. Task 3 of this plan produced no code change: all four route-guard assertions and the
+cross-backend metrics invariant already existed, pass after the owner threading, and were mutated red
+— and one of its acceptance criteria names `check_daily_cap`, a function 12-03 retired, where the
+live assertion covers both current ways to acquire the cap and is strictly stronger.
+**A trap worth carrying forward:** `addopts = "-q"` is already set, so passing `-q` again on the
+command line makes pytest doubly quiet and it prints **no `N passed` summary line at all**. Run
+`.venv/bin/pytest` with no `-q`.
 Resume file: None
 
-Superseded — previous session: **Completed 12-03-PLAN.md — Wave 2 of Phase 12 is in.** Five commits on
+Superseded — previous session: **Completed 12-04-PLAN.md — Wave 3 of Phase 12 (session owner, derived 7-day expiry, the operator dual-mode, one 404 for missing/expired/foreign; commits `82af2cc`, `b87a088`, `6b52781`; suite 506/45 plain, 550/1 armed; the walker strengthened after its plan-specified form proved vacuous against deleting the router-level dependency).**
+
+Superseded — earlier session: **Completed 12-03-PLAN.md — Wave 2 of Phase 12 is in.** Five commits on
 `gsd/phase-12-caller-identity`: `fe50a83` (the `LimitsStore` ABC with `InMemoryLimits` and
 `PostgresLimits`; two new tables under the lazy advisory-locked `ensure_schema`; `get_limits_store()`
 defaulting on `DATABASE_URL` like sessions and metrics), `9db9125` (`DEMO_RESERVED_RUN_USD`;
