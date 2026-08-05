@@ -12,9 +12,31 @@ Following the repo convention: no conftest.py, fakes live here in the owning
 module, `monkeypatch.setenv` for the env cases.
 """
 
+import time
+from contextlib import contextmanager
+
+import psycopg
+import psycopg_pool
 import pytest
 
 from research_agent import db
+
+
+@pytest.fixture(autouse=True)
+def dispose_pools():
+    """Nothing may outlive its test.
+
+    Refcounted close() self-cleans only if every test closes in a `finally`,
+    which is convention rather than enforcement -- this is the enforcement.
+    It matters because _pool_for caches per DSN with pool_timeout() read at
+    *construction*: a pool left registered at the 2.0 default would be handed
+    to a later test that set PG_POOL_TIMEOUT=0.5, making its assertion take
+    2.0s and fail for an entirely unrelated reason. It also stops background
+    reconnect workers accumulating across the session.
+    """
+    yield
+    db.close_all_pools()
+
 
 # --------------------------------------------------------------------------
 # Config readers
@@ -258,3 +280,214 @@ def test_pool_disposal_clears_the_registry(cold_pool):
     assert db._pool_claims == {}
     assert handle._pool.closed is True
     handle.close()  # must not explode on an already-disposed pool
+
+
+# --------------------------------------------------------------------------
+# Retry narrowing
+# --------------------------------------------------------------------------
+
+
+def test_pool_timeout_not_retried_is_an_operational_error():
+    """The reason the exclusion exists, written down as a test.
+
+    PoolTimeout and PoolClosed subclass OperationalError, so the pre-existing
+    `except OperationalError: retry once` arm would catch a checkout timeout
+    and wait a second one. If psycopg ever changes this inheritance, this test
+    fails and the exclusion can be revisited deliberately.
+    """
+    assert issubclass(psycopg_pool.PoolTimeout, psycopg.OperationalError)
+    assert issubclass(psycopg_pool.PoolClosed, psycopg.OperationalError)
+
+
+def test_pool_timeout_not_retried_costs_one_timeout_not_two(clean_env, monkeypatch):
+    """The behavioural half: measure it.
+
+    The bound is deliberately below 2x the configured checkout timeout, so a
+    reintroduced retry FAILS this test rather than merely making it slower.
+    """
+    monkeypatch.setenv("PG_CONNECT_TIMEOUT", "1")
+    monkeypatch.setenv("PG_POOL_TIMEOUT", "0.5")
+    monkeypatch.setenv("PG_POOL_MIN_SIZE", "0")
+    handle = db.Database(_unique_dsn("timing"))
+    try:
+        started = time.perf_counter()
+        with pytest.raises(psycopg_pool.PoolTimeout), handle.cursor() as cur:
+            cur.execute("SELECT 1")
+        elapsed = time.perf_counter() - started
+    finally:
+        handle.close()
+    assert elapsed < 1.0, f"a checkout timeout cost {elapsed:.2f}s; 0.5s was configured"
+
+
+# --------------------------------------------------------------------------
+# Fakes for the retry and advisory-lock paths
+#
+# A real server would prove more, but not this: the point is which connection
+# each statement landed on, and a pool hands connections out invisibly.
+# --------------------------------------------------------------------------
+
+
+class FakeCursor:
+    def __init__(self, conn, unlock_result=True):
+        self.conn = conn
+        self._unlock_result = unlock_result
+        self._last = None
+
+    def execute(self, sql, params=None):
+        self.conn.statements.append(sql)
+        self._last = sql
+
+    def fetchone(self):
+        if self._last and "pg_advisory_unlock" in self._last:
+            return (self._unlock_result,)
+        return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class FakeConnection:
+    def __init__(self, unlock_result=True):
+        self.statements = []
+        self._unlock_result = unlock_result
+
+    def cursor(self, row_factory=None):
+        return FakeCursor(self, unlock_result=self._unlock_result)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class FakePool:
+    """Hands out a fresh connection per checkout, recording every one.
+
+    `raises` is a list of exceptions (or None) applied to successive
+    checkouts, which is how the retry-once contract gets exercised without a
+    server that can be knocked over.
+    """
+
+    def __init__(self, raises=(), unlock_result=True):
+        self.raises = list(raises)
+        self.handed_out = []
+        self._unlock_result = unlock_result
+
+    @contextmanager
+    def connection(self):
+        if self.raises:
+            failure = self.raises.pop(0)
+            if failure is not None:
+                raise failure
+        conn = FakeConnection(unlock_result=self._unlock_result)
+        self.handed_out.append(conn)
+        yield conn
+
+
+@pytest.fixture
+def faked(monkeypatch):
+    """A Database whose pool is whatever the test hands it, with no registry
+    entry and no real socket anywhere."""
+
+    def build(pool):
+        monkeypatch.setattr(db, "_pool_for", lambda dsn: pool)
+        return db.Database("postgresql://fake/fake")
+
+    return build
+
+
+def test_reconnect_retries_a_dropped_connection_exactly_once(faked):
+    """Managed Postgres closes idle connections. The first request after a
+    quiet night must reconnect rather than fail -- a contract that has to
+    survive the port to a pool."""
+    pool = FakePool(raises=[psycopg.OperationalError("server closed the connection")])
+    handle = faked(pool)
+    with handle.cursor() as cur:
+        cur.execute("SELECT 1")
+    assert len(pool.handed_out) == 1  # the failed checkout handed out nothing
+    assert pool.handed_out[0].statements == ["SELECT 1"]
+
+
+def test_reconnect_gives_up_after_one_attempt(faked):
+    pool = FakePool(raises=[
+        psycopg.OperationalError("gone"),
+        psycopg.OperationalError("still gone"),
+    ])
+    handle = faked(pool)
+    with pytest.raises(psycopg.OperationalError), handle.cursor() as cur:
+        cur.execute("SELECT 1")
+
+
+def test_reconnect_does_not_retry_a_sql_error(faked):
+    """A genuine SQL error must surface immediately rather than run twice --
+    the write in it would land twice too."""
+    pool = FakePool(raises=[psycopg.ProgrammingError("syntax error")])
+    handle = faked(pool)
+    with pytest.raises(psycopg.ProgrammingError), handle.cursor() as cur:
+        cur.execute("SELECT nonsense")
+    assert pool.handed_out == []  # not retried
+
+
+def test_reconnect_does_not_swallow_a_caller_error(faked):
+    """KeyError from sessions.append_turn is the live example: raised inside
+    the caller's `with` body, it is not a connection error and must propagate
+    untouched rather than being retried."""
+    pool = FakePool()
+    handle = faked(pool)
+    with pytest.raises(KeyError), handle.cursor():
+        raise KeyError("turn")
+    assert len(pool.handed_out) == 1
+
+
+# --------------------------------------------------------------------------
+# The advisory lock lives on ONE connection
+# --------------------------------------------------------------------------
+
+
+def test_schema_lock_single_connection(faked):
+    """pg_advisory_lock is SESSION-scoped, so under a pool it is scoped to the
+    checked-out connection. Split the block across two cursor() calls and the
+    unlock lands on a different connection: the lock serialises nothing and
+    leaks on a connection already returned to the pool.
+
+    This is the cheap unit-level half of the invariant; the real-server half
+    is plan 11-02's two-connection exclusivity test.
+    """
+    pool = FakePool()
+    handle = faked(pool)
+    handle.ensure_schema("CREATE TABLE IF NOT EXISTS t (id int)")
+
+    assert handle.schema_applied is True
+    assert len(pool.handed_out) == 1, "the whole block must run on ONE checkout"
+    statements = pool.handed_out[0].statements
+    assert "SELECT pg_advisory_lock(%s)" in statements
+    assert "CREATE TABLE IF NOT EXISTS t (id int)" in statements
+    assert "SELECT pg_advisory_unlock(%s)" in statements
+    assert statements.index("SELECT pg_advisory_lock(%s)") == 0
+    assert statements.index("SELECT pg_advisory_unlock(%s)") == len(statements) - 1
+
+
+def test_schema_lock_single_connection_raises_when_the_unlock_returns_false(faked):
+    """False from pg_advisory_unlock means the lock was never held on this
+    connection -- which is exactly the signature of the invariant breaking.
+    Swallowing it would leave a leaked lock looking like success."""
+    pool = FakePool(unlock_result=False)
+    handle = faked(pool)
+    handle._schema_sql = "CREATE TABLE IF NOT EXISTS t (id int)"
+    with pytest.raises(RuntimeError, match="single-connection invariant"):
+        handle._apply_schema()
+    assert handle.schema_applied is False
+
+
+def test_ensure_schema_still_suppresses_a_broken_invariant(faked):
+    """ensure_schema's contract does not change: it registers, tries once, and
+    suppresses. A broken invariant costs a deferred retry, not a crash -- but
+    it is no longer silent, because _apply_schema raises."""
+    pool = FakePool(unlock_result=False)
+    handle = faked(pool)
+    handle.ensure_schema("CREATE TABLE IF NOT EXISTS t (id int)")
+    assert handle.schema_applied is False

@@ -64,6 +64,13 @@ import os
 import threading
 from contextlib import contextmanager
 
+# zlib.crc32(b"research_agent.schema"). ONE key for all three schema blocks,
+# not one per store, so sessions, metrics and notes serialise against each
+# other too. The SESSION-level lock/unlock pair, deliberately not the
+# transaction-scoped variant: under autocommit=True there is no transaction for
+# a transaction-scoped lock to hang on.
+SCHEMA_LOCK_KEY = 3895545195
+
 
 def connect_timeout() -> int:
     try:
@@ -334,12 +341,22 @@ class Database:
 
         The retry is deliberately limited to one attempt and to connection
         errors: a genuine SQL error must surface immediately rather than be
-        run twice.
+        run twice, and a non-database exception raised inside the caller's
+        `with` body -- KeyError from sessions.append_turn is the live example
+        -- must propagate untouched.
         """
         psycopg = _psycopg()
+        psycopg_pool = _psycopg_pool()
         try:
             with self._pool.connection() as conn, conn.cursor(row_factory=row_factory) as cur:
                 yield cur
+        except (psycopg_pool.PoolTimeout, psycopg_pool.PoolClosed):
+            # Both SUBCLASS psycopg.OperationalError, so this arm has to come
+            # first: without it the arm below would retry a checkout timeout
+            # and double the worst-case wait on an unreachable database --
+            # straight through the Fly health-check budget. The wait has
+            # already happened; a second one buys nothing.
+            raise
         except (psycopg.OperationalError, psycopg.InterfaceError):
             # Stale or dropped. Take a fresh connection and try exactly once more.
             with self._pool.connection() as conn, conn.cursor(row_factory=row_factory) as cur:
@@ -365,12 +382,53 @@ class Database:
             self._apply_schema()
 
     def _apply_schema(self) -> None:
+        """Apply the registered schema block, serialised across processes.
+
+        THE INVARIANT: the lock, the DDL and the unlock all run inside ONE
+        `cursor()` block, because every `cursor()` call is a separate pool
+        checkout and `pg_advisory_lock` is *session*-scoped -- which under a
+        pool means per checked-out connection. Split across two checkouts this
+        serialises nothing AND leaks: the unlock lands on a different
+        connection, returns false, and the lock stays held on a connection
+        already handed back to the pool. With max_size=5 that is the likely
+        outcome, not the unlucky one -- from code that greps clean.
+
+        Why now: CREATE TABLE / INDEX / EXTENSION IF NOT EXISTS is not atomic
+        against a concurrent creator, and this is the first phase in which two
+        processes ever run the lazy schema path simultaneously against an
+        *empty* database -- which `fly deploy` across two machines and a
+        start-clean database together guarantee.
+        """
         if self._schema_applied or self._schema_sql is None:
             return
+        psycopg = _psycopg()
+        # Belt and braces behind the lock: a duplicate object means somebody
+        # else already applied this block, which is success, not failure. Note
+        # that this tolerance is exactly why a string-only gate on
+        # pg_advisory_lock cannot prove the lock works -- the real gate is the
+        # two-connection exclusivity test in plan 11-02.
+        already_applied = (
+            psycopg.errors.DuplicateTable,
+            psycopg.errors.DuplicateObject,
+            psycopg.errors.UniqueViolation,
+        )
         # psycopg sends a multi-statement block as one command, which is what
         # we want: schema setup is all-or-nothing.
         with self.cursor() as cur:
-            cur.execute(self._schema_sql)
+            cur.execute("SELECT pg_advisory_lock(%s)", (SCHEMA_LOCK_KEY,))
+            try:
+                with contextlib.suppress(*already_applied):
+                    cur.execute(self._schema_sql)
+            finally:
+                cur.execute("SELECT pg_advisory_unlock(%s)", (SCHEMA_LOCK_KEY,))
+                row = cur.fetchone()
+                released = bool(row and row[0])
+                if not released:
+                    raise RuntimeError(
+                        "pg_advisory_unlock returned false: the schema lock was not held on "
+                        "this connection, so the lock/DDL/unlock single-connection invariant "
+                        "is broken and the DDL was not serialised"
+                    )
         self._schema_applied = True
 
     @property
