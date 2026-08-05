@@ -26,7 +26,12 @@ from research_agent import db
 from research_agent import memory as vm
 from research_agent import metrics as metrics_module
 from research_agent import sessions as sessions_module
-from research_agent.memory import InMemoryStore, JSONMemoryStore, PgVectorMemoryStore
+from research_agent.memory import (
+    ChromaMemoryStore,
+    InMemoryStore,
+    JSONMemoryStore,
+    PgVectorMemoryStore,
+)
 from research_agent.metrics import (
     COMPLETED,
     FAILED,
@@ -90,7 +95,7 @@ def runs(request, tmp_path):
     store.close()
 
 
-@pytest.fixture(params=["json", "memory", "pgvector"])
+@pytest.fixture(params=["json", "memory", "chroma", "pgvector"])
 def notes(request, tmp_path):
     embedder = FakeEmbedder()
     if request.param == "pgvector":
@@ -100,6 +105,17 @@ def notes(request, tmp_path):
             embedder=embedder, table=CONTRACT_NOTES_TABLE, dimensions=FAKE_DIMENSIONS
         )
         store.db.execute(f"TRUNCATE {CONTRACT_NOTES_TABLE}")
+    elif request.param == "chroma":
+        # CI installs the dev extra, which composes chroma -- so this arm
+        # COLLECTS and runs there. The guard is only for a local checkout
+        # without the extra; it must never gate on HAS_POSTGRES.
+        try:
+            import chromadb  # noqa: F401
+        except ImportError:
+            pytest.skip("chromadb not installed")
+        store = ChromaMemoryStore(
+            path=str(tmp_path / "chroma"), collection=CONTRACT_NOTES_TABLE, embedder=embedder
+        )
     elif request.param == "json":
         store = JSONMemoryStore(path=str(tmp_path / "notes.json"), embedder=embedder)
     else:
