@@ -23,17 +23,27 @@ from research_agent.memory import InMemoryStore, PgVectorMemoryStore
 from research_agent.metrics import PostgresMetricsStore, SQLiteMetricsStore
 from research_agent.sessions import PostgresSessionStore, SQLiteSessionStore
 
-# The session read/delete routes fail closed, so every client the suite builds
-# needs a credential. Configuring it here -- and sending it as a default header
-# -- keeps the fixture the one place that knows about it, the way it already
-# owns DEMO_RATE_LIMIT_PER_HOUR and SESSION_BACKEND. A test that wants the
-# anonymous case builds a bare TestClient instead.
+# Since Phase 12 this is the OPERATOR credential, not the visitor's: the
+# default client sends it, so it sees every owner's sessions -- which is what
+# most of this suite wants, since most of it is not about ownership. A test
+# that wants a plain visitor drops the header (see `as_visitor`).
 SESSIONS_TOKEN = "sessions-s3cret"
 
-# The dependencies that count as "this route is not anonymous". `guard` fronts
-# the money-spending routes; `require_sessions_token` fronts the session
-# read/delete group. A route under /sessions carrying neither is open.
-AUTH_DEPENDENCIES = {"guard", "require_sessions_token"}
+# The dependencies that count as "this route decides who is asking". `guard`
+# fronts the money-spending routes; `require_session_access` fronts the session
+# read/delete group. A route under /sessions carrying neither cannot know whose
+# sessions it is serving, and is therefore open.
+AUTH_DEPENDENCIES = {"guard", "require_session_access"}
+
+
+def as_visitor(client):
+    """The same client without the operator token: an ordinary caller.
+
+    Mutates in place and returns it, because the identity cookie already in the
+    jar is the point -- a fresh TestClient would be a different person.
+    """
+    client.headers.pop("x-demo-token", None)
+    return client
 
 
 def mint_cookie(monkeypatch, secret="test-identity-secret"):
@@ -329,11 +339,24 @@ def test_follow_ups_accumulate_into_the_session_conversation(make_client):
 
 def test_a_follow_up_survives_a_restart(make_client):
     """The whole reason sessions are on disk: the follow-up arrives as a
-    separate request, and may not reach the same process."""
+    separate request, and may not reach the same process.
+
+    The reborn client carries the same identity cookie, because that is what a
+    real returning browser does -- the cookie outlives the process by 400 days.
+    Since Phase 12 a session belongs to whoever created it, so a genuinely
+    different caller would (correctly) get a 404 here, and asserting on that
+    would be asserting the opposite of what this test is about.
+
+    Handed to the constructor rather than set on the jar afterwards:
+    `client.cookies.set(..., domain="testserver")` looks equivalent and is
+    silently not sent, which shows up as a mysterious fresh identity.
+    """
     client, fake = make_client()
     session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
 
-    with TestClient(service.app) as reborn:  # new app instance, same store
+    with TestClient(  # new client, same store, same caller
+        service.app, base_url="https://testserver", cookies={"ra_id": client.cookies["ra_id"]}
+    ) as reborn:
         fake.calls.clear()
         body = reborn.post(f"/sessions/{session_id}/ask", json={"question": "and?"}).json()
 
@@ -388,43 +411,67 @@ def test_unknown_sessions_are_404(make_client, path):
 
 
 @pytest.mark.parametrize("path", ["/sessions/nope", "/sessions/nope/trace"])
-def test_unknown_sessions_are_401_without_a_token(make_client, path):
-    """Auth runs before the handler, so an anonymous caller gets 401, not 404.
+def test_unknown_sessions_are_404_without_a_token(make_client, path):
+    """A credential-less caller gets 404 -- and so does everyone else.
 
-    That ordering is the point: answering 404 first would tell an
-    unauthenticated caller which session IDs exist.
+    This asserted 401 before Phase 12, and the reasoning was that answering 404
+    first would tell an unauthenticated caller which ids exist. The concern was
+    right; the mechanism has been replaced by a stronger one. There is no
+    longer any answer that distinguishes ids, for any caller: missing, expired
+    and foreign are one 404 with one body. The oracle is closed by making every
+    door look the same rather than by refusing to open any of them.
     """
     make_client()  # for the env and the dependency overrides
-    with TestClient(service.app) as anonymous:
-        assert anonymous.get(path).status_code == 401
+    with TestClient(service.app, base_url="https://testserver") as visitor:
+        assert visitor.get(path).status_code == 404
 
 
 # --------------------------------------------------------------------------
 # The guarded sessions group
 # --------------------------------------------------------------------------
 #
-# The defect this phase fixes passed a green suite for months because no test
-# ever asked an unauthenticated question. These do.
+# The defect Phase 10.5 fixed passed a green suite for months because no test
+# ever asked an unauthenticated question. These do -- and since Phase 12 the
+# answer they must get has changed shape: a stranger is refused because the
+# session is not theirs, not because they hold no shared secret.
 
 
 @pytest.mark.parametrize(
     "method,template",
     [
-        ("GET", "/sessions"),
         ("GET", "/sessions/{sid}"),
         ("GET", "/sessions/{sid}/trace"),
         ("DELETE", "/sessions/{sid}"),
     ],
 )
-def test_unauthenticated_sessions_routes_are_refused(make_client, method, template):
-    """All four routes, against a real session id, from a caller with no header."""
+def test_a_stranger_is_refused_on_every_session_route(make_client, method, template):
+    """A real session id, a caller who is not its owner, all three id routes.
+
+    404 rather than 401/403, uniformly: see `_require`. The stranger here holds
+    a perfectly valid identity of their own -- this is not "no credential", it
+    is "not yours", which is the harder case and the one that actually happens
+    when a session id is pasted into a chat.
+    """
     client, _ = make_client()
     sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
 
-    with TestClient(service.app) as anonymous:
-        response = anonymous.request(method, template.format(sid=sid))
+    with TestClient(service.app, base_url="https://testserver") as stranger:
+        response = stranger.request(method, template.format(sid=sid))
 
-    assert response.status_code == 401
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"No session {sid!r}."
+
+
+def test_a_stranger_sees_an_empty_listing_not_someone_elses(make_client):
+    """The collection route's half of the same property: 200 and nothing."""
+    client, _ = make_client()
+    client.post("/research", json={"question": "why?"})
+
+    with TestClient(service.app, base_url="https://testserver") as stranger:
+        listed = stranger.get("/sessions")
+
+    assert listed.status_code == 200
+    assert listed.json()["sessions"] == []
 
 
 def test_authorised_sessions_routes_still_work(make_client):
@@ -441,34 +488,187 @@ def test_authorised_sessions_routes_still_work(make_client):
     assert client.delete(f"/sessions/{sid}").status_code == 204
 
 
-def test_sessions_token_unset_fails_closed(make_client, monkeypatch):
-    """Nothing configured means nobody passes -- 403, not 401 and not 200.
+def test_an_unset_sessions_token_closes_only_the_operator_view(make_client, monkeypatch):
+    """The Phase 12 inversion, end to end.
 
-    The assertion is on 403 specifically. 401 would mean a caller could get in
-    by guessing a token, and 200 would mean the hotfix had regressed to the
-    original bug. That bug was not a missing control: it was a control that
-    was present in the code and inert in production, which is exactly what an
-    open-when-unset default reproduces.
+    Before, an unset SESSIONS_TOKEN meant nobody could read any session -- the
+    fail-closed posture that kept a forgotten secret from silently reopening
+    the world-readable leak. Now the leak is closed by ownership instead, so an
+    unset token closes exactly one thing: the cross-owner debugging view. The
+    caller still reaches their own sessions, and -- the half that matters --
+    still cannot reach anyone else's, with the operator header now inert.
     """
     client, _ = make_client()
+    mine = client.post("/research", json={"question": "mine"}).json()["session_id"]
+
+    with TestClient(service.app, base_url="https://testserver") as other:
+        theirs = other.post("/research", json={"question": "theirs"}).json()["session_id"]
+
     monkeypatch.delenv("SESSIONS_TOKEN", raising=False)
     monkeypatch.delenv("DEMO_TOKEN", raising=False)
 
-    assert client.get("/sessions").status_code == 403
+    # Still sending the now-unconfigured operator header: it must buy nothing.
+    listed = client.get("/sessions")
+    assert listed.status_code == 200
+    assert [s["session_id"] for s in listed.json()["sessions"]] == [mine]
+    assert client.get(f"/sessions/{theirs}").status_code == 404
 
 
-def test_demo_token_fallback_protects_the_session_routes(make_client, monkeypatch):
-    """Setting only DEMO_TOKEN closes the group rather than leaving it open."""
+def test_demo_token_fallback_still_reaches_the_operator_view(make_client, monkeypatch):
+    """Setting only DEMO_TOKEN still buys the operator view, as it always has.
+
+    The fallback is what makes "setting DEMO_TOKEN protects the session
+    endpoints" true rather than quietly false; Phase 12 changed what the token
+    unlocks, not which variables name it.
+    """
     client, _ = make_client()
-    client.post("/research", json={"question": "why?"})
+    mine = client.post("/research", json={"question": "why?"}).json()["session_id"]
     monkeypatch.delenv("SESSIONS_TOKEN", raising=False)
     monkeypatch.setenv("DEMO_TOKEN", "demo-only")
 
-    with TestClient(service.app) as anonymous:
-        assert anonymous.get("/sessions").status_code == 401
+    with TestClient(service.app, base_url="https://testserver") as visitor:
+        assert visitor.get("/sessions").json()["sessions"] == []
 
-    with TestClient(service.app, headers={"x-demo-token": "demo-only"}) as holder:
-        assert holder.get("/sessions").status_code == 200
+    with TestClient(
+        service.app, base_url="https://testserver", headers={"x-demo-token": "demo-only"}
+    ) as operator:
+        listed = operator.get("/sessions")
+        assert listed.status_code == 200
+        # Not merely 200: the operator sees a session it does not own.
+        assert mine in [s["session_id"] for s in listed.json()["sessions"]]
+
+
+# --------------------------------------------------------------------------
+# Session ownership (Phase 12, criterion 3)
+# --------------------------------------------------------------------------
+
+
+def _two_owners(make_client):
+    """Two real identities with one session each, plus an operator client.
+
+    The operator client is the fixture's own (it sends SESSIONS_TOKEN); the
+    two visitors are separate TestClients, each minted its own cookie by the
+    middleware on its first response, with the operator header removed. Real
+    cookies through the real verify path -- IdentityMiddleware is not a
+    dependency and must not be faked into agreeing.
+    """
+    operator, _ = make_client()
+    alice = as_visitor(TestClient(service.app, base_url="https://testserver"))
+    bob = as_visitor(TestClient(service.app, base_url="https://testserver"))
+    a_sid = alice.post("/research", json={"question": "alice's"}).json()["session_id"]
+    b_sid = bob.post("/research", json={"question": "bob's"}).json()["session_id"]
+    assert alice.cookies["ra_id"] != bob.cookies["ra_id"], "the two clients are the same caller"
+    return operator, alice, a_sid, bob, b_sid
+
+
+def test_sessions_listing_scoped_and_dual_mode(make_client):
+    """GET /sessions shows you yours; the operator token shows everyone's."""
+    operator, alice, a_sid, bob, b_sid = _two_owners(make_client)
+
+    assert [s["session_id"] for s in alice.get("/sessions").json()["sessions"]] == [a_sid]
+    assert [s["session_id"] for s in bob.get("/sessions").json()["sessions"]] == [b_sid]
+
+    all_sessions = {s["session_id"] for s in operator.get("/sessions").json()["sessions"]}
+    assert {a_sid, b_sid} <= all_sessions, "the operator view is not unscoped"
+
+    alice.close()
+    bob.close()
+
+
+def test_foreign_session_is_indistinguishable(make_client):
+    """The 404 for someone else's session is byte-identical to a missing one.
+
+    Asserted as an equality between two responses rather than as two separate
+    status-code checks, because the property is *indistinguishability*: a 403,
+    a differing detail string, or even a differing set of keys would each hand
+    a stranger an existence oracle on ids that travel in shared URLs. Run over
+    both id-shaped read routes.
+    """
+    operator, alice, a_sid, bob, _ = _two_owners(make_client)
+    missing = "0" * 32
+
+    for template in ("/sessions/{}", "/sessions/{}/trace"):
+        foreign = bob.get(template.format(a_sid))
+        absent = bob.get(template.format(missing))
+
+        assert foreign.status_code == absent.status_code == 404
+        assert foreign.json()["detail"] == f"No session {a_sid!r}."
+        assert absent.json()["detail"] == f"No session {missing!r}."
+        # Same shape, same wording, differing only in the id echoed back.
+        assert foreign.json().keys() == absent.json().keys()
+        assert foreign.json()["detail"].replace(a_sid, missing) == absent.json()["detail"]
+
+    # Non-vacuity: the id really does name a live session for its owner.
+    assert alice.get(f"/sessions/{a_sid}").status_code == 200
+
+    alice.close()
+    bob.close()
+
+
+def test_expired_session_is_indistinguishable_from_missing(make_client, monkeypatch):
+    """And so is one that timed out -- same route, same body, same status."""
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    assert client.get(f"/sessions/{sid}").status_code == 200  # live first
+
+    # Zero days: everything written before this instant is already idle too long.
+    monkeypatch.setenv("SESSION_TTL_DAYS", "0")
+
+    expired = client.get(f"/sessions/{sid}")
+    absent = client.get("/sessions/" + "0" * 32)
+    assert expired.status_code == 404
+    assert expired.json()["detail"] == f"No session {sid!r}."
+    assert expired.json().keys() == absent.json().keys()
+    assert client.get("/sessions").json()["sessions"] == []
+    # Even the operator, who bypasses ownership, does not bypass expiry.
+    assert client.get(f"/sessions/{sid}/trace").status_code == 404
+
+
+def test_delete_owner_or_operator(make_client):
+    """Owner: 204. Operator: 204. Anyone else: the missing-session 404."""
+    operator, alice, a_sid, bob, b_sid = _two_owners(make_client)
+    missing = "0" * 32
+
+    # A third party is refused exactly as they would be on an invented id.
+    refused = bob.delete(f"/sessions/{a_sid}")
+    absent = bob.delete(f"/sessions/{missing}")
+    assert refused.status_code == absent.status_code == 404
+    assert refused.json()["detail"] == f"No session {a_sid!r}."
+    # ...and the refusal is a refusal, not a silent success.
+    assert alice.get(f"/sessions/{a_sid}").status_code == 200
+
+    assert alice.delete(f"/sessions/{a_sid}").status_code == 204  # the owner
+    assert operator.delete(f"/sessions/{b_sid}").status_code == 204  # the operator
+    assert bob.get(f"/sessions/{b_sid}").status_code == 404  # really gone
+
+    alice.close()
+    bob.close()
+
+
+def test_a_session_records_the_identity_that_created_it(make_client):
+    """The thread from the cookie to the row, asserted end to end."""
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    owner = client.get(f"/sessions/{sid}").json()["owner"]
+    assert owner, "the session was created with no owner"
+    # The cookie is v1.<id>.<hmac>; the stored owner is that middle id.
+    assert client.cookies["ra_id"].split(".")[1] == owner
+
+
+def test_a_reads_do_not_extend_a_sessions_life(make_client, monkeypatch):
+    """Listing your sessions must not renew them. The service half of the
+    store contract test, over the real HTTP path, because a renewal added in a
+    handler rather than in the store would slip past that one."""
+    client, _ = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    first = client.get(f"/sessions/{sid}").json()["updated_at"]
+
+    for _ in range(3):
+        assert client.get("/sessions").status_code == 200
+        assert client.get(f"/sessions/{sid}/trace").status_code == 200
+
+    assert client.get(f"/sessions/{sid}").json()["updated_at"] == first
 
 
 def test_session_reads_not_metered_by_the_rate_limit_or_daily_cap(make_client, monkeypatch):
@@ -530,48 +730,67 @@ def test_delete_rate_limited_after_the_hourly_limit(make_client, monkeypatch):
     assert "Retry-After" in refused.headers
 
 
-def test_delete_rate_limited_check_runs_after_the_token_check(make_client, monkeypatch):
-    """An unauthorised caller must not be able to burn someone else's quota.
+def test_a_stranger_cannot_burn_the_owners_delete_quota(make_client, monkeypatch):
+    """A refused DELETE must cost the refused caller, never the owner.
 
-    Router dependencies run before decorator ones, so the credential check
-    fires first and the request never reaches the limiter -- the same ordering
-    limits.enforce already argues for.
+    Phase 10.5 got this from ordering: the shared-credential check sat on the
+    router and fired before the limiter, so an unauthorised caller never
+    reached the bucket at all. Phase 12 removed that check, and the refusal
+    (404, in the handler) now happens *after* the limiter runs. The property
+    survives anyway, for a better reason: the bucket is keyed on identity, so
+    the slot a stranger burns is their own. Asserted by leaving the owner with
+    a working DELETE after the stranger has spent the only slot there is.
 
-    The refused caller carries the VICTIM'S identity cookie, which is what
-    makes this a test rather than a tautology: the bucket is keyed on identity
-    now, so an attacker with an identity of their own could only ever burn
-    their own slot. Replaying someone else's cookie without their credential is
-    the shape that could actually cost them something.
+    (A stolen cookie is out of scope by construction: replaying it makes you
+    the owner for every purpose, including deleting the session outright, so a
+    rate-limit slot is not the interesting loss. That is the documented meaning
+    of "identity is possession of the token".)
     """
     client, _ = make_client()
     sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
-    victim_cookie = client.cookies["ra_id"]
 
     monkeypatch.setenv("DEMO_RATE_LIMIT_PER_HOUR", "1")
 
-    with TestClient(service.app, base_url="https://testserver") as anonymous:
-        anonymous.cookies.set("ra_id", victim_cookie, domain="testserver")
-        assert anonymous.delete(f"/sessions/{sid}").status_code == 401
+    with TestClient(service.app, base_url="https://testserver") as stranger:
+        assert stranger.delete(f"/sessions/{sid}").status_code == 404
+        # The stranger's own slot is the one that went.
+        assert stranger.delete(f"/sessions/{sid}").status_code == 429
 
-    # The one slot the refused caller could have burned is still there.
     assert client.delete(f"/sessions/{sid}").status_code == 204
 
 
-def test_ask_still_anonymous_for_the_demos_second_turn(make_client):
+def test_ask_needs_no_operator_token_for_the_demos_second_turn(make_client):
     """POST /sessions/{id}/ask shares the prefix and must not share the guard.
 
-    This is the demo's second turn. Grouping the endpoints by path prefix
-    instead of by dependency would have swept it up and broken follow-ups for
-    every anonymous visitor.
+    This is the demo's second turn, taken by a visitor who has never seen
+    SESSIONS_TOKEN. Grouping the endpoints by path prefix instead of by
+    dependency would have swept it up and broken follow-ups for every visitor.
+    The caller here is the session's owner -- as the real one always is, since
+    the cookie is minted at page load, before the first question -- and carries
+    no credential at all.
     """
     client, _ = make_client()
     sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
 
-    with TestClient(service.app) as anonymous:
-        response = anonymous.post(f"/sessions/{sid}/ask", json={"question": "and?"})
+    response = as_visitor(client).post(f"/sessions/{sid}/ask", json={"question": "and?"})
 
     assert response.status_code not in (401, 403)
     assert response.status_code == 200
+
+
+def test_ask_on_someone_elses_session_is_404(make_client):
+    """The follow-up route enforces ownership in the handler, not in its
+    dependency set -- so this is the assertion that it enforces it at all."""
+    client, fake = make_client()
+    sid = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    fake.calls.clear()
+
+    with TestClient(service.app, base_url="https://testserver") as stranger:
+        response = stranger.post(f"/sessions/{sid}/ask", json={"question": "and?"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"No session {sid!r}."
+    assert fake.calls == [], "a refused follow-up must not have spent anything"
 
 
 def test_demo_stays_open_when_sessions_token_is_set(make_client):
@@ -627,6 +846,61 @@ def test_route_guard_invariant_over_the_sessions_tree():
     assert unguarded == [], f"routes under /sessions with no auth dependency: {unguarded}"
 
 
+def test_the_session_group_and_the_ask_routes_carry_different_dependencies():
+    """The structural half of Phase 12's ownership surgery.
+
+    Two assertions that are easy to conflate and must not be. Every route in
+    the read/delete group carries `require_session_access`, so a future
+    `/sessions/{id}/notes` cannot ship not knowing whose sessions it is
+    serving. And the ask routes deliberately do NOT carry it: they enforce
+    ownership inside the handler instead, because dependency sets group by what
+    they protect (ADR-0006 part 4) and a run is not a listing. Attaching the
+    session dependency to them would re-fight that argument silently.
+    """
+    session_group = []
+    ask_routes = []
+    for path, route in api_routes(service.app):
+        if not path.startswith("/sessions"):
+            continue
+        (ask_routes if "/ask" in path else session_group).append((path, route))
+
+    assert len(session_group) >= 4, f"walker found only {session_group}"
+    assert len(ask_routes) >= 2, f"walker found only {ask_routes}"
+
+    # The ROUTER's own declaration, not just the routes'. Every handler also
+    # injects `access` to read the value, and `dependency_names` cannot tell
+    # the two sources apart -- so deleting the router-level dependency leaves
+    # the per-route assertion below still green while quietly removing the
+    # thing it is really protecting: that the NEXT route under this prefix
+    # inherits access control without its author having to remember anything.
+    # That inheritance is the entire argument of ADR-0006 part 4, and it is
+    # exactly what four routes forgot four times before Phase 10.5.
+    router_level = {
+        getattr(d.dependency, "__name__", "") for d in service.sessions_router.dependencies
+    }
+    assert "require_session_access" in router_level, (
+        f"sessions_router declares {router_level or 'no'} dependencies; membership must be "
+        "structural, not repeated per route"
+    )
+
+    missing = [
+        (sorted(route.methods), path)
+        for path, route in session_group
+        if "require_session_access" not in dependency_names(route)
+    ]
+    assert missing == [], f"session routes not carrying require_session_access: {missing}"
+
+    for path, route in ask_routes:
+        names = dependency_names(route)
+        assert "guard" in names, f"{path} lost the spending guard"
+        assert "require_session_access" not in names, (
+            f"{path} took the session-tree dependency; ownership belongs in its handler"
+        )
+        # And it does enforce ownership, in the only place the route table
+        # cannot see -- the same in-handler shape the reserve gate reads.
+        assert "_require(store, session_id, owner)" in inspect.getsource(route.endpoint)
+
+
 def test_delete_carries_the_rate_limiter():
     """The destructive route is metered and the reads are not.
 
@@ -669,6 +943,15 @@ def test_delete_carries_the_rate_limiter():
     # Two ways to acquire it since Phase 12, so both are checked: as the
     # `guard` dependency, and as an in-handler `reserve_or_429` call, which no
     # amount of reading the route's dependencies would ever reveal.
+    #
+    # Note what this assertion is and is not, now that the cap has moved. It is
+    # a structural tripwire against a future edit re-attaching the cap to a
+    # read; it is NOT the proof that a capped caller can still read. That proof
+    # is behavioural and lives in 12-03's gates:
+    # test_all_spending_routes_reserve (below) asserts GET /sessions and
+    # GET /sessions/{id} answer 200 while the cap is exhausted, and
+    # test_limits.test_reads_survive_the_cap asserts the refusal still makes
+    # the promise those reads keep.
     capped = [
         key
         for key, route in session_routes.items()

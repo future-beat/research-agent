@@ -415,7 +415,7 @@ def test_the_right_token_passes(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Sessions token
+# Session access: the operator token, and the identity everyone else has
 # --------------------------------------------------------------------------
 
 
@@ -432,30 +432,52 @@ def test_sessions_token_falls_back_to_demo_token(monkeypatch):
     assert limits.sessions_token() == "beta"
 
 
-def test_require_sessions_token_refuses_when_nothing_is_configured():
-    """The whole point of the hotfix: an operator who forgets the secret must
-    not silently reopen the leak. Unset means nobody passes, not everybody."""
-    with pytest.raises(HTTPException) as exc:
-        limits.require_sessions_token(FakeRequest())
-    assert exc.value.status_code == 403
+def test_session_access_without_a_token_is_the_callers_own_identity():
+    """The Phase 12 inversion, asserted rather than described.
+
+    This used to raise 403 when nothing was configured, so that forgetting the
+    secret could not silently reopen the world-readable hole. Sessions now
+    carry an owner and `service._require` refuses a stranger's with a 404, so
+    an unset SESSIONS_TOKEN closes the OPERATOR view and nothing else. The
+    caller is scoped to themselves -- which is not "passing", it is being
+    handed the only key that opens their own door.
+    """
+    assert limits.require_session_access(FakeRequest()) == ("identity", "identity-default")
 
 
 @pytest.mark.parametrize("headers", [{}, {"x-demo-token": "wrong"}])
-def test_require_sessions_token_rejects_a_missing_or_wrong_header(monkeypatch, headers):
+def test_session_access_without_the_right_token_is_not_the_operator(monkeypatch, headers):
+    """A missing or wrong credential buys the identity view, never the operator
+    one. Asserted on the mode, because a guess that merely failed to raise
+    would be indistinguishable from a guess that worked."""
     monkeypatch.setenv("SESSIONS_TOKEN", "alpha")
-    with pytest.raises(HTTPException) as exc:
-        limits.require_sessions_token(FakeRequest(headers))
-    assert exc.value.status_code == 401
+    mode, owner = limits.require_session_access(FakeRequest(headers))
+    assert (mode, owner) == ("identity", "identity-default")
 
 
-def test_require_sessions_token_accepts_the_configured_token(monkeypatch):
+def test_session_access_with_the_configured_token_is_the_operator(monkeypatch):
     monkeypatch.setenv("SESSIONS_TOKEN", "alpha")
-    assert limits.require_sessions_token(FakeRequest({"x-demo-token": "alpha"})) is None
+    assert limits.require_session_access(FakeRequest({"x-demo-token": "alpha"})) == (
+        "operator",
+        None,
+    )
 
 
-def test_require_sessions_token_accepts_a_demo_token_value(monkeypatch):
+def test_session_access_accepts_a_demo_token_value(monkeypatch):
     monkeypatch.setenv("DEMO_TOKEN", "beta")
-    limits.require_sessions_token(FakeRequest({"x-demo-token": "beta"}))  # must not raise
+    assert limits.require_session_access(FakeRequest({"x-demo-token": "beta"}))[0] == "operator"
+
+
+def test_an_unset_token_cannot_be_matched_by_an_absent_header():
+    """Both sides empty must not compare equal into the operator branch.
+
+    The regression this forbids is the one-character kind: dropping the
+    `token and supplied` test would make `compare_digest("", "")` true, and
+    every anonymous caller on a service with no SESSIONS_TOKEN would silently
+    become the operator -- the original world-readable defect, rebuilt.
+    """
+    mode, _ = limits.require_session_access(FakeRequest({"x-demo-token": ""}))
+    assert mode == "identity"
 
 
 # --------------------------------------------------------------------------

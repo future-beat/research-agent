@@ -521,13 +521,17 @@ def check_token(request: Request) -> None:
 
 
 def sessions_token() -> str:
-    """The credential for the session read/delete endpoints.
+    """The OPERATOR credential for the session tree.
 
     Separate from DEMO_TOKEN because the two protect different things. The
     demo page sends no auth header, so setting DEMO_TOKEN in production would
     401 every anonymous visitor on POST /research/stream and kill the public
-    demo -- which is the whole point of deploying this. SESSIONS_TOKEN closes
-    the session tree without touching the demo.
+    demo -- which is the whole point of deploying this.
+
+    Its role changed in Phase 12 and the name outlived the change. Before, this
+    was *the* credential for reading sessions at all; now every caller reads
+    their own sessions through their signed identity, and this token buys the
+    one thing identity cannot: the unscoped, cross-owner debugging view.
 
     DEMO_TOKEN is still honoured as a fallback, which is what makes "setting
     DEMO_TOKEN protects the session endpoints" true rather than quietly false.
@@ -538,26 +542,34 @@ def sessions_token() -> str:
     return os.environ.get("SESSIONS_TOKEN", "").strip() or demo_token()
 
 
-def require_sessions_token(request: Request) -> None:
-    """Session-endpoint credential check. Fails closed.
+def require_session_access(request: Request) -> tuple[str, str | None]:
+    """Who is asking about sessions, and in which mode.
 
-    Deliberately not check_token. That one returns early when no token is
-    configured, which is right for the demo write path and was exactly what
-    left every stored report world-readable on the deployed service: the
-    control was present in the code and inert in production. Here an unset
-    credential means nobody passes, so forgetting the secret cannot silently
-    reopen the hole.
+    Returns ("operator", None) for a caller presenting the configured
+    SESSIONS_TOKEN -- unscoped, every owner's sessions, the debugging view --
+    and ("identity", <id>) for everyone else, scoped to their own.
 
-    403 when nothing is configured (no one can pass), 401 when a credential
-    exists and the caller's is missing or wrong.
+    THE FAIL-CLOSED PROPERTY INVERTED HERE, DELIBERATELY. This used to raise
+    403 when no token was configured, so that forgetting the secret could not
+    silently reopen the hole that left every stored report world-readable. That
+    reasoning was right while the token was the *only* thing standing between a
+    stranger and someone else's research. It is no longer the only thing: a
+    session now records its owner, and `service._require` refuses anyone else
+    with a 404 that is byte-identical to a missing session. So an unset
+    SESSIONS_TOKEN closes the OPERATOR view and nothing else -- visitors still
+    reach their own sessions, and reach nobody else's, with or without it.
+
+    Which is why this function never raises. Refusal moved from "do you hold
+    the shared secret" to "is this yours", and the second question has an answer
+    for every caller. ADR-0007 records the reversal.
     """
     token = sessions_token()
-    if not token:
-        raise HTTPException(403, "Session endpoints are closed: no SESSIONS_TOKEN is set.")
-
     supplied = request.headers.get("x-demo-token", "")
-    if not supplied or not hmac.compare_digest(supplied, token):
-        raise HTTPException(401, "A valid X-Demo-Token header is required.")
+    # Constant-time compare, and only after both sides are known non-empty:
+    # an unset token must not be matchable by an unset header.
+    if token and supplied and hmac.compare_digest(supplied, token):
+        return ("operator", None)
+    return ("identity", caller_identity(request))
 
 
 def check_rate_limit(request: Request, limits_store: LimitsStore) -> None:

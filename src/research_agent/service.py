@@ -114,6 +114,11 @@ class SessionDetail(BaseModel):
     updated_at: float
     task: str
     turns: int
+    # Whose session this is. Declared rather than left to pydantic's
+    # extra-ignore so the detail view and the listing agree; harmless to the
+    # caller, who can only ever reach their own, and the one field that makes
+    # the operator's cross-owner listing legible.
+    owner: str
     topic_type: str
     approved: bool
     latest_answer: str
@@ -166,13 +171,13 @@ def guard(request: Request, metrics: MetricsStore = Depends(get_metrics),
     service that is refusing work. A demo that hides /health when it hits its
     budget is a demo you cannot debug.
 
-    Session reads are a different matter and are *not* open: they return other
-    people's research. They are closed by limits.require_sessions_token on
-    sessions_router -- a separate, token-only, unmetered dependency, and
-    deliberately not this one. Applying guard to them would spend the caller's
-    research quota on a listing and 429 every read once the daily cap is hit,
-    which would contradict the cap's own message that read-only endpoints
-    still work.
+    Session reads are a different matter and are *not* open: they return
+    someone's research, and since Phase 12 only that someone's. They go through
+    limits.require_session_access on sessions_router -- a separate, unmetered
+    dependency, and deliberately not this one. Applying guard to them would
+    spend the caller's research quota on a listing and 429 every read once the
+    daily cap is hit, which would contradict the cap's own message that
+    read-only endpoints still work.
 
     Note what this no longer does: the daily spend cap. The cap now reserves
     against a specific run, which does not exist until the handler has built
@@ -639,9 +644,10 @@ def research(
     """Full pipeline: classify, search, draft, fact-check. Opens a session."""
     question = body.cleaned()
     run = initial_state(question)
-    limits.reserve_or_429(limits_store, run["run_id"], limits.caller_identity(request), metrics)
+    owner = limits.caller_identity(request)
+    limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     session_id, state = _execute(
-        run, metrics, limits_store, lambda final: store.create(question, final)
+        run, metrics, limits_store, lambda final: store.create(question, final, owner=owner)
     )
     return RunResponse.build(session_id, state)
 
@@ -656,11 +662,12 @@ def research_stream(
 ):
     question = body.cleaned()
     run = initial_state(question)
+    owner = limits.caller_identity(request)
     # Before the StreamingResponse is built, so a capped caller gets a real 429
     # instead of a 200 whose body turns out to be an error event.
-    limits.reserve_or_429(limits_store, run["run_id"], limits.caller_identity(request), metrics)
+    limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     return _sse_response(
-        run, metrics, limits_store, lambda state: store.create(question, state)
+        run, metrics, limits_store, lambda state: store.create(question, state, owner=owner)
     )
 
 
@@ -678,8 +685,19 @@ def ask(
     metrics: MetricsStore = Depends(get_metrics),
     limits_store: LimitsStore = Depends(get_limits),
 ) -> RunResponse:
-    """Follow up on a session's research notes. No new web search."""
-    session = _require(store, session_id)
+    """Follow up on a session's research notes. No new web search.
+
+    Ownership is enforced HERE rather than by adding the session-tree
+    dependency to this route. The dependency set stays grouped by what it
+    protects (ADR-0006 part 4) and this route protects a *run*, not a listing;
+    what it needs from ownership is one line of `_require`, which it already
+    calls. A stranger's session id therefore 404s exactly as it does on a read,
+    while the demo's second turn keeps working -- the follow-up caller holds
+    the cookie that created the session, minted at page load, before the first
+    question was even asked.
+    """
+    owner = limits.caller_identity(request)
+    session = _require(store, session_id, owner)
 
     def on_complete(final: dict) -> str:
         store.append_turn(session_id, final)
@@ -689,7 +707,7 @@ def ask(
     # A follow-up is cheaper than a research run, not free -- so it reserves
     # too. Forgetting it here is the specific regression the four-route gate in
     # tests/test_service.py exists to catch.
-    limits.reserve_or_429(limits_store, run["run_id"], limits.caller_identity(request), metrics)
+    limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     _, state = _execute(run, metrics, limits_store, on_complete)
     return RunResponse.build(session_id, state)
 
@@ -703,14 +721,15 @@ def ask_stream(
     metrics: MetricsStore = Depends(get_metrics),
     limits_store: LimitsStore = Depends(get_limits),
 ):
-    session = _require(store, session_id)
+    owner = limits.caller_identity(request)
+    session = _require(store, session_id, owner)
 
     def on_complete(state: dict) -> str:
         store.append_turn(session_id, state)
         return session_id
 
     run = followup_state(session.state, body.cleaned())
-    limits.reserve_or_429(limits_store, run["run_id"], limits.caller_identity(request), metrics)
+    limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     return _sse_response(run, metrics, limits_store, on_complete)
 
 
@@ -721,22 +740,40 @@ def ask_stream(
 # inherits the guard by construction, with nothing to remember.
 #
 # The ask routes share the /sessions prefix but are NOT here: grouping is by
-# dependency, not by path. They are the demo's second turn and stay anonymous.
+# dependency, not by path. They are the demo's second turn, and ownership is
+# enforced inside their handlers instead -- see `ask`.
+#
+# The router dependency is kept even though every handler injects the same
+# value again. FastAPI caches it within a request, so it costs nothing, and it
+# is what the structural walker test reads: a future
+# `@sessions_router.get("/{id}/notes")` inherits access control by
+# construction, with nothing for its author to remember.
 sessions_router = APIRouter(
     prefix="/sessions",
     tags=["sessions"],
-    dependencies=[Depends(limits.require_sessions_token)],
+    dependencies=[Depends(limits.require_session_access)],
 )
 
 
 @sessions_router.get("")
-def list_sessions(store: SessionStore = Depends(get_sessions)) -> dict:
-    return {"sessions": [s.summary() for s in store.list(SESSION_LIST_LIMIT)]}
+def list_sessions(
+    store: SessionStore = Depends(get_sessions),
+    access: tuple = Depends(limits.require_session_access),
+) -> dict:
+    """The caller's sessions -- or everyone's, for the operator."""
+    mode, owner = access
+    scope = None if mode == "operator" else owner
+    return {"sessions": [s.summary() for s in store.list(SESSION_LIST_LIMIT, owner=scope)]}
 
 
 @sessions_router.get("/{session_id}", response_model=SessionDetail)
-def get_session(session_id: str, store: SessionStore = Depends(get_sessions)) -> SessionDetail:
-    session = _require(store, session_id)
+def get_session(
+    session_id: str,
+    store: SessionStore = Depends(get_sessions),
+    access: tuple = Depends(limits.require_session_access),
+) -> SessionDetail:
+    mode, owner = access
+    session = _require(store, session_id, owner, operator=mode == "operator")
     state = session.state
     conversation = list(state.get("conversation") or [])
     if state["mode"] == "followup" and state["draft"]:
@@ -749,8 +786,13 @@ def get_session(session_id: str, store: SessionStore = Depends(get_sessions)) ->
 
 
 @sessions_router.get("/{session_id}/trace")
-def get_trace(session_id: str, store: SessionStore = Depends(get_sessions)) -> dict:
-    session = _require(store, session_id)
+def get_trace(
+    session_id: str,
+    store: SessionStore = Depends(get_sessions),
+    access: tuple = Depends(limits.require_session_access),
+) -> dict:
+    mode, owner = access
+    session = _require(store, session_id, owner, operator=mode == "operator")
     return {"session_id": session_id, "trace": session.state["trace"]}
 
 
@@ -770,9 +812,21 @@ def get_trace(session_id: str, store: SessionStore = Depends(get_sessions)) -> d
     status_code=204,
     dependencies=[Depends(rate_limit)],
 )
-def delete_session(session_id: str, store: SessionStore = Depends(get_sessions)) -> None:
-    if not store.delete(session_id):
-        raise HTTPException(404, f"No session {session_id!r}.")
+def delete_session(
+    session_id: str,
+    store: SessionStore = Depends(get_sessions),
+    access: tuple = Depends(limits.require_session_access),
+) -> None:
+    """Owner or operator. Everyone else gets the same 404 a stranger's id gets.
+
+    `_require` first, then delete: checking ownership through the same choke
+    point the reads use means a foreign or expired session cannot be destroyed,
+    and cannot be *detected* either -- `store.delete` alone would have
+    distinguished a real id (True) from a made-up one (False).
+    """
+    mode, owner = access
+    _require(store, session_id, owner, operator=mode == "operator")
+    store.delete(session_id)
 
 
 app.include_router(sessions_router)
@@ -820,9 +874,23 @@ def pricing() -> dict:
     }
 
 
-def _require(store: SessionStore, session_id: str) -> Session:
+def _require(
+    store: SessionStore, session_id: str, owner: str | None, *, operator: bool = False
+) -> Session:
+    """The session, or the one refusal shape the session tree ever gives.
+
+    Missing, expired, and belonging-to-someone-else all raise the SAME 404 with
+    the SAME body. Not 403: a 403 confirms the id names a real session, and
+    session ids travel in shared URLs, screenshots and logs, so telling a
+    stranger "that one exists, you just can't have it" is an existence oracle
+    handed out for free. Phase 10.5 chose to leak least; this continues it.
+
+    `store.get` has already applied the expiry filter, so expired arrives here
+    as None and needs no separate branch -- and could not accidentally get a
+    different status code if it did.
+    """
     session = store.get(session_id)
-    if session is None:
+    if session is None or (not operator and session.owner != owner):
         raise HTTPException(404, f"No session {session_id!r}.")
     return session
 
