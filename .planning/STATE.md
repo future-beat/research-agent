@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: in-progress
-stopped_at: "Completed 10-05-PLAN.md — the phase gate battery ran green on SC-1/2/3/4/6 and both regression gates, with non-vacuity controls recorded. SC-5 step 3 came back RED: main is 21 documentation-only commits ahead of origin/main. Zero deployable files differ and release v4 is healthy, so no deploy is needed — a push closes it. 10-VALIDATION.md approval left pending."
+status: planned
+stopped_at: "Phase 11 planned — 5 plans, 5 waves. Checker: 0 blockers after one revision. Next: /gsd:execute-phase 11."
 last_updated: "2026-08-05T00:00:00.000Z"
-last_activity: "2026-08-05 — Plan 10-05 executed: every Phase 10 gate run as written on macOS with literal output recorded in 10-VALIDATION.md § Execution Record. Five ADRs plus ADR-0006 verified, all doc corrections green, src byte-identical to 715e9aa, suite 388/28, ruff clean, four non-vacuity controls shown to fail. SC-5 re-verified live (v4 healthy, four endpoints 200) — not redeployed. One red finding: origin/main..main is 21, not 0."
+last_activity: "2026-08-05 — Phase 11 planned. Supabase chosen over Neon on evidence (Neon free tier meters 100 CU-h/month; /health probes keep compute awake and exhaust it ~day 16). Checker found 4 blockers, all silent-failure modes; fixed in one revision"
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,18 +25,38 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 10 of 17 (ADRs and doc correctness) — **IN PROGRESS (all plans executed; sign-off pending)**
-Plan: 5 of 5 executed in current phase
-Status: All five plans executed and the full gate battery run. Every content criterion is green — SC-1, SC-2, SC-3, SC-4, SC-6, plus both regression gates. **Sign-off is held on one red row: SC-5 step 3, `git rev-list --count origin/main..main`, returned `21` rather than `0`.** All 21 are Phase 10 documentation commits (including the phase base `715e9aa` itself); `git diff --name-only origin/main..main -- src/ tests/ evals/ pyproject.toml Dockerfile fly.toml` returns 0 files, so the deployed v4 image is current and no redeploy is warranted. Pushing `main` turns the row green and closes both the phase and REQ-adr-promotion.
-Last activity: 2026-08-05 — Plan 10-05 executed: the phase gate battery ran with literal output recorded in `10-VALIDATION.md` § Execution Record, and four non-vacuity controls were run to prove the gate shapes can fail. SC-5 was re-verified read-only against the live host — `fly releases` shows v4 `complete`, and `/`, `/health`, `/demo`, `/metrics` all return 200 — with no `fly deploy`, no `fly secrets set` and no `git push` at any point.
+Phase: 11 of 17 (Multi-machine state and pooled Postgres) — **PLANNED, not started**
+Plan: 0 of 5 executed in current phase
+Status: Planned and verified. Checker returned 4 blockers on the first pass; all four were
+silent-failure modes, fixed in one revision, re-verified to 0 blockers. Three residual warnings
+were closed by hand.
+Last activity: 2026-08-05 — Phase 11 planned: 5 plans across 5 sequential waves.
 
-Prior activity: 2026-08-05 — Plan 10-04 executed: `docs/DESIGN.md` now says the `MemoryStore` ABC has **four** implementations behind `VECTOR_STORE` — JSON, in-memory, Chroma, pgvector — matching `BACKENDS` in `memory.py` and the "four backends" already in `docs/OPERATIONS.md`. The pricing paragraph no longer opens "because one of them expires this month" and no longer says "September 1": the introductory $2/$10 window runs through `2026-08-31` and the standard $3/$15 rate takes over from `2026-09-01`, both on one line with `/pricing` named as the live source. Each of the five promoted paragraphs ends with a "Recorded as ADR-000N" link, and the file's preamble links `adr/README.md`. Every linked path resolves; ADR-0006 is deliberately unlinked. Documentation only — `git status --porcelain src/ tests/ evals/` empty, suite unchanged at 388 passed, 28 skipped.
+**Phase 10 is closed** — PR #4 merged, both required checks green, so the SC-5 push gate that
+held it open is satisfied and `REQ-adr-promotion` is complete.
 
-Prior activity: 2026-08-05 — Plan 10-03 executed: `docs/OPERATIONS.md` no longer claims deploys run through Fly's GitHub integration. Deploys are stated as manual via `fly deploy -a research-agent` with `fly releases -a research-agent` as the evidence, and the gating is corrected in both directions — `main` carries two required checks under `strict: true` but `enforce_admins` is `false`, so an admin's direct push succeeds with a recorded bypass notice (the Phase 10.5 push is quoted). `README.md`'s cost limitation now names `/pricing` as the live source with both window dates in ISO form and no duplicated rate figures. Documentation only — `git status --porcelain src/ tests/ evals/` is empty and the suite is unchanged at 388 passed, 28 skipped.
-
-Progress: [█████░░░░░] 56% (9 of 17 phases complete + hotfix 10.5; v1.0 shipped)
+Progress: [██████░░░░] 59% (10 of 17 phases complete + hotfix 10.5; v1.0 shipped)
 Phase 10.5: [██████████] 5 of 5 plans — complete
-Phase 10: [██████████] 5 of 5 plans executed — sign-off pending on SC-5 step 3 (`main` unpushed)
+Phase 10:   [██████████] 5 of 5 plans — complete (PR #4 merged)
+Phase 11:   [░░░░░░░░░░] 0 of 5 plans — planned
+
+**Carry into execution — the four findings the plans are built around:**
+
+- **`psycopg_pool.PoolTimeout` subclasses `psycopg.OperationalError`**, and `Database.cursor()`
+  retries once on `OperationalError`. A naive port doubles every timeout.
+- **`/health` already blows its budget today**, before any Phase 11 change: two 3s connect
+  attempts × three sequential probes = up to 18s against Fly's 15s check. Phase 11 fixes it with
+  a `HEALTH_PROBE_BUDGET` deadline giving a 9s ceiling that holds cold, warm *and* partitioned.
+- **`pg_advisory_lock` is session-scoped**, so lock + DDL + unlock must share ONE pooled
+  connection or the lock serialises nothing and leaks.
+- **Removing the three `*_DB_PATH` env vars does NOT prevent SQLite fallback.** `sessions.py:43`
+  has a module-dir default and `default_backend()` returns `sqlite` whenever `DATABASE_URL` is
+  empty — two mountless machines would each boot their own ephemeral database and `/health` would
+  report `ok`. The fix is pinning `SESSION_BACKEND`/`METRICS_BACKEND`/`VECTOR_STORE` so a missing
+  DSN fails closed at construction.
+
+Plans 11-04 and 11-05 are `autonomous: false` — they provision Supabase, set a Fly secret, drop
+the mount and scale to two machines. The volume `agent_data` is **kept as backup, never destroyed**.
 
 **Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
 Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
