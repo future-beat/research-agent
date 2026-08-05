@@ -275,7 +275,8 @@ Environment variables:
 | `DEMO_DAILY_USD_CAP` | Rolling 24h ceiling across all callers; `0` disables | `5.00` |
 | `DEMO_RATE_LIMIT_PER_HOUR` | Requests per visitor IP; `0` disables | `10` |
 | `DEMO_TOKEN` | When set, write endpoints need an `X-Demo-Token` header. Also accepted as a fallback for `SESSIONS_TOKEN` | *(unset)* |
-| `SESSIONS_TOKEN` | Credential for the session read and delete endpoints, sent as `X-Demo-Token`. **Fails closed** — while unset those endpoints refuse everyone with 403 | *(unset)* |
+| `SESSIONS_TOKEN` | Operator credential, sent as `X-Demo-Token`: lists and deletes **every** owner's sessions. While unset, only the operator view is closed — callers still reach their own | *(unset)* |
+| `SESSION_TTL_DAYS` | A session stops resolving this long after its last turn, and is swept on the next run. Reads don't renew it | `7` |
 | `TRUST_FORWARDED_FOR` | Believe `X-Forwarded-For` for client IP | `false` |
 | `LOG_FORMAT` · `LOG_LEVEL` | `json` or `text`; level | `json` / `INFO` |
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is installed | `true` |
@@ -312,12 +313,23 @@ machines roughly doubles that ceiling. Nothing here makes the race more likely
 per request; what changes is how far a single burst can exceed the cap before
 the cap notices. Tracked for Phase 12 under `REQ-store-lifecycle-and-ownership`.
 
-The two tokens are not interchangeable in production. `SESSIONS_TOKEN` guards
-`GET /sessions`, `/sessions/{id}`, `/{id}/trace` and `DELETE /sessions/{id}`,
-and setting it leaves the demo untouched. `DEMO_TOKEN` fronts
-`POST /research/stream`, which the demo page calls with no header — setting it
-on the public app 401s every anonymous visitor and takes the demo offline. To
-close the session endpoints, set `SESSIONS_TOKEN` and leave `DEMO_TOKEN` unset.
+The two tokens are not interchangeable in production, and since Phase 12 they
+no longer do comparable jobs. A session now records the identity that created
+it, and `GET /sessions`, `/sessions/{id}`, `/{id}/trace` and
+`DELETE /sessions/{id}` serve that identity its own and refuse everyone else's
+with a 404 identical to a missing one — no token involved either way.
+`SESSIONS_TOKEN` buys the one thing an identity cannot: the unscoped view
+across all owners, for debugging, plus delete on any session. `DEMO_TOKEN`
+still fronts `POST /research/stream`, which the demo page calls with no header
+— setting it on the public app 401s every anonymous visitor and takes the demo
+offline.
+
+Note what this changed about failing closed. `SESSIONS_TOKEN` used to refuse
+everyone with 403 while unset, so that forgetting the secret could not silently
+reopen the world-readable leak of Phase 10.5. Forgetting it is now survivable
+for a different reason: what keeps a stranger out is ownership, not the secret,
+and ownership cannot be left unset. An unset `SESSIONS_TOKEN` costs you the
+operator view and nothing else.
 
 Both are secrets: `fly secrets set SESSIONS_TOKEN=… -a research-agent`, never
 `fly.toml`'s `[env]` block — that file is committed.
