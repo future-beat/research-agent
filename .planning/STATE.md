@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 13-03-PLAN.md (embeddings re-embed, VOYAGE_PRICES, the --yes spend gate; SC-1/SC-2/SC-4 true). Branch gsd/phase-13-embedding-migration. Next: 13-04 (cutover, ADR-0008, OPERATIONS.md)."
-last_updated: "2026-08-06T13:20:00.000Z"
-last_activity: "2026-08-06 — Phase 13 wave 3 executed: `embeddings re-embed` puts a corpus through a new model at a new width carrying owner and created_at, behind an always-printing cost preview from effective-dated VOYAGE_PRICES, a --yes spend gate proven by counting calls on a fake, and loud refusals for an unpriced model and for >2000 dimensions. Eight mutations, all red, two recorded with caveats. README rewritten — the limitation it stated is now false."
+stopped_at: "Completed 13-04-PLAN.md (cutover proven both directions, ADR-0008, the OPERATIONS runbook; SC-3 true). Branch gsd/phase-13-embedding-migration. Next: 13-05 (live Voyage re-embed, phase gate battery, VALIDATION sign-off)."
+last_updated: "2026-08-06T12:30:00.000Z"
+last_activity: "2026-08-06 — Phase 13 wave 4 executed: the cutover is proven both directions through the production store (constructor `table=` seam, not env+reimport) with the old table re-fingerprinted after every step; ADR-0008 records the DEC-10 reversal with a Source: line and supersedes nothing deliberately; docs/OPERATIONS.md gains the six-step quiesce-migrate-flip runbook. Seven mutations: five red, and TWO of the plan's own verify clauses caught green when they should have been red."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 22
+  completed_plans: 23
   percent: 61
 ---
 
@@ -26,14 +26,15 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 13 of 17 (Embedding model migration) — **IN PROGRESS**
-Plan: 3 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
+Plan: 4 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
 (PR #6 merged). Not pushed.
-Status: Wave 3 complete — `embeddings re-embed` exists, its money is gated, SC-1/SC-2/SC-4 true.
+Status: Wave 4 complete — the cutover is proven both directions and the reversal is on the
+record. SC-1/SC-2/SC-3/SC-4 true; SC-5's copy half true, its re-embed half is 13-05's.
 
 **Phase 12 shipped** (PR #6 merged, v9 live). Phases 10, 10.5, 11 merged.
 
 Progress: [███████░░░] 71% (12 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 13: [██████░░░░] 3 of 5 plans — 13-01, 13-02, 13-03 done
+Phase 13: [████████░░] 4 of 5 plans — 13-01, 13-02, 13-03, 13-04 done
 
 **Carry into execution:**
 - ~~`migrate.py` has a LIVE data-loss bug today~~ **FIXED in 13-01.** Notes and sessions
@@ -48,8 +49,9 @@ Phase 13: [██████░░░░] 3 of 5 plans — 13-01, 13-02, 13-03 
 - `recall_golden.assert_tie_free` checks rows **at or above each query's floor**, not every
   row: with 5-dim binary vectors any two notes sharing no word with the query both sit at
   similarity 0, so global tie-freedom is impossible, and rows a query cannot return cannot
-  affect its order. Wave 3 must re-run it against the re-embedded table — a new model
-  re-scores everything and tie-freedom does not travel.
+  affect its order. **Wave 5 must re-run it against the re-embedded table** — a new model
+  re-scores everything and tie-freedom does not travel. Carried through waves 3 and 4; the
+  OPERATIONS runbook now states it to operators too.
 - ~~`embeddings copy` is the CLI idiom to extend~~ **EXTENDED in 13-03.** `re-embed` is a
   sibling `sub.add_parser(...)` in `_main_embeddings`; both table names go through
   `memory.validate_table_name()`.
@@ -66,18 +68,36 @@ Phase 13: [██████░░░░] 3 of 5 plans — 13-01, 13-02, 13-03 
   golden set is tie-free under the 5-dim `FakeEmbedder`; a re-embedded table is a different
   scoring, so any `recall_delta` across the model change must call `assert_tie_free` against
   *that* table first or it measures the query executor. 13-03 built the mechanism and gated
-  the money; no task asked for the comparison. 13-04 or 13-05 carries it.
+  the money; 13-04 owned the cutover and the record and had no task for it. **13-05 owns it.**
 - **VOYAGE_PRICES lives in `usage.py`** with `voyage_price_for()`/`preview_cost_usd()`;
   `PriceWindow.price` is now `Price | float`. Voyage spend is still absent from `/metrics`
   (Phase 14) and the README says so.
 - Wave 5 is a checkpoint (live Voyage re-embed against Supabase `migration_demo_*` scratch
   tables only; cleanup gated).
-- **13-04.3's README gate is already satisfied** — the old phrase is at 0 occurrences and
-  `embeddings re-embed` at 1. The `docs/OPERATIONS.md` half of that gate is untouched.
+- ~~`PGVECTOR_TABLE` cutover is untested~~ **PROVEN in 13-04.** `test_cutover_reversible`
+  flips a store forward and back through the constructor's `table=` parameter — the same
+  seam `PGVECTOR_TABLE` feeds at import — and re-fingerprints the old table after every
+  step. Never set the env var and reimport `memory`: that leaves a second module object
+  live for every later test in the process (Pitfall 5).
+- **`query()` returns `list[str]`, the exact-scan runner returns `(text, similarity)`.**
+  Compare texts-only, and remember `query()` is the *indexed* path — an equality against
+  exact-scan expectations is scale-bounded on `test_index_sanity`'s argument, not general.
+- ~~13-04.3's README/OPERATIONS gate~~ **CLOSED in 13-04.** The runbook lives at
+  `docs/OPERATIONS.md § Changing the embedding model or dimension`; the README bullet gained
+  the honest-scale caveat and the index-exclusion sentence wave 3 had left out.
+- **ADR-0008 exists** (`Accepted`, `Source:` line, supersedes nothing — DEC-10 was never
+  promoted). `docs/adr/README.md` counts eight records; DEC-10 links forward to it.
+- **TWO of 13-04's own verify clauses were vacuous and are recorded as such**:
+  `grep -q "0008" docs/adr/README.md` cannot see the difference between an index row and a
+  prose mention, and `grep -qi "rollback" docs/OPERATIONS.md` was green at baseline from an
+  unrelated Phase-11 sentence. A third acceptance criterion ("the 'deliberately not
+  exercised' claim is gone") had no clause at all. Stronger gates and their red mutations
+  are in 13-04-SUMMARY for 13-05.2 to reconcile.
 - Local PG17+pgvector on :54329 (scratchpad instance `pg12`; start with LC_ALL set).
-  Baselines after 13-03: plain **529/60**, armed **588/1** (`DATABASE_URL` only) or
-  **589/0** (with `REQUIRE_POSTGRES=1`). Quote which armed form you mean when comparing —
-  13-01's `575/1` and 13-02's `579/1` were both the `DATABASE_URL`-only form.
+  Baselines after 13-04: plain **529/61**, armed **589/1** (`DATABASE_URL` only) or
+  **590/0** (with `REQUIRE_POSTGRES=1`). Quote which armed form you mean when comparing —
+  13-01's `575/1`, 13-02's `579/1` and 13-03's `588/1` were all the `DATABASE_URL`-only
+  form. `pytest tests/test_migrate.py` armed = **16 passed**.
 
 ## Performance Metrics
 
@@ -95,7 +115,7 @@ Phase 13: [██████░░░░] 3 of 5 plans — 13-01, 13-02, 13-03 
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
-| 13 | 3 of 5 (13-01, 13-02, 13-03) | 148min | 49min |
+| 13 | 4 of 5 (13-01, 13-02, 13-03, 13-04) | 188min | 47min |
 
 **Recent Trend:**
 
@@ -175,6 +195,11 @@ Recent decisions affecting current work:
 - [Phase 13-01]: **Timestamp identity across the SQLite/JSON→Postgres boundary is compared as a `datetime`, never as an epoch float.** `extract(epoch FROM …)` returns a psycopg `Decimal` (never equal to a float), and a ~1.8e9 epoch carrying microseconds needs 16 significant digits where float64 has ~15.95 — so a rounded-epoch dedup key could fail to recognise the row it had just written, turning every re-run into a duplicate insert.
 - [Phase 13-01]: **Belt-and-braces writes are honest redundancy, not a caught bug, and the mutation table must say so.** `owner` is written twice in `migrate_sessions` (the `create()` kwarg and the restoring UPDATE), so removing either alone is unobservable and stays green. Only removing both goes red. Recorded as such rather than claiming a red that did not happen.
 - [Phase 13-02]: **A tie-freedom check must be scoped to the rows a query can return.** The plan asked for it unfiltered; over 5-dimensional binary bag-of-words vectors that is unsatisfiable, because any two notes sharing no word with the query both sit at similarity 0. The check examines rows at or above each query's `min_similarity` — which is also the property that matters, since a row the query cannot return cannot affect its order. **Distinct vocabulary sets do NOT buy tie-freedom**: similarity depends only on (overlap, size), so `{chroma,retry}` and `{chroma,voyage}` are the same distance from `"chroma"`. Two candidate golden queries were discarded at design time for exactly this.
+- [Phase 13-04]: **Env-var-at-import config is testable at the constructor it feeds.** `PGVECTOR_TABLE` is read once at import into a module constant that becomes `PgVectorMemoryStore.__init__`'s default for `table=`, so the constructor parameter is the same seam entered at the testable end. Setting the variable and reimporting `memory` would leave a second module object alive for every later test in the process. What the test therefore does *not* prove — the process restart itself — is stated in the test.
+- [Phase 13-04]: **A grep gate over a document is vacuous whenever its word already appears elsewhere in that document.** `grep -qi "rollback" docs/OPERATIONS.md` was green at baseline from an unrelated Phase-11 sentence and stayed green with the entire new rollback paragraph deleted; `grep -q "0008" docs/adr/README.md` cannot tell an index row from a prose mention. Sentence- and row-shaped greps replace both, each observed red on the mutation the original clause slept through.
+- [Phase 13-04]: **An acceptance criterion with no clause in the verify command is a note, not a gate.** "the 'deliberately not exercised' claim is gone" had none; restoring the claim left the gate green. `grep -c "not exercised" docs/OPERATIONS.md`, 1 → 0, is the missing clause.
+- [Phase 13-04]: **ADR-0008 supersedes nothing, deliberately, and the index says so.** DEC-10 was never promoted to a numbered record, so the README's supersession convention does not apply and no existing status line was touched. The reversal lives in prose — what survives (copy-only IS DEC-10's operation verbatim; its rationale survives as a design rule now *measured* rather than *enforced by prohibition*) and what is new.
+- [Phase 13-04]: **A grep-satisfied doc requirement is not a satisfied doc requirement.** 13-03's README rewrite passed 13-04.3's grep, but the honest-scale caveat and the statement that recall equality is never asserted through the HNSW index — both required by the plan's own action — were absent. Added rather than declared done.
 - [Phase 13-02]: **A self-checking command can hide the gate downstream of it.** Dropping `owner` from the copy column list turns the *command's own* fidelity gate red first (the join key includes `owner`), so the test fails on `assert main(...) == 0` and the golden comparison never runs. The mutation table records a second variant with the return code relaxed, which is what actually demonstrates the golden set can see tenancy loss — all eight queries delta, with alice's and bob's rows surfacing in the unowned bucket. Without it the recorded evidence would have looked stronger than it was.
 - [Phase 13-02]: **The plan's `INSERT..SELECT` grep gate was vacuous as written** — `grep -c "INSERT INTO .* SELECT"` returns 1 on the tree *before* the change, matching prose in a docstring, and the real SQL is a multi-line template no single-line grep can see. Replaced with a whitespace-flattened regex requiring the full column and select lists, and recorded as a presence check; the real gate is the byte-diff assertion, falsified by perturbing one copied vector.
 - [Phase 13-02]: **A recall-equality assertion needs an anti-vacuity floor.** `recall_delta` over two sets of eight empty results is also `[]`, so a seeding failure or a wrong owner would make the gate green. The test asserts seven of eight queries answered, and at least 12 rows total, before comparing.
