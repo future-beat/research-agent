@@ -20,7 +20,7 @@ import uuid
 import pytest
 from test_memory_stores import FakeEmbedder
 
-from research_agent import db
+from research_agent import db, usage
 from research_agent import recall_golden as golden
 from research_agent.metrics import RunRecord, SQLiteMetricsStore
 from research_agent.migrate import main, migrate_notes, migrate_runs, migrate_sessions
@@ -473,3 +473,45 @@ def test_index_sanity(handle, seeded):
     assert set(indexed) == set(exact)
     for key, rows in exact.items():
         assert set(indexed[key]) == set(rows), key
+
+
+# --------------------------------------------------------------------------
+# Voyage pricing: the arithmetic behind the cost preview
+# --------------------------------------------------------------------------
+#
+# No Postgres and no network, on purpose. `preview_cost_usd` takes a token
+# count rather than producing one, because Voyage's own `count_tokens` fetches
+# a tokenizer from the Hugging Face hub on its first call -- a cost function
+# that needed a network round trip to perform one multiplication would be
+# untestable offline for no benefit. The counting is injected at the CLI seam
+# instead, and tested there with a fake.
+
+
+def test_voyage_pricing_arithmetic():
+    """The published rates, as arithmetic anyone can check by hand."""
+    # 0.06 USD per million tokens, so a million tokens is six cents.
+    assert usage.preview_cost_usd(1_000_000, "voyage-3.5") == pytest.approx(0.06)
+    # Half a million of the lite model at 0.02/Mtok is one cent.
+    assert usage.preview_cost_usd(500_000, "voyage-3.5-lite") == pytest.approx(0.01)
+    assert usage.voyage_price_for("voyage-3-large") == pytest.approx(0.18)
+    # Rates are per million, so the function must be linear in the token count
+    # rather than, say, quietly rounding to cents somewhere.
+    assert usage.preview_cost_usd(2_500_000, "voyage-3.5") == pytest.approx(0.15)
+
+
+def test_voyage_pricing_unknown_model_fails_loud():
+    """An unpriced model raises. It is never quoted at $0.00.
+
+    DEC-12: pricing that fails loud. This matters more here than anywhere else
+    in the service -- everywhere else a missing rate under-reports a cost that
+    has already been paid, but a re-embed preview is a number an operator
+    decides to spend money on. A silent zero would be an argument for
+    proceeding.
+    """
+    with pytest.raises(usage.UnknownModelPricing) as excinfo:
+        usage.voyage_price_for("voyage-99")
+    assert "voyage-99" in str(excinfo.value)
+
+    # And the arithmetic wrapper does not swallow it into a free run.
+    with pytest.raises(usage.UnknownModelPricing):
+        usage.preview_cost_usd(10_000_000, "voyage-99")
