@@ -133,6 +133,10 @@ Supporting: `README.md`, `docs/OPERATIONS.md`.
 - rationale: free and exact, but the real reason is that re-embedding would
   change recall behaviour at the same moment infrastructure changes — "two
   suspects and no way to separate them."
+- Phase 13 disposition: copy-only is preserved verbatim as its own command and a
+  re-embed path is added beside it, with the two variables still never changed
+  together — now measured by a golden recall set rather than enforced by
+  prohibition. Recorded as [ADR-0008](../../docs/adr/0008-embedding-migration-two-commands.md).
 
 ---
 
