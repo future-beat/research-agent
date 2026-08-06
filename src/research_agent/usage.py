@@ -97,6 +97,8 @@ PRICES: dict[str, list[PriceWindow]] = {
 # The voyage-4 family is deliberately absent until something here can target
 # it. It also carries a 200M-token free allowance that this table does not
 # model, which is why the cost preview says out loud that it quotes list price.
+VOYAGE_PRICES_VERIFIED = date(2026, 8, 6)
+
 VOYAGE_PRICES: dict[str, list[PriceWindow]] = {
     "voyage-3.5": [PriceWindow(0.06)],
     "voyage-3.5-lite": [PriceWindow(0.02)],

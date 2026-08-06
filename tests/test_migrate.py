@@ -34,6 +34,7 @@ HAS_POSTGRES = db.postgres_configured()
 LEGACY_NOTES_TABLE = "migration_test_notes_legacy"
 COPY_SOURCE_TABLE = "migration_test_notes_old"
 COPY_TARGET_TABLE = "migration_test_notes_new"
+REEMBED_TARGET_TABLE = "migration_test_notes_reembed"
 FAKE_DIMENSIONS = len(FakeEmbedder.VOCAB)
 
 # Fixed, distinct, and nonzero: an assertion that the migrated created_at is
@@ -515,3 +516,165 @@ def test_voyage_pricing_unknown_model_fails_loud():
     # And the arithmetic wrapper does not swallow it into a free run.
     with pytest.raises(usage.UnknownModelPricing):
         usage.preview_cost_usd(10_000_000, "voyage-99")
+
+
+# --------------------------------------------------------------------------
+# `embeddings re-embed`: new model, new width, same tenancy, gated spend
+# --------------------------------------------------------------------------
+#
+# Nothing below touches the network. The real embedder bills and the real token
+# counter downloads a tokenizer on first use, so both are injected through
+# `main(..., token_counter=, embedder_factory=)` -- which is also what makes
+# "this invocation embedded nothing" an assertion about a counter rather than a
+# claim about code someone read.
+
+
+class NarrowFakeEmbedder(FakeEmbedder):
+    """The same deterministic bag-of-words, one vocabulary word narrower.
+
+    Standing in for a model change: same texts, a different width, and
+    therefore different vectors -- which is the whole observable difference
+    between this command and `copy`.
+    """
+
+    VOCAB = FakeEmbedder.VOCAB[:4]
+
+
+NARROW_DIMENSIONS = len(NarrowFakeEmbedder.VOCAB)
+
+
+class RecordingEmbedder:
+    """A fake that counts what it was asked to embed.
+
+    The spend gate's claim is "zero embed calls", and the only way to assert
+    that honestly is to hand the command something that would notice.
+    """
+
+    def __init__(self, inner=None):
+        self.inner = inner if inner is not None else NarrowFakeEmbedder()
+        self.embed_calls = 0
+        self.texts_embedded = 0
+
+    def embed_documents(self, texts):
+        self.embed_calls += 1
+        self.texts_embedded += len(texts)
+        return self.inner.embed_documents(texts)
+
+    def embed_query(self, text):
+        return self.inner.embed_query(text)
+
+
+def _word_counter(texts, model):
+    """A stand-in for Voyage's tokenizer: deterministic, local, and free."""
+    return sum(len(text.split()) for text in texts)
+
+
+@pytest.fixture
+def reembed_tables(handle):
+    """Source and re-embed target, dropped before and after (Pitfall 7)."""
+    for table in (COPY_SOURCE_TABLE, REEMBED_TARGET_TABLE):
+        handle.execute(f"DROP TABLE IF EXISTS {table}")
+    try:
+        yield COPY_SOURCE_TABLE, REEMBED_TARGET_TABLE
+    finally:
+        for table in (COPY_SOURCE_TABLE, REEMBED_TARGET_TABLE):
+            handle.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+@pytest.fixture
+def reembed_seeded(handle, reembed_tables):
+    """The golden corpus at the old width. Returns (source, target)."""
+    source, target = reembed_tables
+    golden.seed(handle, source, FakeEmbedder(), FAKE_DIMENSIONS)
+    return source, target
+
+
+def _epoch_triples(handle, table):
+    return sorted(
+        (row["text"], row["owner"], float(row["created_at"]))
+        for row in handle.fetchall(
+            f"SELECT text, owner, extract(epoch FROM created_at) AS created_at FROM {table}"
+        )
+    )
+
+
+def _reembed(source, target, recorder, dimensions=NARROW_DIMENSIONS, extra=("--yes",)):
+    return main(
+        [
+            "embeddings",
+            "re-embed",
+            "--from",
+            source,
+            "--to",
+            target,
+            "--model",
+            "voyage-3.5",
+            "--dimensions",
+            str(dimensions),
+            *extra,
+        ],
+        token_counter=_word_counter,
+        embedder_factory=lambda model, output_dimension: recorder,
+    )
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_reembed_carries_tenancy(handle, reembed_seeded):
+    """New vectors at a new width, and every row still owned by whoever wrote it.
+
+    A re-embed that dropped `owner` would merge alice's and bob's memories into
+    one bucket -- the same cross-tenant failure the legacy tool shipped with for
+    two phases. One that dropped `created_at` would hand every migrated note a
+    fresh 7-day TTL and break the key that makes this re-runnable.
+    """
+    source, target = reembed_seeded
+    recorder = RecordingEmbedder()
+
+    assert _reembed(source, target, recorder) == 0
+    assert recorder.texts_embedded == len(golden.GOLDEN_NOTES)
+
+    # The width really moved: this is a model change, not a copy.
+    width = handle.fetchone(f"SELECT vector_dims(embedding) AS d FROM {target} LIMIT 1")["d"]
+    assert width == NARROW_DIMENSIONS
+    assert width != FAKE_DIMENSIONS
+
+    assert handle.fetchone(f"SELECT count(*) AS n FROM {target}")["n"] == len(golden.GOLDEN_NOTES)
+
+    # Anti-vacuity before the comparison: three distinct owners are in play, so
+    # "the triples match" is not two empty lists agreeing.
+    owners = {row["owner"] for row in handle.fetchall(f"SELECT owner FROM {target}")}
+    assert owners == {"alice", "bob", ""}
+
+    # Per-row (text, owner, created_at) equality -- not a count, which is green
+    # against a table where every row landed on the wrong owner.
+    assert _epoch_triples(handle, target) == _epoch_triples(handle, source)
+
+    # Re-runnable, and asserted on the SECOND pass because that is the only
+    # pass where the resume key applies: a first run into an empty table writes
+    # everything whatever the key is (13-01's lesson, 13-02's mutation M6).
+    assert _reembed(source, target, recorder) == 0
+    assert recorder.texts_embedded == len(golden.GOLDEN_NOTES)  # nothing re-embedded
+    assert handle.fetchone(f"SELECT count(*) AS n FROM {target}")["n"] == len(golden.GOLDEN_NOTES)
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_dimension_check_still_loud_in_migration_path(handle, reembed_seeded):
+    """SC-4: the store's own check fires here too, and nothing is coerced.
+
+    The message is asserted rather than the exception type, and asserted on
+    the store's exact wording, because the claim is that *the store's* check
+    ran -- a private width comparison in migrate.py would raise a ValueError
+    too, and would be free to drift from the one production uses.
+    """
+    source, target = reembed_seeded
+    wrong_width = RecordingEmbedder(inner=FakeEmbedder())  # 5 dimensions, into a 4 table
+
+    with pytest.raises(ValueError) as excinfo:
+        _reembed(source, target, wrong_width)
+
+    message = str(excinfo.value)
+    assert "dimensions but the" in message
+    assert "column is vector(" in message
+    # It refused rather than truncating, padding, or widening the column.
+    assert wrong_width.embed_calls == 1
+    assert handle.fetchone(f"SELECT count(*) AS n FROM {target}")["n"] == 0
