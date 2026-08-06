@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 13-02-PLAN.md (golden recall set + embeddings copy, SC-5's copy half proven). Branch gsd/phase-13-embedding-migration. Next: 13-03 (embeddings re-embed + Voyage cost preview)."
-last_updated: "2026-08-06T12:00:00.000Z"
-last_activity: "2026-08-06 — Phase 13 wave 2 executed: a frozen tie-free golden recall set and the `embeddings copy` subcommand. Copy is server-side, non-destructive, idempotent and self-checking; recall identity is proven under exact scan with the HNSW index outside the claim and separately sanity-checked. Six mutations, all red."
+stopped_at: "Completed 13-03-PLAN.md (embeddings re-embed, VOYAGE_PRICES, the --yes spend gate; SC-1/SC-2/SC-4 true). Branch gsd/phase-13-embedding-migration. Next: 13-04 (cutover, ADR-0008, OPERATIONS.md)."
+last_updated: "2026-08-06T13:20:00.000Z"
+last_activity: "2026-08-06 — Phase 13 wave 3 executed: `embeddings re-embed` puts a corpus through a new model at a new width carrying owner and created_at, behind an always-printing cost preview from effective-dated VOYAGE_PRICES, a --yes spend gate proven by counting calls on a fake, and loud refusals for an unpriced model and for >2000 dimensions. Eight mutations, all red, two recorded with caveats. README rewritten — the limitation it stated is now false."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 21
-  percent: 59
+  completed_plans: 22
+  percent: 61
 ---
 
 # Project State
@@ -26,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 13 of 17 (Embedding model migration) — **IN PROGRESS**
-Plan: 2 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
+Plan: 3 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
 (PR #6 merged). Not pushed.
-Status: Wave 2 complete — the golden recall set exists and `embeddings copy` is proven.
+Status: Wave 3 complete — `embeddings re-embed` exists, its money is gated, SC-1/SC-2/SC-4 true.
 
 **Phase 12 shipped** (PR #6 merged, v9 live). Phases 10, 10.5, 11 merged.
 
 Progress: [███████░░░] 71% (12 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 13: [████░░░░░░] 2 of 5 plans — 13-01, 13-02 done
+Phase 13: [██████░░░░] 3 of 5 plans — 13-01, 13-02, 13-03 done
 
 **Carry into execution:**
 - ~~`migrate.py` has a LIVE data-loss bug today~~ **FIXED in 13-01.** Notes and sessions
@@ -50,17 +50,34 @@ Phase 13: [████░░░░░░] 2 of 5 plans — 13-01, 13-02 done
   similarity 0, so global tie-freedom is impossible, and rows a query cannot return cannot
   affect its order. Wave 3 must re-run it against the re-embedded table — a new model
   re-scores everything and tie-freedom does not travel.
-- `embeddings copy` exists and is the CLI idiom to extend: `_main_embeddings` already owns
-  an argparse subparser set, so `re-embed` is a sibling `sub.add_parser(...)`, not a new
-  dispatch branch. Table names go through `memory.validate_table_name()`.
-- voyage-3.5 `output_dimension=2048` exceeds pgvector's HNSW limit (2000) — the re-embed
-  command refuses >2000 loudly.
-- Preview always prints; `--yes` required to spend. Wave 5 is a checkpoint (live Voyage
-  re-embed against Supabase `migration_demo_*` scratch tables only; cleanup gated).
+- ~~`embeddings copy` is the CLI idiom to extend~~ **EXTENDED in 13-03.** `re-embed` is a
+  sibling `sub.add_parser(...)` in `_main_embeddings`; both table names go through
+  `memory.validate_table_name()`.
+- ~~voyage-3.5 `output_dimension=2048` exceeds pgvector's HNSW limit~~ **ENFORCED in 13-03.**
+  Refused before any DDL, naming 2000 and `halfvec`.
+- ~~Preview always prints; `--yes` required to spend~~ **IMPLEMENTED in 13-03**, and proven by
+  counting calls on an injected fake rather than by reading the code. `main()` takes
+  keyword-only `token_counter=`/`embedder_factory=`; use them rather than monkeypatching.
+- **Two functions in migrate.py have never executed:** `_default_token_counter` (the real
+  `count_tokens`, which downloads an HF tokenizer on first call) and
+  `_ReembedEmbedder.embed_documents` (the `total_tokens` reconciliation). Wave 5's live run
+  is their first execution, not merely their demonstration.
+- **The re-embed recall delta is still unmeasured, and tie-freedom does not travel.** The
+  golden set is tie-free under the 5-dim `FakeEmbedder`; a re-embedded table is a different
+  scoring, so any `recall_delta` across the model change must call `assert_tie_free` against
+  *that* table first or it measures the query executor. 13-03 built the mechanism and gated
+  the money; no task asked for the comparison. 13-04 or 13-05 carries it.
+- **VOYAGE_PRICES lives in `usage.py`** with `voyage_price_for()`/`preview_cost_usd()`;
+  `PriceWindow.price` is now `Price | float`. Voyage spend is still absent from `/metrics`
+  (Phase 14) and the README says so.
+- Wave 5 is a checkpoint (live Voyage re-embed against Supabase `migration_demo_*` scratch
+  tables only; cleanup gated).
+- **13-04.3's README gate is already satisfied** — the old phrase is at 0 occurrences and
+  `embeddings re-embed` at 1. The `docs/OPERATIONS.md` half of that gate is untouched.
 - Local PG17+pgvector on :54329 (scratchpad instance `pg12`; start with LC_ALL set).
-  Baselines after 13-02: plain **527/53**, armed **579/1** (`DATABASE_URL` only) or
-  **580/0** (with `REQUIRE_POSTGRES=1`). 13-01's `575/1` was the `DATABASE_URL`-only form;
-  quote which one when comparing.
+  Baselines after 13-03: plain **529/60**, armed **588/1** (`DATABASE_URL` only) or
+  **589/0** (with `REQUIRE_POSTGRES=1`). Quote which armed form you mean when comparing —
+  13-01's `575/1` and 13-02's `579/1` were both the `DATABASE_URL`-only form.
 
 ## Performance Metrics
 
@@ -78,7 +95,7 @@ Phase 13: [████░░░░░░] 2 of 5 plans — 13-01, 13-02 done
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
-| 13 | 2 of 5 (13-01, 13-02) | 96min | 48min |
+| 13 | 3 of 5 (13-01, 13-02, 13-03) | 148min | 49min |
 
 **Recent Trend:**
 
@@ -101,6 +118,10 @@ Recent decisions affecting current work:
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
 - [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
+- [Phase 13-03]: `PriceWindow`'s payload is annotated `Price | float` rather than Voyage's flat rate being padded into the four-field `Price`. `covers()` is a date comparison that never inspects the payload; a `Price(input=0.06, output=0.0, …)` would have left a fake output price for someone to read as real.
+- [Phase 13-03]: The re-embed price is resolved before the tokenizer is touched and before the database is opened, so an unlisted model costs nothing to discover — no HF download, no connection, no embed call (DEC-12).
+- [Phase 13-03]: `--dry-run` wins over `--yes`. The flags contradict each other and the safe reading of a contradiction is the one that spends nothing.
+- [Phase 13-03]: The dimension ceiling's *message* needed its own mutation. Relaxing the comparison goes red via an unrelated later failure, leaving `assert "halfvec" in err` unfalsified — a refusal's wording is a separate gate from its condition.
 - [Phase 12-05]: Notes are bounded by a 7-day TTL and nothing else. Dedup-on-write was evaluated and rejected — it has no semantics that json, memory, chroma and pgvector can implement identically, and identical behaviour is the claim SC-5's shared suite exists to make.
 - [Phase 12-05]: `owner=""` is an exact value on every store, never a wildcard. The orphaned notes and sessions therefore belong to nobody the moment the code ships, and are collected by the TTL rather than by a migration script.
 - [Phase 12-05]: The service reads the caller through `limits.caller_identity(request)`, not `request.state.identity` directly — 12-03 made it the single reader, and it carries the never-fall-back-to-client_ip reasoning that the raw attribute does not.
