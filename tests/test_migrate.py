@@ -598,7 +598,14 @@ def _epoch_triples(handle, table):
     )
 
 
-def _reembed(source, target, recorder, dimensions=NARROW_DIMENSIONS, extra=("--yes",)):
+def _reembed(
+    source,
+    target,
+    recorder,
+    dimensions=NARROW_DIMENSIONS,
+    extra=("--yes",),
+    model="voyage-3.5",
+):
     return main(
         [
             "embeddings",
@@ -608,7 +615,7 @@ def _reembed(source, target, recorder, dimensions=NARROW_DIMENSIONS, extra=("--y
             "--to",
             target,
             "--model",
-            "voyage-3.5",
+            model,
             "--dimensions",
             str(dimensions),
             *extra,
@@ -678,3 +685,117 @@ def test_dimension_check_still_loud_in_migration_path(handle, reembed_seeded):
     # It refused rather than truncating, padding, or widening the column.
     assert wrong_width.embed_calls == 1
     assert handle.fetchone(f"SELECT count(*) AS n FROM {target}")["n"] == 0
+
+
+# --------------------------------------------------------------------------
+# The spend gate: preview always, --yes required, loud refusals
+# --------------------------------------------------------------------------
+#
+# Every assertion below about "nothing was spent" is a count on the injected
+# embedder, never an inspection of the code. The gate is only worth having if
+# it is falsifiable, and "no call reached embed_documents" is the falsifiable
+# form of it.
+
+
+def _exists(handle, table):
+    return handle.fetchone("SELECT to_regclass(%s) AS oid", (table,))["oid"] is not None
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_preview_requires_yes(handle, reembed_seeded, capsys):
+    """The preview prints, and then the command refuses to spend without --yes.
+
+    Both halves matter. An operator who is refused but shown nothing has no
+    way to decide; an operator who is shown a number and then charged for it
+    without asking has been billed by a preview.
+    """
+    source, target = reembed_seeded
+    recorder = RecordingEmbedder()
+
+    rc = _reembed(source, target, recorder, extra=())
+    out = capsys.readouterr()
+
+    assert rc != 0
+    # The preview is present, with the two numbers a spending decision needs.
+    assert "cost preview" in out.out
+    assert "token(s)" in out.out
+    assert "$" in out.out
+    assert "--yes is required" in out.err
+    # And nothing was spent, asserted on the fake rather than on the source.
+    assert recorder.embed_calls == 0
+    assert recorder.texts_embedded == 0
+    # The target was never even created, so no DDL ran either.
+    assert not _exists(handle, target)
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_preview_prints_before_spend_with_yes(handle, reembed_seeded, capsys):
+    """With --yes the preview still prints -- and prints first."""
+    source, target = reembed_seeded
+    recorder = RecordingEmbedder()
+
+    assert _reembed(source, target, recorder) == 0
+    out = capsys.readouterr().out
+
+    assert "cost preview" in out
+    assert recorder.texts_embedded == len(golden.GOLDEN_NOTES)
+    assert handle.fetchone(f"SELECT count(*) AS n FROM {target}")["n"] == len(golden.GOLDEN_NOTES)
+    # Ordering is the claim: a cost shown after the money is spent is a
+    # receipt, not a preview.
+    assert out.index("cost preview") < out.index("embedded ")
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_dry_run_never_embeds(handle, reembed_seeded, capsys):
+    """--dry-run wins over --yes: contradictory flags resolve to spending nothing."""
+    source, target = reembed_seeded
+    recorder = RecordingEmbedder()
+
+    assert _reembed(source, target, recorder, extra=("--dry-run", "--yes")) == 0
+    out = capsys.readouterr().out
+
+    assert "cost preview" in out
+    assert "DRY RUN" in out
+    assert recorder.embed_calls == 0
+    assert not _exists(handle, target)
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_dimension_ceiling(handle, reembed_seeded, capsys):
+    """2048 is a real Voyage width and an unindexable pgvector table.
+
+    Refused before any DDL, so the failure is a sentence rather than a table
+    that exists and can never be indexed.
+    """
+    source, target = reembed_seeded
+    recorder = RecordingEmbedder()
+
+    rc = _reembed(source, target, recorder, dimensions=2048)
+    err = capsys.readouterr().err
+
+    assert rc != 0
+    assert "2000" in err
+    assert "halfvec" in err
+    assert recorder.embed_calls == 0
+    assert not _exists(handle, target)
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_reembed_unknown_model_refuses(handle, reembed_seeded, capsys):
+    """DEC-12: an unpriced model stops the run rather than costing $0.00.
+
+    Note the --yes: this is the invocation that was authorised to spend, and
+    it still refuses, because the authorisation was given against a price that
+    does not exist.
+    """
+    source, target = reembed_seeded
+    recorder = RecordingEmbedder()
+
+    rc = _reembed(source, target, recorder, model="voyage-99")
+    err = capsys.readouterr().err
+
+    assert rc != 0
+    assert "voyage-99" in err
+    assert "0.00" not in err  # not quoted a price; refused one
+    assert recorder.embed_calls == 0
+    assert not _exists(handle, target)
