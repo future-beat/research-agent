@@ -197,10 +197,11 @@ What is knowingly given up is the cumulative `/metrics` history; the two
 orphaned notes and the old demo sessions are disposable. The volume is kept as
 the backup, so nothing is destroyed — it is simply left behind.
 
-`python -m research_agent.migrate` is therefore deliberately **not exercised**
-by this cutover.
+`python -m research_agent.migrate` therefore plays no part in this cutover —
+there is nothing to migrate.
 
-**Since Phase 13 it is exercised by tests.** Leaving it unproven turned out to
+**It is no longer an unproven tool, though: since Phase 13 it is covered by
+tests.** Leaving it unproven turned out to
 cost something: read against the Phase 12 schema, `migrate_notes` was inserting
 only `(text, embedding)`, so every migrated note would have landed on
 `owner=''` — belonging to nobody, since a real identity is a 32-hex uuid — with
@@ -210,7 +211,9 @@ only `(text, embedding)`, so every migrated note would have landed on
 across a real SQLite-to-Postgres round trip.
 
 That is a proof about the *code*, not about your data. It has still never been
-run against the volume, so dry-run first.
+run against the volume, so dry-run first. The same command's `embeddings`
+subcommands are what a model change goes through — see
+[Changing the embedding model or dimension](#changing-the-embedding-model-or-dimension).
 
 ### Supabase specifics
 
@@ -232,6 +235,136 @@ requests against one database, but the app pool caps connections at
 `PG_POOL_MAX_SIZE` (5), so the fleet holds at most 10 of Supabase Nano's 60.
 Requests past that queue on a bounded checkout rather than opening an eleventh
 connection.
+
+## Changing the embedding model or dimension
+
+A pgvector column has its width fixed at creation, so a new embedding model — or
+the same model at a different `output_dimension` — needs a **new table**. This is
+the procedure that builds one and switches to it. It is reversible at every step
+and nothing here ever drops a table.
+
+**Read the scale note first.** Notes expire seven days after they are written, so
+the live corpus is small and self-cleaning. This procedure is not corpus rescue and
+should not be sold as such — its value is that changing embedding model becomes a
+decision an operator can take in an afternoon instead of a migration project. At a
+few thousand notes it is also the whole story; at a few million it would need
+batching, resumption and a maintenance window this tooling has not been asked for.
+
+### 1. Quiesce
+
+Stop the service, or leave it idle, for the duration. `fly scale count 0 -a
+research-agent` if you want it certain.
+
+**Why there is no dual-write machinery, stated plainly rather than left as a
+gap:** the corpus is at most seven days of notes by construction. A note written
+during the migration and missed by it expires on its own within a week. Building
+dual-write for a self-erasing corpus is engineering theatre, so it was
+deliberately not built. What you are accepting is the loss of notes written in the
+window between the migrate and the flip — bounded, self-healing, and cheaper to
+accept than to engineer around at this size.
+
+### 2. Migrate
+
+Two commands, and which one you want depends on which variable is changing. Never
+both at once — that is the whole design (see
+[ADR-0008](adr/0008-embedding-migration-two-commands.md)).
+
+**Same model, new table** — an infrastructure-only move. Same vectors, no spend, no
+network:
+
+```
+python -m research_agent.migrate embeddings copy \
+  --from research_notes --to research_notes_v2 [--dry-run]
+```
+
+**New model or new width** — the vectors are recomputed, and this one costs money:
+
+```
+python -m research_agent.migrate embeddings re-embed \
+  --from research_notes --to research_notes_v2 \
+  --model voyage-3.5 [--dimensions 1024] [--batch-size 128] [--dry-run] [--yes]
+```
+
+The cost preview **always** prints — model, width, row count, tokens, the rate with
+the date it was verified, and the estimated dollars. Without `--yes` the command
+stops there and exits nonzero; `--dry-run` beats `--yes` if you pass both. An
+unpriced model refuses rather than quoting `$0.00`, and it refuses before it opens
+the database, so discovering that a model is unpriced costs nothing.
+
+**The first `count_tokens` call downloads a tokenizer from the Hugging Face hub.**
+Voyage's client fetches it once and caches it, so the first preview on a fresh
+machine or a fresh container needs outbound network and takes a few seconds
+longer than you expect. Subsequent calls are offline. If the box has no egress to
+`huggingface.co`, the preview is where it will fail.
+
+### 3. Verify
+
+Both commands print their own numbers and exit nonzero if the numbers are wrong —
+read them rather than trusting the exit code alone.
+
+`copy` prints row counts on both sides, how many source rows matched on
+`(text, owner, created_at)`, how many were unmatched, and how many embeddings
+differ byte-for-byte. All four should read as a clean move; a nonzero
+byte-difference, or a matched count below the source count, means stop.
+
+`re-embed` prints predicted versus billed tokens and the billed cost. A large gap
+between the two means the preview's token count is drifting from Voyage's own,
+which is worth knowing before the next run rather than after.
+
+Then check recall yourself if the model changed. There is a frozen golden query
+set in `src/research_agent/recall_golden.py` and a `recall_delta` over it; a copy
+must show **zero** delta, which is what makes any delta a re-embed shows
+attributable to the model rather than to the move. Note that a new model re-scores
+everything, so `assert_tie_free` has to be re-run against the re-embedded table
+before an ordered comparison over it means anything.
+
+### 4. Flip
+
+Cutover is the config that already existed:
+
+```
+fly secrets set PGVECTOR_TABLE=research_notes_v2 -a research-agent
+# after a re-embed that changed the width, set both in one call:
+fly secrets set PGVECTOR_TABLE=research_notes_v2 VECTOR_DIMENSIONS=1024 -a research-agent
+```
+
+Setting a secret restarts the machines, which is what the flip needs: both
+variables are read once at import in `memory.py` and become the store
+constructor's defaults, so a running process keeps talking to the old table until
+it restarts.
+
+**Rollback is pointing back.** `fly secrets set PGVECTOR_TABLE=research_notes`
+(and `VECTOR_DIMENSIONS` back to its previous value) puts you on the old table
+again, with all of its data, because nothing in this procedure wrote to it. Both
+directions are covered by a test — `pytest tests/test_migrate.py -k
+cutover_reversible` flips a store forward and back and asserts the old table's
+full contents, embeddings included, are unchanged after every step.
+
+Bring the service back up (`fly scale count 2 -a research-agent`) and confirm
+`/health` reports the store healthy before you consider the flip done.
+
+### 5. Drop the old table — by hand, later, or never
+
+**No command in this tooling drops anything.** Keeping the old table is what makes
+step 4 reversible, so deleting it is a deliberate operator act taken after the new
+table has been live long enough to trust:
+
+```sql
+DROP TABLE research_notes;  -- only once you are certain
+```
+
+There is no automation for this and there should not be. Once it is gone,
+rollback is gone with it.
+
+### 6. The dimension ceiling
+
+`re-embed` refuses `--dimensions` above **2000**. That is pgvector's HNSW index
+limit for the `vector` type, and it is a real constraint rather than a
+hypothetical one: voyage-3.5 offers `output_dimension=2048`, so asking for the
+model's largest width is an easy mistake to make. The refusal happens before any
+DDL and before any spend, and it names `halfvec` — pgvector's documented path to
+wider indexed columns, which this codebase has not built. If you need 2048, that
+path is the work, not a flag.
 
 ## CI
 
