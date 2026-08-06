@@ -22,6 +22,7 @@ from test_memory_stores import FakeEmbedder
 
 from research_agent import db, usage
 from research_agent import recall_golden as golden
+from research_agent.memory import PgVectorMemoryStore
 from research_agent.metrics import RunRecord, SQLiteMetricsStore
 from research_agent.migrate import main, migrate_notes, migrate_runs, migrate_sessions
 from research_agent.sessions import SQLiteSessionStore
@@ -35,6 +36,7 @@ LEGACY_NOTES_TABLE = "migration_test_notes_legacy"
 COPY_SOURCE_TABLE = "migration_test_notes_old"
 COPY_TARGET_TABLE = "migration_test_notes_new"
 REEMBED_TARGET_TABLE = "migration_test_notes_reembed"
+CUTOVER_TARGET_TABLE = "migration_test_notes_cutover"
 FAKE_DIMENSIONS = len(FakeEmbedder.VOCAB)
 
 # Fixed, distinct, and nonzero: an assertion that the migrated created_at is
@@ -799,3 +801,128 @@ def test_reembed_unknown_model_refuses(handle, reembed_seeded, capsys):
     assert "0.00" not in err  # not quoted a price; refused one
     assert recorder.embed_calls == 0
     assert not _exists(handle, target)
+
+
+# --------------------------------------------------------------------------
+# Cutover: the flip is the whole thing, and it goes both ways
+# --------------------------------------------------------------------------
+#
+# SC-3 claims the cutover is explicit and reversible: point the config at the
+# new table, restart, and if it was a mistake point it back. In production that
+# act is `fly secrets set PGVECTOR_TABLE=<new>` (plus `VECTOR_DIMENSIONS=<N>`
+# after a re-embed, since the width moves with the model) followed by a
+# restart. `PGVECTOR_TABLE` is read ONCE, at import (memory.py:58), into a
+# module constant that becomes `PgVectorMemoryStore.__init__`'s default for
+# `table=`. So the env var and the constructor parameter are the same seam,
+# entered at different ends, and the constructor is the end a test can hold:
+# setting the variable and reimporting the module would leave a second
+# `memory` module object alive for the rest of the session and change what
+# every other test in the process is talking to (Pitfall 5). What is therefore
+# NOT proven here is the process restart itself -- only that both tables serve
+# the same corpus and that pointing at either one is a complete, non-destructive
+# switch.
+
+
+@pytest.fixture
+def cutover_tables(handle):
+    """The live table and the cutover target, dropped before and after."""
+    for table in (COPY_SOURCE_TABLE, CUTOVER_TARGET_TABLE):
+        handle.execute(f"DROP TABLE IF EXISTS {table}")
+    try:
+        yield COPY_SOURCE_TABLE, CUTOVER_TARGET_TABLE
+    finally:
+        for table in (COPY_SOURCE_TABLE, CUTOVER_TARGET_TABLE):
+            handle.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+def _golden_texts_via_store(table, embedder):
+    """Every golden query answered by the production store pointed at `table`.
+
+    Its own `db.Database` per construction: a `Database` applies at most one
+    schema block in its lifetime, so a shared handle would silently skip the
+    store's `ensure_schema` and this would stop being the production path.
+
+    `PgVectorMemoryStore.query()` returns `list[str]` (memory.py:546), not the
+    `(text, similarity)` pairs the exact-scan runner produces -- hence the
+    texts-only projection on the expected side at the call sites below.
+    """
+    store = PgVectorMemoryStore(
+        table=table,
+        dimensions=FAKE_DIMENSIONS,
+        embedder=embedder,
+        database=db.Database(),
+    )
+    try:
+        return {
+            golden.query_key(spec): store.query(
+                spec["query"],
+                top_k=spec["top_k"],
+                min_similarity=spec["min_similarity"],
+                owner=spec["owner"],
+            )
+            for spec in golden.GOLDEN_QUERIES
+        }
+    finally:
+        store.close()
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_cutover_reversible(handle, cutover_tables):
+    """SC-3: flip forward, flip back, and the old table is untouched throughout.
+
+    Read the comparison carefully, because it proves slightly less than it
+    looks like it proves. The expected results come from `exact_scan_results`,
+    which turns the index off; `store.query()` is the *indexed* production
+    path. So this is an indexed-vs-exact equality, and it is only reasonable
+    to demand under exactly the argument `test_index_sanity` makes: this corpus
+    is a dozen rows against `hnsw.ef_search = 40`, so the search effectively
+    explores everything, and the golden set is tie-free so the order is not the
+    executor's choice. At a corpus size where HNSW is doing real approximation
+    neither would hold, and this equality would have to weaken to a set
+    comparison the way `test_index_sanity`'s does. It is written as an ordered
+    equality here because at this size the stronger claim is the true one -- but
+    it is a claim about the cutover, not a general ANN guarantee.
+    """
+    old, new = cutover_tables
+    embedder = FakeEmbedder()
+    golden.seed(handle, old, embedder, FAKE_DIMENSIONS)
+
+    # Ordered comparison over a tie-bearing corpus measures the query executor,
+    # not the cutover. Asserted here rather than assumed from 13-02's test.
+    golden.assert_tie_free(handle, old, embedder)
+
+    # The old table's full contents -- embeddings included -- as they stood
+    # before anything happened. Every step below re-compares against this, so
+    # "the old table survives" is asserted four times rather than once at the
+    # end, where a step that dropped and recreated it would still pass.
+    before = _fingerprint(handle, old)
+    old_count = len(before)
+    assert old_count == len(golden.GOLDEN_NOTES)
+
+    expected = {
+        key: [text for text, _similarity in rows]
+        for key, rows in golden.run_golden(handle, old, embedder).items()
+    }
+    # Anti-vacuity: two empty result sets are also equal, and the golden set
+    # deliberately contains one query that must return nothing.
+    assert len([key for key, texts in expected.items() if texts]) >= len(golden.GOLDEN_QUERIES) - 1
+    assert sum(len(texts) for texts in expected.values()) >= 12
+
+    assert main(["embeddings", "copy", "--from", old, "--to", new]) == 0
+    assert _fingerprint(handle, old) == before
+
+    # Flip forward. The store is constructed against the new table exactly as
+    # a restarted process with PGVECTOR_TABLE=<new> would construct it.
+    assert _golden_texts_via_store(new, embedder) == expected
+    assert _fingerprint(handle, old) == before
+
+    # Flip back -- rollback is pointing back, and nothing else. The store runs
+    # the same idempotent ensure_schema production runs at startup against a
+    # table that already exists; the fingerprint below is what says that
+    # touched no data.
+    assert _golden_texts_via_store(old, embedder) == expected
+    assert _fingerprint(handle, old) == before
+
+    # And the new table is still there afterwards, so a second flip forward
+    # needs no second migration: both tables coexist and the config chooses.
+    assert handle.fetchone(f"SELECT count(*) AS n FROM {new}")["n"] == old_count
