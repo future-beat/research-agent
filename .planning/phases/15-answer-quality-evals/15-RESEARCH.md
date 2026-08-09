@@ -668,19 +668,19 @@ session.
 
 ## Open Questions
 
-1. **Replay: automatic in offline mode, or behind a flag?**
+1. **Replay: automatic in offline mode, or behind a flag?** *(RESOLVED — recommendation adopted in CONTEXT § Post-research calls, 2026-08-06: automatic)*
    - Known: CI command should not change; fixtures are committed so automatic is deterministic.
    - Unclear: whether an explicit `--replay`/`--no-replay` aids local debugging.
    - Recommendation: automatic when `evals/fixtures/` is non-empty; `--case` selection
      applies to both legs; report says how many fixtures were graded.
-2. **Does replay share `--min-pass-rate 0.9` or get its own threshold?**
+2. **Does replay share `--min-pass-rate 0.9` or get its own threshold?** *(RESOLVED — adopted in CONTEXT § Post-research calls: shared, governing the behavioural denominator; plan 03 additionally makes the replay leg all-must-pass at the exit code)*
    - Recommendation: share it (a committed fixture was known-good; replay red is real), but
      this is a one-line decision the planner can make either way.
-3. **Recorded judge verdicts: hard replay gate or informational?**
+3. **Recorded judge verdicts: hard replay gate or informational?** *(RESOLVED — adopted in CONTEXT § Post-research calls: hard gate)*
    - Recommendation: hard gate (`passed=true` asserted) *because* the recorder refuses to
      commit failing fixtures — the gate then only fires if someone hand-edits a fixture or
      force-writes one, both worth a red.
-4. **Branch/PR mechanics:** phase-13 work sits unmerged on `gsd/phase-13-embedding-migration`
+4. **Branch/PR mechanics:** *(MOOT — `gsd/phase-15-answer-quality-evals` exists and is checked out; sequencing no longer blocks the planner)* phase-13 work sits unmerged on `gsd/phase-13-embedding-migration`
    (13 and 14 "ship with the next deploy"); Phase 15 is one PR per CONTEXT. Base the phase
    branch appropriately once 13/14 land on main — orchestrator sequencing, not a research
    question, but flagged so the planner doesn't assume a clean main.
