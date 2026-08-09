@@ -81,7 +81,7 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
   a run occupies a worker for tens of seconds" — pooling is correct only alongside raised
   concurrency.
 
-- [ ] **REQ-embedding-model-migration**: A command re-embeds an existing corpus into a new
+- [x] **REQ-embedding-model-migration**: A command re-embeds an existing corpus into a new
   table at a new dimension, with cost reported before the run starts and an explicit,
   reversible cutover; the loud dimension check must not become a silent coercion.
   *In tension with DEC-10*, which deliberately copies embeddings so recall behaviour does
@@ -125,7 +125,7 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 | REQ-connection-pool | Phase 11 | Complete (psycopg-pool, one shared pool per machine) |
 | REQ-demo-authentication | Phase 12 | Complete — live on release v9, 2026-08-05 (12-06 T-06-4: cookieless caller reaches a working page + completed stream with a signed `HttpOnly; Secure; SameSite=Lax` identity minted on the response; verified across machines `846975f2604548`/`d8d0320f751618` and a fleet restart) |
 | REQ-store-lifecycle-and-ownership | Phase 12 | Complete — code in 12-04 (sessions) / 12-05 (notes), ownership demonstrated live on release v9 (second identity gets `{"sessions":[]}` and a 404 indistinguishable from missing, on read and write). 7-day expiry/TTL proven against the DB clock in the Postgres-gated suite, not live |
-| REQ-embedding-model-migration | Phase 13 | Pending |
+| REQ-embedding-model-migration | Phase 13 | Complete |
 | REQ-real-cost-accounting | Phase 14 | Pending |
 | REQ-offline-eval-quality | Phase 15 | Pending |
 | REQ-independent-critic-model | Phase 16 | Pending |

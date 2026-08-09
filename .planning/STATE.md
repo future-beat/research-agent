@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 13-04-PLAN.md (cutover proven both directions, ADR-0008, the OPERATIONS runbook; SC-3 true). Branch gsd/phase-13-embedding-migration. Next: 13-05 (live Voyage re-embed, phase gate battery, VALIDATION sign-off)."
-last_updated: "2026-08-06T12:30:00.000Z"
-last_activity: "2026-08-06 — Phase 13 wave 4 executed: the cutover is proven both directions through the production store (constructor `table=` seam, not env+reimport) with the old table re-fingerprinted after every step; ADR-0008 records the DEC-10 reversal with a Source: line and supersedes nothing deliberately; docs/OPERATIONS.md gains the six-step quiesce-migrate-flip runbook. Seven mutations: five red, and TWO of the plan's own verify clauses caught green when they should have been red."
+stopped_at: "Completed 13-05-PLAN.md — the live demonstration ran against production Supabase and the phase gate battery is closed. Branch gsd/phase-13-embedding-migration, 5 of 5 plans executed, nothing pushed. Next: /gsd:verify-work, then ONE PR for the whole phase."
+last_updated: "2026-08-09T08:45:00.000Z"
+last_activity: "2026-08-09 — Phase 13 wave 5 executed: the migration path ran once end to end against the production Supabase with real Voyage spend (~$0.000015). Copy leg ZERO recall delta; re-embed to voyage-3.5-lite moved 8 of 8 golden queries, one changing which notes came back; three migration_demo_* scratch tables dropped with pg_tables proving zero residue, confirmed twice. The two never-executed functions executed and both worked. FOUR findings the local gates could not reach: recall_delta was comparing two query vectors as well as two tables (the source table deltaed against ITSELF), Voyage's total_tokens is not an invoice (0 for a one-word document), the preview over-counts 40 vs 25, and PG_POOL_TIMEOUT=2.0 does not fit an operator laptop."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 23
-  percent: 61
+  completed_plans: 24
+  percent: 63
 ---
 
 # Project State
@@ -25,16 +25,17 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 13 of 17 (Embedding model migration) — **IN PROGRESS**
-Plan: 4 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
+Phase: 13 of 17 (Embedding model migration) — **ALL PLANS EXECUTED, AWAITING VERIFY + PR**
+Plan: 5 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
 (PR #6 merged). Not pushed.
-Status: Wave 4 complete — the cutover is proven both directions and the reversal is on the
-record. SC-1/SC-2/SC-3/SC-4 true; SC-5's copy half true, its re-embed half is 13-05's.
+Status: All five ROADMAP success criteria hold, with SC-5 measured **live** on both legs.
+13-VALIDATION.md is signed off (`status: complete`, `nyquist_compliant: true`). The phase is
+NOT closed until `/gsd:verify-work` runs and the single phase PR is raised.
 
 **Phase 12 shipped** (PR #6 merged, v9 live). Phases 10, 10.5, 11 merged.
 
 Progress: [███████░░░] 71% (12 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 13: [████████░░] 4 of 5 plans — 13-01, 13-02, 13-03, 13-04 done
+Phase 13: [██████████] 5 of 5 plans — 13-01 … 13-05 done
 
 **Carry into execution:**
 - ~~`migrate.py` has a LIVE data-loss bug today~~ **FIXED in 13-01.** Notes and sessions
@@ -60,20 +61,43 @@ Phase 13: [████████░░] 4 of 5 plans — 13-01, 13-02, 13-03,
 - ~~Preview always prints; `--yes` required to spend~~ **IMPLEMENTED in 13-03**, and proven by
   counting calls on an injected fake rather than by reading the code. `main()` takes
   keyword-only `token_counter=`/`embedder_factory=`; use them rather than monkeypatching.
-- **Two functions in migrate.py have never executed:** `_default_token_counter` (the real
-  `count_tokens`, which downloads an HF tokenizer on first call) and
-  `_ReembedEmbedder.embed_documents` (the `total_tokens` reconciliation). Wave 5's live run
-  is their first execution, not merely their demonstration.
-- **The re-embed recall delta is still unmeasured, and tie-freedom does not travel.** The
-  golden set is tie-free under the 5-dim `FakeEmbedder`; a re-embedded table is a different
-  scoring, so any `recall_delta` across the model change must call `assert_tie_free` against
-  *that* table first or it measures the query executor. 13-03 built the mechanism and gated
-  the money; 13-04 owned the cutover and the record and had no task for it. **13-05 owns it.**
+- ~~**Two functions in migrate.py have never executed**~~ **BOTH EXECUTED in 13-05, and both
+  worked.** `_default_token_counter`: cold HF cache, first call 2.378s, second 0.439s, and the
+  fetch is **per model** (voyage-3.5-lite paid its own). `_ReembedEmbedder.embed_documents`:
+  returned real vectors and a real `total_tokens` — whose reconciliation line then turned out
+  to be wrong in two ways only a real response could have shown (see the token note below).
+- ~~**The re-embed recall delta is still unmeasured**~~ **MEASURED LIVE in 13-05.**
+  `assert_tie_free` was re-run against the re-embedded table under voyage-3.5-lite and
+  **passed**, so the delta is a number rather than an "unmeasurable": **8 of 8 golden queries
+  moved**, seven with the same notes in the same order at different similarities and one
+  (`'chroma retry'@'alice'`) returning a different note at rank 2. The copy leg was zero, so
+  that delta is the model's by construction.
+- **`recall_delta` has a THIRD variable nobody counted, and it is the query embedder.**
+  `run_golden(old)` and `run_golden(new)` each call `embed_query` on the same text, and the
+  real Voyage API is not bit-reproducible across separate calls — the live source table
+  compared with **itself** deltaed on 2 of 8 queries. Every local gate used a deterministic
+  fake, which is why three waves never saw it. **Wrap the embedder in
+  `recall_golden.FrozenQueryEmbedder`** for any cross-table comparison whose embedder is not
+  provably deterministic; across a model change use one wrapper per model. The intermittency
+  is uncharacterised: three back-to-back calls WERE identical, so a clean run without the
+  wrapper is not evidence the wrapper is unnecessary.
+- **Neither token number is an invoice.** `count_tokens` said 40 for the 12-note corpus;
+  `response.total_tokens` said 25; a one-word document reported **0** while returning a
+  perfectly good embedding. Read the predicted figure as an honest **upper bound**, the
+  reported figure as telemetry, and Voyage's usage dashboard as the only authority. Phase 14
+  inherits this: real spend accounting cannot be built on either number.
+- **`PG_POOL_TIMEOUT=2.0` is tuned for the Fly machines, not an operator laptop.** The
+  Supabase pooler handshake from a developer machine measured 0.43–5.63s, so the documented
+  migration commands fail intermittently with `PoolTimeout` before touching any data. Raise
+  `PG_POOL_TIMEOUT`/`PG_CONNECT_TIMEOUT`; a `PoolTimeout` is always safe to retry because it
+  is raised acquiring the connection, before any statement is sent. Now in the runbook.
 - **VOYAGE_PRICES lives in `usage.py`** with `voyage_price_for()`/`preview_cost_usd()`;
   `PriceWindow.price` is now `Price | float`. Voyage spend is still absent from `/metrics`
   (Phase 14) and the README says so.
-- Wave 5 is a checkpoint (live Voyage re-embed against Supabase `migration_demo_*` scratch
-  tables only; cleanup gated).
+- ~~Wave 5 is a checkpoint~~ **DONE 2026-08-09.** Three `migration_demo_*` tables created,
+  used and dropped; `pg_tables LIKE 'migration_demo_%'` returned **0 rows**, confirmed through
+  both the app's client and `psql`. `research_notes` was never queried; no `fly secrets`, no
+  `fly deploy`, no production model flip. Total real Voyage spend ≈ **$0.000015**.
 - ~~`PGVECTOR_TABLE` cutover is untested~~ **PROVEN in 13-04.** `test_cutover_reversible`
   flips a store forward and back through the constructor's `table=` parameter — the same
   seam `PGVECTOR_TABLE` feeds at import — and re-fingerprints the old table after every
@@ -94,10 +118,14 @@ Phase 13: [████████░░] 4 of 5 plans — 13-01, 13-02, 13-03,
   exercised' claim is gone") had no clause at all. Stronger gates and their red mutations
   are in 13-04-SUMMARY for 13-05.2 to reconcile.
 - Local PG17+pgvector on :54329 (scratchpad instance `pg12`; start with LC_ALL set).
-  Baselines after 13-04: plain **529/61**, armed **589/1** (`DATABASE_URL` only) or
-  **590/0** (with `REQUIRE_POSTGRES=1`). Quote which armed form you mean when comparing —
-  13-01's `575/1`, 13-02's `579/1` and 13-03's `588/1` were all the `DATABASE_URL`-only
-  form. `pytest tests/test_migrate.py` armed = **16 passed**.
+  Baselines after 13-05: plain **529/63**, armed **591/1** (`DATABASE_URL` only) or
+  **592/0** (with `REQUIRE_POSTGRES=1`). Quote which armed form you mean when comparing —
+  13-01's `575/1`, 13-02's `579/1`, 13-03's `588/1` and 13-04's `589/1` were all the
+  `DATABASE_URL`-only form. `pytest tests/test_migrate.py` armed = **18 passed**.
+- **The Supabase DSN is not in `.env`** (which holds only `ANTHROPIC_API_KEY` and
+  `VOYAGE_API_KEY`). It is a Fly secret, and secrets are write-only — read it from a running
+  machine with `fly ssh console -a research-agent -C "printenv DATABASE_URL"`, capture it to a
+  file, and never echo it.
 
 ## Performance Metrics
 
@@ -115,7 +143,7 @@ Phase 13: [████████░░] 4 of 5 plans — 13-01, 13-02, 13-03,
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
-| 13 | 4 of 5 (13-01, 13-02, 13-03, 13-04) | 188min | 47min |
+| 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
 
 **Recent Trend:**
 
@@ -138,6 +166,12 @@ Recent decisions affecting current work:
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
 - [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
+- [Phase 13-05]: **A comparison harness has as many variables as it has non-deterministic inputs.** `recall_golden` guarded the two on the stored side (the approximate HNSW index, and ties) and missed the one on the query side: `recall_delta(run_golden(old), run_golden(new))` embeds each query twice. Against the real API that made a two-table comparison a four-way one, and the live source table deltaed against itself on 2 of 8 queries. `FrozenQueryEmbedder` pins it. The general rule: **the control for "did X change recall?" is the source measured against ITSELF**, and if that is not clean nothing measured against the target means anything.
+- [Phase 13-05]: **A deterministic fake hides exactly the class of defect that only appears against the real thing.** Three waves of green gates could not have found the query-vector variable, because every one of them used a bit-reproducible `FakeEmbedder` for which re-embedding a query is free. This is the same shape as 11-02's "a local Postgres found three bugs no fake could catch", and it is the argument for the one live demonstration this phase insisted on.
+- [Phase 13-05]: **A provider's `total_tokens` is telemetry, not an invoice** — demonstrated by it returning 0 for a one-word document that was successfully embedded. The reconciliation line was relabelled `billed` → `reported`, the truthiness test that read a reported 0 as "this embedder reports nothing" was fixed to `is not None`, and Voyage's usage dashboard is now named in the output as the only authority. Phase 14's spend accounting cannot be built on either this number or the local tokenizer's.
+- [Phase 13-05]: **The local `count_tokens` is an upper bound, not an exact count.** 40 predicted against 25 reported for the same 12 texts — the HF tokenizer splits words (`voyage`, `supervisor`) that Voyage's own tokenisation keeps whole. Over-estimating is the safe direction and the preview now says so explicitly; 13-VALIDATION's criterion calling it "exact" is annotated rather than rewritten.
+- [Phase 13-05]: **A mutation may need to target the CONTROL rather than the code.** `test_frozen_query_embedder_isolates_the_table` asserts that the source-against-itself comparison is *dirty*; a stand-in embedder that never drifted would satisfy that silently and leave the frozen half proving nothing. Mutation F2 nudges the drift to zero and goes red on the control's own assertion. Same lesson as 13-02's M2′ and 13-03's M4′, applied before the fact.
+- [Phase 13-05]: **Connection defaults are tuned for where the service runs, not for where the operator sits.** `PG_POOL_TIMEOUT=2.0` fits the in-region Fly machines and straddles the 0.43–5.63s pooler handshake measured from a laptop, so a runbook aimed at an operator at a keyboard has to say which knobs to raise. A `PoolTimeout` is always safe to retry — it is raised acquiring the connection, before any statement is sent.
 - [Phase 13-03]: `PriceWindow`'s payload is annotated `Price | float` rather than Voyage's flat rate being padded into the four-field `Price`. `covers()` is a date comparison that never inspects the payload; a `Price(input=0.06, output=0.0, …)` would have left a fake output price for someone to read as real.
 - [Phase 13-03]: The re-embed price is resolved before the tokenizer is touched and before the database is opened, so an unlisted model costs nothing to discover — no HF download, no connection, no embed call (DEC-12).
 - [Phase 13-03]: `--dry-run` wins over `--yes`. The flags contradict each other and the safe reading of a contradiction is the one that spends nothing.
