@@ -262,7 +262,12 @@ Plans:
   3. Effective-dating still resolves correctly across the 2026-08-31 → 2026-09-01 Sonnet 5 boundary, with a test pinning both windows.
   4. `pricing_unknown` semantics are unchanged — an unpriced model still fails loud and never costs zero.
   5. `/metrics` cost figures move from "the shape of the bill" to an approximation of the bill, and the docs say which it is.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 14-01-PLAN.md — Multipliers at the one choke point: discount × response-observed geo in `CallUsage.cost_usd`, boundary/fail-loud/preview-list-price pins (SC-1/3/4)
+- [ ] 14-02-PLAN.md — Voyage token capture via contextvar meter, `record_embedding` fold, RunRecord column migration on both live-table idioms, settle-sees-multiplied-cost gate (SC-4/5)
+- [ ] 14-03-PLAN.md — `/pricing` multipliers + nullable `windows.next` + embedding row, `/metrics` embedding aggregates, README/OPERATIONS honesty rewrite (SC-2/5)
 
 **Notes for discuss-phase:**
 - **Not a reversal** — pure extension of DEC-12. Lowest-risk requirement in the milestone.
