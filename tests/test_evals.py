@@ -8,6 +8,7 @@ that reports success on zero cases would all make CI green through a bug.
 
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -104,6 +105,128 @@ def test_select_picks_named_cases_in_order():
 def test_selecting_an_unknown_case_raises():
     with pytest.raises(KeyError):
         by_id("no-such-case")
+
+
+# -- the benchmark cannot silently shrink -----------------------------------
+#
+# Counted by case *properties*, never against a parallel list of strata kept
+# beside the data: a second list is a second source of truth, and the one that
+# drifts is always the one nobody runs. Minimums, not exact counts, so the
+# dataset can be rebalanced without a test edit -- but it can only grow.
+
+OFF_MENU = {"technical", "contested", "sparse", "general"}
+
+
+def topic_counts() -> dict[str | None, int]:
+    counts: dict[str | None, int] = {}
+    for case in GOLDEN:
+        counts[case.expect_topic_type] = counts.get(case.expect_topic_type, 0) + 1
+    return counts
+
+
+def content_words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 3}
+
+
+def test_dataset_taxonomy_has_at_least_forty_cases():
+    """Forty is what makes this a benchmark rather than a smoke test, and it
+    is the number the phase's success criterion names."""
+    assert len(GOLDEN) >= 40
+
+
+def test_dataset_taxonomy_per_stratum_minimums():
+    """A dataset can shrink without losing a case: rewrite eight technical
+    cases as general ones and the count holds while the rubric that hunts for
+    invented figures loses most of its evidence."""
+    counts = topic_counts()
+    assert counts.get("technical", 0) >= 7
+    assert counts.get("contested", 0) >= 5
+    assert counts.get("sparse", 0) >= 5
+    assert counts.get("general", 0) >= 7
+
+    off_menu = [
+        case for case in GOLDEN
+        if case.expect_topic_type == "general" and case.topic_label not in OFF_MENU
+    ]
+    assert len(off_menu) >= 3, [c.id for c in off_menu]
+
+
+def test_dataset_taxonomy_followup_strata():
+    """Phase 17 changes what a follow-up does. Each of these strata is one of
+    its before-measures, and a missing one is a comparison nobody can make."""
+    answerable = [c for c in GOLDEN if c.followups and all(f.answerable for f in c.followups)]
+    assert len(answerable) >= 4, [c.id for c in answerable]
+
+    assert any(len(c.followups) >= 2 for c in GOLDEN), "no chain case: turn two is untested"
+
+    refusals = [c for c in GOLDEN if any(not f.answerable for f in c.followups)]
+    assert len(refusals) >= 3, [c.id for c in refusals]
+
+    no_prior = [
+        c for c in GOLDEN
+        if any(f.expect_forced_stop == "no_prior_research" for f in c.followups)
+    ]
+    assert no_prior, "the no_prior_research stop has no golden case (it had none before 15-04)"
+
+
+def test_dataset_taxonomy_adversarial_cases_are_armed():
+    """A seeded note that is never recalled, or whose payload marker nothing
+    forbids, tests an empty pipe. Both halves have to be present in the same
+    case for the injection stratum to mean anything."""
+    armed = [c for c in GOLDEN if c.seeded_notes]
+    assert len(armed) >= 2, [c.id for c in armed]
+
+    for case in armed:
+        assert case.must_not_claim, f"{case.id} seeds a payload nothing forbids"
+        seeded = " ".join(case.seeded_notes).lower()
+        for marker in case.must_not_claim:
+            assert marker.lower() in seeded, (
+                f"{case.id} forbids {marker!r} but its own seed never says it"
+            )
+        # The heavy-overlap authoring rule on `Case.seeded_notes`, made
+        # checkable: HashEmbedder's buckets are salted per process and recall
+        # has a 0.3 floor, so a marginal seed's recall flips between runs.
+        for note in case.seeded_notes:
+            shared = content_words(note) & content_words(case.task)
+            assert len(shared) >= 3, f"{case.id}: seed shares only {sorted(shared)} with its task"
+
+
+def test_dataset_taxonomy_authored_reports_satisfy_their_own_pins():
+    """The honest offline coverage of authored content.
+
+    `grade_case_pins` runs only on the replay leg -- RECORDED_GRADERS are
+    consumed by `replay_case` alone -- so without this a case whose scripted
+    report contradicts its own `must_mention` would look green until somebody
+    had paid for a recording.
+    """
+    for case in GOLDEN:
+        body = case.report.lower()
+        for term in case.must_mention:
+            assert term.lower() in body, f"{case.id}: report never mentions {term!r}"
+        for marker in case.must_not_claim:
+            assert marker.lower() not in body, f"{case.id}: report claims {marker!r}"
+
+
+def test_dataset_taxonomy_phase17_flip_cases_are_tagged():
+    """Phase 17 inverts these expectations. Untagged, the cheapest way to make
+    that phase green is to edit the case -- which turns a before/after measure
+    into a rewritten history."""
+    for case in GOLDEN:
+        flips = any(not f.answerable for f in case.followups) or any(
+            f.expect_forced_stop == "no_prior_research" for f in case.followups
+        )
+        if flips:
+            assert "Phase 17" in case.why, f"{case.id} flips in Phase 17 but does not say so"
+
+
+def test_dataset_taxonomy_guardrail_cases_survive():
+    """"The existing twelve keep passing" is the settled constraint on this
+    phase; the two guardrail cases are the half of it a rewrite would lose
+    first, because neither asserts a topic type to notice."""
+    assert by_id("revision-cap-is-labelled").expect_forced_stop == "max_revisions_exceeded"
+    assert by_id("budget-cap-is-labelled").expect_forced_stop == "budget_exceeded"
+    for case_id in ("revision-cap-is-labelled", "budget-cap-is-labelled"):
+        assert by_id(case_id).expect_approved is False
 
 
 # --------------------------------------------------------------------------
