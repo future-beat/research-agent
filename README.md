@@ -10,7 +10,7 @@ until every claim is grounded. Watch the critic push back — that's the part
 worth seeing.
 
 A production service, not a notebook: bounded loops, per-run cost accounting,
-a spend cap, swappable Postgres/pgvector backends, an eval harness, and 615
+a spend cap, swappable Postgres/pgvector backends, an eval harness, and 630
 tests that run with no API keys.
 
 **Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
@@ -158,7 +158,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 615 tests, ~25s, no API keys, no network
+pytest                    # 630 tests, ~25s, no API keys, no network
 python -m evals           # 12 golden cases, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 ```
@@ -171,9 +171,16 @@ the database is missing.
 
 Offline evals grade the **pipeline** — routing, both guardrails, follow-up
 isolation, and the invariant that an unapproved draft is never returned as if
-approved. They cannot grade answer quality, because the answers are authored in
-the dataset; only `--live` does that. The CLI prints that caveat under every
-offline run.
+approved. The answers they run against are authored in the dataset, so nothing
+about answer quality can be read from them; only `--live` does that.
+
+An offline run also replays any real answers recorded under `evals/fixtures/`
+and grades those deterministically, keylessly, for free — and any red among
+them fails the run outright, whatever the overall pass rate says. That is a
+claim about what the pipeline said when it was recorded, not about what the
+current model would say. **No answers are recorded yet** (recording is a
+deliberate, paid, operator act), so today the CLI prints exactly the caveat it
+always did.
 
 ---
 
