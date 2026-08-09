@@ -53,7 +53,7 @@ shape: the two docs rows drafted as wave 4 landed in plan 14-03 wave 3 — no ro
 | 14-02.T1 | 14-02 | 2 | Telemetry honesty: a 0-token Voyage response is recorded as 0 tokens / $0 WITHOUT tripping pricing_unknown, and the docs field says "approximation" | unit | `pytest tests/ -k zero_token_response_honest` | ⬜ pending |
 | 14-02.T2 | 14-02 | 2 | RunRecord schema migration: new fields survive `asdict()` INSERTs on a LIVE (pre-existing) table — both PG and SQLite idioms | integration (real PG) | `pytest tests/ -k runrecord_schema_migrates` | ⬜ pending |
 | 14-02.T3 | 14-02 | 2 | Reservation settle sees MULTIPLIED cost (the choke point is upstream of settle) | integration (real PG) | `pytest tests/ -k settle_sees_multiplied_cost` | ⬜ pending |
-| 14-03.T1 | 14-03 | 3 | `/pricing` additive: `windows.next` nullable across the boundary; multipliers section; Voyage rows; unpriced model → 501 | unit | `pytest tests/ -k pricing_payload` | ⬜ pending |
+| 14-03.T1 | 14-03 | 3 | `/pricing` additive: `windows.next` nullable across the boundary; multipliers section; Voyage rows; unpriced model → 501 | unit | `pytest tests/ -k "pricing_payload or pricing_501"` | ⬜ pending |
 | 14-03.T2 | 14-03 | 3 | `/metrics` carries embedding spend; totals = model + search + embedding | unit | `pytest tests/ -k metrics_includes_embedding_spend` | ⬜ pending |
 | 14-03.T2 | 14-03 | 3 | Demo page badge / RunResponse unchanged in shape (additive only — Phase 12 rollout constraint) | unit | `pytest tests/ -k payload_additive` | ⬜ pending |
 | 14-03.T3 | 14-03 | 3 | README "Cost is computed from list prices" rewritten honestly: approximation, telemetry caveat, what is still NOT included | grep gate (baseline 1 → 0 old phrase) + prose review | ⬜ pending |

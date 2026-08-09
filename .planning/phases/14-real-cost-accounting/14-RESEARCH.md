@@ -546,7 +546,9 @@ def max_run_cost_usd() -> float:
 All other load-bearing claims are [VERIFIED] (local SDK/source inspection) or [CITED]
 (official docs fetched this session).
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All adopted — see 14-CONTEXT.md § Post-research calls (2026-08-06).
 
 1. **Does the response-observed geo design satisfy SC-1's "configurable multiplier"?**
    - What we know: the API reports geo per response; the rate is published (1.1x); CONTEXT
