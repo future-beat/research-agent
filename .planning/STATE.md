@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: in-progress
-stopped_at: "Completed 14-03-PLAN.md — the final wave of Phase 14 (/pricing multipliers + nullable windows.next + Voyage row + dual-provider 501, /metrics embedding aggregates contract-tested across both backends, README line 204 and OPERATIONS rewritten). All 3 plans executed. Branch gsd/phase-14-real-cost-accounting, NOT pushed — the user opens the PR. Next: /gsd:verify-work for Phase 14."
+status: planned
+stopped_at: "Phase 15 planned on gsd/phase-15-answer-quality-evals. 6 plans, 6 waves; checker 1 blocker (rate gate neutralized the hard replay gates) + 4 warnings, all fixed. Next: /gsd:execute-phase 15."
 last_updated: "2026-08-09T11:20:00.000Z"
-last_activity: "2026-08-09 — Phase 14 wave 3 executed, phase complete: usage.window_for/next_window make window resolution askable at fixed dates; /pricing gained multipliers-in-effect, current + NULLABLE next window and the Voyage row, with the 501 arm now covering both providers; /metrics breaks out embedding_tokens/requests/usd, proven identical across SQLite and Postgres through test_store_contract.py's parameterised fixture (NOT test_metrics.py, which is SQLite-only); README's list-price limitation and OPERATIONS' env table + ~1.33 reservation note rewritten. Five mutations (K, N, L, L′, M) all red by the intended route; the two prose gates recorded as honest green with the reason. No new ADR (extension of DEC-12, not a reversal); ships with the next deploy. Suite 563/65 plain, 627/1 armed."
+last_activity: "2026-08-06 — Phase 15 planned: recorded-response replay graded deterministically offline, dataset 12→40 with no_prior_research and seeded_notes adversarial cases, models-map fixtures, all-must-pass replay exit rule, ADR-0009. Calibration spend ~$0.25 and the full ~$10-16 record run are operator checkpoints."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,76 +25,30 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 14 of 17 (Real cost accounting) — **EXECUTED, awaiting verify + PR**
-Plan: 3 of 3 complete · branch `gsd/phase-14-real-cost-accounting` off clean main (PR #7 merged),
-**not pushed** — the user opens the PR.
-Status: All three waves in. `discount × geo` applies at `CallUsage.cost_usd` and at no other
-site in `src/` (`service.py` now references the two readers but only to DISPLAY them, confirmed
-on the diff); Voyage embedding spend reaches the usage dict, the runs table, `spend_since` and
-now `/metrics`' own line items; `/pricing` reports the multipliers in effect, the current and
-next windows with `next` nullable from day one, and the Voyage row, and 501s for an unpriced
-model from **either** provider. Fifteen mutations across the three waves, every one red by the
-intended route; every `-k` selector confirmed to collect before being trusted.
+Phase: 15 of 17 (Answer-quality evals) — **PLANNED, not started**
+Plan: 0 of 6 · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged)
+Status: Planned and verified. Checker blocker: the shared --min-pass-rate 0.9 mathematically
+neutralized every "hard" replay gate (12 green + 1 red replay = 92.3% → exit 0). Fixed with
+an all-must-pass replay exit rule; behavioural leg stays rate-gated. Plus: the Phase 16
+claim on the model-mismatch gate was FALSE (Phase 16 changes the critic model, not
+graph.MODEL) — fixtures now carry a models MAP so the gate is extensible.
 
 Progress: [████████░░] 82% (14 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 14: [██████████] 3 of 3 plans — 14-01, 14-02, 14-03 complete
+Phase 15: [░░░░░░░░░░] 0 of 6 plans — planned
 
 **Carry into execution:**
-- ~~Multipliers at ONE choke point~~ **DONE (14-01), proven downstream-complete (14-02),
-  re-gated after the display site landed (14-03).**
-  `grep -rln "cost_discount_factor()\|inference_geo_multiplier()" src/research_agent/` now
-  returns **exactly `usage.py` + `service.py`**, and in `service.py` both call results appear
-  only as values in the returned `/pricing` payload (lines 921–922) — no arithmetic. The
-  behavioural guarantee remains 14-02's e2e ratio gate.
-- ~~`/pricing` and `/metrics` surface~~ **DONE (14-03).** `windows.next` is nullable from day
-  one (pinned at `date(2026, 9, 1)` and `date(2030, 1, 1)`), no assertion in `test_usage.py`
-  or `test_service.py` consults today's date, and `test_payload_additive_for_deployed_consumers`
-  names every pre-phase key explicitly — mutation M (rename `total_usd`) reds it.
-- ~~README line 204~~ **DONE (14-03).** Rewritten: approximation-not-invoice, the telemetry
-  caveat with the 0-token example, and four named exclusions. OPERATIONS carries both env
-  vars, the hybrid geo semantics and the ~1.33 note; `limits.py` is docstring-only.
-- **No new ADR for Phase 14, deliberately** — a pure extension of DEC-12, not a reversal, so
-  `docs/adr/README.md`'s supersession convention has nothing to apply to. Recorded in
-  14-03-SUMMARY rather than left silent.
-- **A plan's file list can contradict its own action text.** 14-03 pointed
-  `test_metrics_includes_embedding_spend` at `tests/test_metrics.py` (one SQLite fixture, no
-  parameterisation) while asking for the both-backends idiom. It went to
-  `tests/test_store_contract.py`, where the parameterised `runs` fixture is; following the
-  file list would have produced a green gate over an untested Postgres coercion path.
-- ~~Hybrid geo~~ **DONE (14-01).** `CallUsage.inference_geo` is captured with the file's
-  defensive `getattr`; `""`/`"global"` → 1.0, `"us"` → the env rate, anything else raises
-  into `pricing_unknown`. Nothing yet *reports* which geo was observed — /pricing (14-03)
-  shows the configured rate only, and the runs table still has no geo column.
-- ~~Voyage `total_tokens` is discarded at the wrapper~~ **DONE (14-02).** Captured via
-  `usage.report_embedding` (no-op without a meter) → `embedding_meter()` in
-  `researcher_node` → `record_embedding`. **NEITHER multiplier applies to it** — pinned by
-  an identical-under-`0.5`-and-`2.0` assertion, not by prose. Zero-token responses record
-  honestly (mutation O red on `pricing_unknown`).
-- ~~RunRecord schema migration~~ **DONE (14-02).** Three columns, both idioms, both proven
-  against a table that predates them AND has a row in it, with the columns' absence asserted
-  first. `grep -c "ADD COLUMN IF NOT EXISTS embedding" metrics.py` = 3, `PRAGMA
-  table_info(runs)` = 1.
-- **A prose gate is honest-green by construction, and the reason must be recorded.** For a
-  content-presence grep on documentation, the gate IS the content change — deleting the
-  sentence to watch it red tests `grep`, not the document. What makes it non-vacuous is a
-  measured baseline of **zero** before the edit (11-03's lesson); all five prose gates this
-  phase had one.
-- **A ratio test is invariant under the mutation it looks like it catches.** 14-01's
-  boundary test asserts the absolute cost as well as the 1.5× ratio, because 18/12 is 1.5
-  whether or not the discount was applied to both sides.
-- **Never `git checkout --` a file to revert a mutation while uncommitted work sits on it**
-  (12-06 logged this; 14-02 repeated it and lost the wave's `memory.py` edits, caught
-  immediately by two red tests). Copy the file to the scratchpad and restore from there.
-- **No deploy this phase; it ships with the next one** — now written into `docs/OPERATIONS.md`
-  as the chosen option, not merely planned. At neutral defaults the deployed numbers do not
-  move, and the runs-table migration is idempotent under `ensure_schema`'s advisory lock. The
-  post-deploy smoke (one demo run → non-zero `cost.embedding_usd`, `/pricing` windows) is
-  booked to whenever that deploy happens.
-- Local PG on :54329 running, and its `runs` table is left in the MIGRATED state by
-  `test_runrecord_schema_migrates_a_column_dropped_pg_table` — that is deliberate.
-  Baselines now: plain **563/65**, armed **627/1** (were 553/64 and 616/1; +10/+11, one new
-  skip, which is `test_metrics_includes_embedding_spend[postgres]` under the store-contract
-  file's standard `_skip_without_postgres` idiom).
+- Exit rule: any failing/errored replay CaseResult → non-zero exit; 0.9 governs only the
+  behavioural denominator. The split test proves both halves in one test.
+- Fixtures record a models MAP ({pipeline, judge}, extensible); the mismatch gate compares
+  models["pipeline"] == graph.MODEL and carries its own "Cannot catch:" line.
+- Every quality grader ships a passing AND a failing synthetic fixture.
+- seeded_notes authoring RULE: ≥3 distinctive content words shared with the case task
+  (HashEmbedder buckets are per-process salted; 0.3 similarity floor).
+- Orphaned fixtures (case_id gone from GOLDEN) are a loud red CaseResult, not a KeyError.
+- Wave 6 is a checkpoint: calibration recording ~$0.25 (operator spend), then a
+  record-now-vs-defer decision on the full ~$10-16 run. Deferral does NOT block the phase;
+  record-now locks intro pricing before 2026-09-01.
+- Local PG on :54329. Baselines: plain 563/65, armed 627/1, offline evals 12/12 keyless.
 
 ## Performance Metrics
 
