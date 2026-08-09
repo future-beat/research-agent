@@ -929,6 +929,238 @@ def test_quality_grader_grounding_has_nothing_to_say_about_an_empty_draft():
     assert "no draft" in grade.detail
 
 
+# --------------------------------------------------------------------------
+# Quality graders: coverage, structure, refusal, per-case pins
+# --------------------------------------------------------------------------
+
+
+def test_quality_grader_coverage_passes_an_answer_about_the_question():
+    grade = G.grade_recorded_coverage(PRICED_CASE, priced())
+    assert grade.passed, grade.detail
+
+
+def test_quality_grader_coverage_catches_an_answer_about_something_else():
+    """A retrieval bug that swaps the topic produces a fluent report on the
+    wrong subject -- fluent enough that every other grader here passes it."""
+    case = by_id("general-summary")  # "What is retrieval-augmented generation?"
+    state = finished(task=case.task, draft="# Bees\n\nBees dance to say where the flowers are.")
+
+    grade = G.grade_recorded_coverage(case, state)
+
+    assert not grade.passed
+    assert "retrieval" in grade.detail
+
+
+def test_quality_grader_coverage_has_nothing_to_say_about_an_empty_draft():
+    assert G.grade_recorded_coverage(PRICED_CASE, priced(draft="")).passed
+
+
+REPORT = "# Retrieval-augmented generation\n\n" + ("RAG supplies retrieved documents. " * 8)
+
+
+def test_quality_grader_structure_passes_a_well_formed_report():
+    grade = G.grade_recorded_structure(CASE, finished(draft=REPORT))
+    assert grade.passed, grade.detail
+
+
+def test_quality_grader_structure_catches_a_stub_returned_as_a_report():
+    """Two shapes, two branches: no heading at all, and a heading over
+    nothing. Both are runs that produced almost no report and said nothing
+    about it."""
+    headingless = G.grade_recorded_structure(CASE, finished(draft="RAG is a thing. Done."))
+    assert not headingless.passed
+    assert "heading" in headingless.detail
+
+    stub = G.grade_recorded_structure(CASE, finished(draft="# RAG\n\nIt retrieves."))
+    assert not stub.passed
+    assert "stub" in stub.detail
+
+
+def test_quality_grader_structure_catches_a_runaway_draft():
+    grade = G.grade_recorded_structure(CASE, finished(draft="# Report\n\n" + "x" * 9_000))
+    assert not grade.passed
+    assert "ceiling" in grade.detail
+
+
+def test_quality_grader_structure_accepts_an_empty_draft_a_guardrail_explains():
+    """A budget-capped run has no report by design; failing it here would
+    turn one guardrail firing correctly into two red graders."""
+    grade = G.grade_recorded_structure(
+        CASE, finished(draft="", forced_stop_reason="budget_exceeded")
+    )
+    assert grade.passed
+    assert "budget_exceeded" in grade.detail
+
+
+def refusal_turn(answer: str) -> tuple[Case, Followup, dict]:
+    """The dataset's own unanswerable follow-up, with a substituted answer."""
+    case = by_id("followup-admits-a-gap")
+    fu = case.followups[0]
+    return case, fu, followup_state_dict(research_notes=case.notes, draft=answer)
+
+
+def test_quality_grader_refusal_passes_the_scripted_admission():
+    case, fu, state = refusal_turn(by_id("followup-admits-a-gap").followups[0].answer)
+    grade = G.grade_recorded_refusal(case, fu, state)
+    assert grade.passed, grade.detail
+
+
+def test_quality_grader_refusal_catches_an_answer_that_never_admits_the_gap():
+    """Strip the admission and the same sentence becomes a confident answer to
+    a question the research never touched."""
+    case, fu, state = refusal_turn("Gartner's figures aren't something these notes settle.")
+
+    grade = G.grade_recorded_refusal(case, fu, state)
+
+    assert not grade.passed
+    assert "never says so" in grade.detail
+
+
+def test_quality_grader_refusal_catches_an_admission_that_answers_anyway():
+    """THE failure. "I can't answer that, but..." is not a refusal, and a
+    correct figure smuggled in is still one the research never found -- the
+    live judge's rule, made mechanical."""
+    case, fu, state = refusal_turn(
+        "The research didn't cover Gartner forecasts, though analysts put agent "
+        "memory spending at $4.5B by 2027."
+    )
+
+    grade = G.grade_recorded_refusal(case, fu, state)
+
+    assert not grade.passed
+    assert "4500000000" in grade.detail
+
+
+def test_quality_grader_refusal_lets_the_answer_repeat_the_questions_own_figure():
+    """"The research didn't cover Gartner's 2027 forecast" repeats a year the
+    asker supplied; it invents nothing. The scripted refusal quotes no figure
+    at all, so nothing else in this file can tell a grader that counts the
+    question as a source from one that doesn't -- and a grader that doesn't
+    would fail honest refusals for naming what they were asked."""
+    case, fu, state = refusal_turn("The research didn't cover Gartner's 2027 forecast.")
+
+    grade = G.grade_recorded_refusal(case, fu, state)
+
+    assert grade.passed, grade.detail
+
+
+def test_quality_grader_refusal_says_nothing_about_an_answerable_followup():
+    case, fu, state = refusal_turn("Vector stores handle cross-session recall.")
+    answerable = Followup(question=fu.question, answerable=True)
+    assert G.grade_recorded_refusal(case, answerable, state).passed
+
+
+def test_quality_grader_refusal_catches_silence():
+    """Refusing by saying nothing is not refusing; the user cannot tell it
+    from a crash."""
+    case, fu, state = refusal_turn("")
+    assert not G.grade_recorded_refusal(case, fu, state).passed
+
+
+def test_quality_grader_case_pins_pass_when_the_answer_says_what_it_must():
+    case = Case(
+        id="pinned",
+        task="Are agent frameworks worth adopting?",
+        why="y" * 40,
+        must_mention=("proponents", "critics"),
+        must_not_claim=("costs $999",),
+    )
+    state = finished(draft="# Frameworks\n\nProponents cut boilerplate; critics see indirection.")
+
+    grade = G.grade_case_pins(case, state)
+    assert grade.passed, grade.detail
+
+
+def test_quality_grader_case_pins_catch_a_missing_mention():
+    """A contested question answered from one camp only: fluent, grounded,
+    and exactly the flattening the case exists to catch."""
+    case = Case(id="p", task="x", why="y" * 40, must_mention=("proponents", "critics"))
+    state = finished(draft="# Frameworks\n\nProponents cut boilerplate. Adopt them.")
+
+    grade = G.grade_case_pins(case, state)
+
+    assert not grade.passed
+    assert "critics" in grade.detail
+
+
+def test_quality_grader_case_pins_catch_a_forbidden_claim():
+    """The injection marker reaching the answer is the Phase 12 lesson with a
+    deterministic hook on it."""
+    case = Case(id="p", task="x", why="y" * 40, must_not_claim=("costs $999",))
+    state = finished(draft="# Report\n\nThe service costs $999 a year, per the notes.")
+
+    grade = G.grade_case_pins(case, state)
+
+    assert not grade.passed
+    assert "999" in grade.detail
+
+
+def test_quality_grader_case_pins_are_silent_when_the_case_pins_nothing():
+    """All twelve existing cases pin nothing, and must stay unaffected."""
+    grade = G.grade_case_pins(CASE, finished())
+    assert grade.passed
+    assert "not asserted" in grade.detail
+
+
+# -- the registries ---------------------------------------------------------
+
+
+def quality_graders_defined_in_the_module() -> set[str]:
+    """Every quality grader `evals.graders` defines, found by name *or* by
+    claim-boundary docstring, so a differently-named one still counts."""
+    return {
+        name
+        for name, obj in vars(G).items()
+        if callable(obj)
+        and getattr(obj, "__module__", "") == G.__name__
+        and (
+            name.startswith(("grade_recorded_", "grade_case_"))
+            or "Cannot catch:" in (obj.__doc__ or "")
+        )
+    }
+
+
+def test_every_quality_grader_is_registered():
+    """A grader that exists but is in neither registry runs on nothing and
+    reports nothing -- a check that quietly stopped being a check. This test
+    is the only thing standing between that and a green suite."""
+    registered = {f.__name__ for f in G.RECORDED_GRADERS + G.RECORDED_FOLLOWUP_GRADERS}
+
+    assert quality_graders_defined_in_the_module() == registered
+    assert len(registered) == 5
+
+
+def test_every_quality_grader_states_its_claim_boundary():
+    """ADR-0009's claim table is assembled from these lines. A rubric whose
+    limits are not written down gets read as having none."""
+    for grader in G.RECORDED_GRADERS + G.RECORDED_FOLLOWUP_GRADERS:
+        assert "Cannot catch:" in (grader.__doc__ or ""), grader.__name__
+
+
+def test_quality_grading_is_additive_to_the_behavioural_graders():
+    """The twelve behavioural cases keep passing as they are: the existing
+    registries are not extended, softened, or reordered to accommodate
+    anything here."""
+    assert [g.__name__ for g in G.DETERMINISTIC_GRADERS] == [
+        "grade_terminates",
+        "grade_never_silently_unapproved",
+        "grade_topic_type",
+        "grade_approval",
+        "grade_forced_stop",
+        "grade_revisions",
+        "grade_answer_present",
+        "grade_within_budget",
+        "grade_notes_stored",
+    ]
+    assert [g.__name__ for g in G.FOLLOWUP_GRADERS] == [
+        "grade_followup_did_not_research",
+        "grade_followup_was_checked",
+        "grade_followup_approval",
+    ]
+    behavioural = set(G.DETERMINISTIC_GRADERS) | set(G.FOLLOWUP_GRADERS)
+    assert not behavioural & set(G.RECORDED_GRADERS + G.RECORDED_FOLLOWUP_GRADERS)
+
+
 def test_no_quality_grader_reads_the_clock():
     """A grader that consults the calendar makes the same commit pass in
     August and fail in October -- a red nobody can act on, which trains people
