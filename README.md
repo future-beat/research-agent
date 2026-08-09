@@ -10,7 +10,7 @@ until every claim is grounded. Watch the critic push back — that's the part
 worth seeing.
 
 A production service, not a notebook: bounded loops, per-run cost accounting,
-a spend cap, swappable Postgres/pgvector backends, an eval harness, and 662
+a spend cap, swappable Postgres/pgvector backends, an eval harness, and 663
 tests that run with no API keys.
 
 **Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
@@ -158,8 +158,8 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 662 tests, ~25s, no API keys, no network
-python -m evals           # 40 golden cases, offline and free
+pytest                    # 663 tests, ~25s, no API keys, no network
+python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
 ```
@@ -172,16 +172,17 @@ the database is missing.
 
 Offline evals grade the **pipeline** — routing, both guardrails, follow-up
 isolation, and the invariant that an unapproved draft is never returned as if
-approved. The answers they run against are authored in the dataset, so nothing
-about answer quality can be read from them; only `--live` does that.
+approved. The answers that leg runs against are authored in the dataset, so
+nothing about answer quality can be read from it.
 
 An offline run also replays any real answers recorded under `evals/fixtures/`
 and grades those deterministically, keylessly, for free — and any red among
 them fails the run outright, whatever the overall pass rate says. That is a
 claim about what the pipeline said when it was recorded, not about what the
-current model would say. **No answers are recorded yet** (recording is a
-deliberate, paid, operator act), so today the CLI prints exactly the caveat it
-always did.
+current model would say. **One case of forty is recorded** (recording is a
+deliberate, paid, operator act), so a run now grades 41 cases and the caveat
+prints that recording's date, model, commit and age instead of the original
+line.
 
 Recording is `python -m evals --record`, and it is the only command here that
 spends money on purpose. It always prints a per-case cost preview and then
@@ -219,7 +220,7 @@ Known, and deliberate for the scope.
 
 - **Follow-ups can't reach for new information.** By design: a follow-up needing a fresh search gets "the research didn't cover that" rather than an answer.
 - **The critic shares the writer's model.** Independent enough to catch ungrounded claims, not a genuinely independent evaluator. The eval judge runs on a stronger model precisely because of this.
-- **Offline evals can't measure answer quality.** The golden set is now forty cases across a stated taxonomy — technical, contested, sparse, general, off-menu classifier output, both guardrails, follow-ups the notes can and cannot answer, a follow-up with no prior research, and adversarial notes seeded into the run's own store — and each case says what it exists to catch. That makes the *pipeline* measurement defensible. It does not make the *answers* measurable: the answers those forty cases run against are still authored in the dataset, and no real answer has been recorded yet.
+- **Offline evals can't tell you the current model is good — only what a recorded one said.** The golden set is forty cases across a stated taxonomy — technical, contested, sparse, general, off-menu classifier output, both guardrails, follow-ups the notes can and cannot answer, a follow-up with no prior research, and adversarial notes seeded into the run's own store — and each case says what it exists to catch. Thirty-nine of them still run against answers authored in the dataset, which measures the *pipeline* and nothing else. What changed is the fortieth: a real run recorded against the live API is committed as a fixture, and every push replays it keylessly and grades it — every figure in the answer traced to that run's own notes, the question's terms present, the report shaped like a report, and a refusal that admits its gap without filling it. Any red there fails the build outright, whatever the overall pass rate says. **Fixtures exist for 1 of 40 cases**; recording the rest is real money and a decision nobody has made yet, so the suite claims one recorded answer, not a benchmark. And the ceiling is unmoved: this says what the pipeline said on a stated date, at a stated commit, on a stated model — the run prints all three — never what the model would say today. Only `--live` does that, and a change to the *critic's* model won't even trip the staleness gate, which compares the writer's. The graders are mechanical and say so in their own docstrings: they catch an invented figure and miss a paraphrased one, catch an off-topic report and miss an on-topic non-answer, catch a stub and miss well-formed nonsense — and, measured on the real recording, they miss a fabricated price that collides with a version number elsewhere in the notes. All of it is written down in [ADR-0009](docs/adr/0009-recorded-answer-quality-evals.md), including what each rubric cannot see.
 - **Cost approximates the invoice. It is not the invoice.** What it now includes: list price scaled by two multipliers at the single point tokens become dollars — `COST_DISCOUNT_FACTOR`, a negotiated discount the API cannot report and you therefore declare, and the `inference_geo` multiplier, where `INFERENCE_GEO_MULTIPLIER` sets the *rate* but the **response's** `usage.inference_geo` decides per call whether it applies (a workspace default can put a request in a billed geo with no code change, so an env-only flag would disagree with the bill in one direction or the other). It also now includes Voyage embedding spend — around `$0.0002` of a `~$0.15` run, the point being that a whole provider is no longer missing rather than that the number moved. Those embedding dollars are computed from **Voyage-reported token counts, which are telemetry and not billing truth**: measured live, a corpus the tokenizer counted at 40 tokens was reported as 25, and a one-word document was reported as 0 while returning a perfectly good embedding. What is still **not** included: any reconciliation against the actual bill — nothing here reads an invoice; the geo multiplier on the `$10/1k` web-search fee, since the published `1.1x` is scoped to token pricing categories; Voyage's free-allowance tiers; and the 1-hour cache-write rate, which this service never uses and does not model. List prices remain effective-dated rather than fixed: Claude Sonnet 5's introductory window runs through `2026-08-31` and the standard window applies from `2026-09-01`, so any rate quoted as permanent is wrong by some date. `/pricing` reports the window accounting is using today, the one that comes next, and the multipliers in effect — read it there, not from a number in a document.
 - **Notes and sessions expire after seven days, and neither is shared.** Both belong to the identity that created them; a session stops resolving seven days after its last turn, a note seven days after it was written, and the next write sweeps what has aged out. Reads deliberately don't renew that clock — otherwise "seven days since you used it" would quietly mean "seven days since you looked at it". Scoping notes is a safety fix as much as a hygiene one: recalled notes are pasted into the researcher's prompt and the critic reviews what comes back, so a communal store put one visitor's text on the path to another visitor's verdict. What remains unbounded is *within* one identity — no dedup or summarisation, because neither has semantics that four different vector backends can agree on, and the whole claim here is that they behave identically.
 - **Running on SQLite pins you to one machine.** That's the local and container default: a second machine would hold its own database and 404 on sessions that exist. Production points `DATABASE_URL` at Supabase Postgres, which is what removes the constraint — the deploy config asserts the two can't drift apart in either direction.

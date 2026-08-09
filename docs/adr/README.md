@@ -43,7 +43,7 @@ rather than reversing, that is a new record too.
 
 ## Index
 
-Seven of the eight records are `Accepted` today. One supersession has actually
+Eight of the nine records are `Accepted` today. One supersession has actually
 happened — ADR-0007 overturned ADR-0006 in Phase 12, which ADR-0006 had itself
 forecast. The remaining *expected* supersessions come from the reversal register
 in `.planning/ROADMAP.md` and are forecasts, not facts.
@@ -58,18 +58,22 @@ in `.planning/ROADMAP.md` and are forecasts, not facts.
 | 0006 | [0006-separate-sessions-token-fails-closed.md](0006-separate-sessions-token-fails-closed.md) | A separate `SESSIONS_TOKEN`, and the session endpoints fail closed | Superseded | [ADR-0007](0007-anonymous-identity-fairness-global-cap.md) (Phase 12) |
 | 0007 | [0007-anonymous-identity-fairness-global-cap.md](0007-anonymous-identity-fairness-global-cap.md) | Fairness keys on an auto-issued anonymous identity; the global cap bounds the bill | Accepted — supersedes [ADR-0006](0006-separate-sessions-token-fails-closed.md) | — |
 | 0008 | [0008-embedding-migration-two-commands.md](0008-embedding-migration-two-commands.md) | Embedding migration is two commands: copy-only preserved, re-embed measured | Accepted | — |
+| 0009 | [0009-recorded-answer-quality-evals.md](0009-recorded-answer-quality-evals.md) | Answer quality is graded from recorded runs, and never claimed of the current model | Accepted | — |
 
-**ADR-0006, ADR-0007 and ADR-0008 are the odd ones out.** Records 0001–0005 are promotions of
+**ADR-0006 through ADR-0009 are the odd ones out.** Records 0001–0005 are promotions of
 existing `docs/DESIGN.md` passages and carry a `**Promoted from:**` line. ADR-0006 originates
 in the Phase 10.5 hotfix that closed the live endpoint exposure, ADR-0007 in Phase 12's
-identity work, and ADR-0008 in Phase 13's embedding migration — there is no `docs/DESIGN.md`
-passage behind any of the three, so all three carry `**Source:**` instead. Do not go looking
-for one.
+identity work, ADR-0008 in Phase 13's embedding migration, and ADR-0009 in Phase 15's
+answer-quality evals — there is no `docs/DESIGN.md` passage behind any of the four, so all
+four carry `**Source:**` instead. Do not go looking for one.
 
-**ADR-0008 supersedes nothing, deliberately.** It reverses the *scope* of `DEC-10` in
-`.planning/intel/decisions.md`, which was never promoted to a numbered record — so by the
-convention above there is no status line to change and no `Accepted — supersedes ADR-000M`
-form to use. What survives of DEC-10 and what is new are recorded in 0008's prose instead.
+**ADR-0008 and ADR-0009 supersede nothing, deliberately.** Each reverses the *scope* of a
+`DEC-NN` in `.planning/intel/decisions.md` — `DEC-10` and `DEC-20` respectively — that was
+never promoted to a numbered record, so by the convention above there is no status line to
+change and no `Accepted — supersedes ADR-000M` form to use. What survives of the DEC and what
+is new are recorded in the new record's prose instead. 0009 follows 0008's shape on purpose:
+DEC-20's caveat is carried forward and *upgraded* rather than deleted, exactly as DEC-10's
+copy-only guarantee was preserved as a named command rather than dropped.
 
 **Reading a superseded record.** ADR-0006 stays exactly as it was written, including the
 claims Phase 12 overturned; that is the point of keeping it. Which of its parts survived is
