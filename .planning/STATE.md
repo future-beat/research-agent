@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: planned
-stopped_at: "Phase 14 planned on gsd/phase-14-real-cost-accounting (off clean main). 3 plans, 3 waves; checker 1 blocker + 5 warnings, all fixed. Next: /gsd:execute-phase 14."
-last_updated: "2026-08-09T08:45:00.000Z"
-last_activity: "2026-08-06 — Phase 14 planned: multipliers at the CallUsage.cost_usd choke point, hybrid geo (env sets rate, response usage.inference_geo decides applicability), Voyage total_tokens captured via contextvar meter, RunRecord schema migration, additive /pricing with windows.next. No deploy of its own — ships with the next one."
+status: in-progress
+stopped_at: "Completed 14-01-PLAN.md (discount × geo at the CallUsage.cost_usd choke point, hybrid geo, fail-loud unknown geo, boundary and clamp pins, preview stays list price). Branch gsd/phase-14-real-cost-accounting. Next: 14-02 (Voyage meter, RunRecord columns, settle-sees-multiplied-cost)."
+last_updated: "2026-08-09T10:20:00.000Z"
+last_activity: "2026-08-09 — Phase 14 wave 1 executed: multipliers apply at CallUsage.cost_usd and provably nowhere else in src; INFERENCE_GEO_MULTIPLIER sets the rate while the response's usage.inference_geo decides applicability; an unrecognised geo takes the existing UnknownModelPricing route to pricing_unknown; ≤0 or unparseable factors fall back so a typo cannot disarm the budget guardrails. Four mutations, all red by the intended assertion. Suite 539/63 plain, 601/1 armed."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 24
-  percent: 63
+  completed_plans: 25
+  percent: 64
 ---
 
 # Project State
@@ -25,28 +25,42 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 14 of 17 (Real cost accounting) — **PLANNED, not started**
-Plan: 0 of 3 · branch `gsd/phase-14-real-cost-accounting` off clean main (PR #7 merged)
-Status: Planned and verified. Checker found 1 blocker — the additive-payload gate itself
-was vacuous (a `-k` selector collecting zero tests, the failure class this project has
-now hit SIXTEEN times) — plus 5 warnings; all fixed as plan-text edits.
+Phase: 14 of 17 (Real cost accounting) — **IN PROGRESS**
+Plan: 1 of 3 complete · branch `gsd/phase-14-real-cost-accounting` off clean main (PR #7 merged)
+Status: Wave 1 in. The arithmetic is done and gated: `discount × geo` applies at
+`CallUsage.cost_usd` and at no other site in `src/`, with the geo *rate* configured and its
+*applicability* read off each response. Four mutations red by the intended assertion; both
+`-k` selectors confirmed to collect before being trusted.
 
 Progress: [████████░░] 76% (13 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 14: [░░░░░░░░░░] 0 of 3 plans — planned
+Phase 14: [███░░░░░░░] 1 of 3 plans — 14-01 complete
 
 **Carry into execution:**
-- Multipliers at ONE choke point (`CallUsage.cost_usd`); `settle()` only deletes the
-  reservation row, so multiplied cost reaches the cap with no second site.
-- Hybrid geo: env sets the 1.1 rate; the RESPONSE `usage.inference_geo` decides
-  applicability. Field-absent case covered (older fakes lack the attr).
+- ~~Multipliers at ONE choke point~~ **DONE (14-01).** `cost_discount_factor` /
+  `inference_geo_multiplier` are referenced in `usage.py` and nowhere else in `src/`
+  (baseline 0 files → exactly 1). 14-02 and 14-03 must not add a second site: 14-02's
+  `record_embedding` is a *separate* Voyage path, not a second application of these two
+  factors, and 14-03's `service.py` only DISPLAYS them (re-gate there — the grep's
+  expected answer becomes usage.py + service.py).
+- ~~Hybrid geo~~ **DONE (14-01).** `CallUsage.inference_geo` is captured with the file's
+  defensive `getattr`; `""`/`"global"` → 1.0, `"us"` → the env rate, anything else raises
+  into `pricing_unknown`. Nothing yet *reports* which geo was observed — /pricing (14-03)
+  shows the configured rate only.
 - Voyage `total_tokens` is received and DISCARDED at the wrapper today; contextvar meter
   captures it. Zero-token responses are telemetry, not pricing_unknown.
 - RunRecord schema: `asdict()` INSERTs crash on live tables — migration test must use a
   PRE-EXISTING old-schema table (fresh-table migration tests are vacuous).
 - `make_client` sets `DEMO_DAILY_USD_CAP=0` — settle assertions need the cap monkeypatched
   on or they assert nothing.
+- **README line 204 is now FALSE as written** ("no enterprise discounts or `inference_geo`
+  multiplier"). 14-01 left it deliberately — 14-03 owns the rewrite and must not read it as
+  still-true prose. 14-VALIDATION's "present at 1 occurrence" baseline still holds.
+- **A ratio test is invariant under the mutation it looks like it catches.** 14-01's
+  boundary test asserts the absolute cost as well as the 1.5× ratio, because 18/12 is 1.5
+  whether or not the discount was applied to both sides.
 - No deploy this phase; ships with the next one (recorded in OPERATIONS by 14-03.T3).
-- Local PG on :54329 running. Baselines: plain 529/63, armed 591/1.
+- Local PG on :54329 running. Baselines now: plain **539/63**, armed **601/1** (were
+  529/63 and 591/1; +10 in both arms, zero new skips).
 
 ## Performance Metrics
 
@@ -65,6 +79,7 @@ Phase 14: [░░░░░░░░░░] 0 of 3 plans — planned
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
 | 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
+| 14 | 1 of 3 (14-01) | 31min | 31min |
 
 **Recent Trend:**
 
@@ -87,6 +102,11 @@ Recent decisions affecting current work:
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
 - [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
+- [Phase 14-01]: **A billing dimension the API reports per call must be read from the response, not declared in config.** A workspace `default_inference_geo: "us"` bills 1.1× with no code change, so a blind `INFERENCE_GEO_MULTIPLIER` can disagree with the invoice in either direction. The env sets the *rate*; `usage.inference_geo` on each response decides *applicability*. Mutation B (apply unconditionally) is red on the unmultiplied-`""` assertion.
+- [Phase 14-01]: **A misconfigured cost factor must fail toward reporting MORE cost, never less.** `COST_DISCOUNT_FACTOR=0` is both a plausible typo and a plausible reading of "disable the discount", and honouring it costs every run at $0.00 — which the per-run cap and the daily cap read as a service that never spends. `≤ 0` or unparseable falls back to the default in both readers, pinned by a test that asserts the *arithmetic* still returns list price, not merely the reader's return value.
+- [Phase 14-01]: **An unrecognised value in a pricing dimension takes the existing fail-loud route, not a parallel one.** A future `inference_geo: "eu"` raises `UnknownModelPricing` and reaches `pricing_unknown` through `record()`'s untouched `except` clause, exactly as an unpriced model does. DEC-12 extended sideways rather than reimplemented.
+- [Phase 14-01]: **A ratio assertion is invariant under the mutation it appears to catch.** Deleting the discount term leaves the boundary test's `after == before × 1.5` green — 18/12 is 1.5 whether or not both sides were halved — so the test asserts the absolute cost as well. Same family as 13-03's M4′ and 13-02's M2′: the assertion that looks like the gate often is not the gate.
+- [Phase 14-01]: **Two multipliers, two different bases, written in the code rather than the plan.** The published 1.1× is scoped to token pricing categories so it skips the $10/1k web-search fee; a negotiated discount is applied to the invoice so it takes the fee with it. Both are RESEARCH assumptions (A1, A2) and both are commented where the arithmetic is, so a future reader amends a stated assumption rather than discovering one.
 - [Phase 13-05]: **A comparison harness has as many variables as it has non-deterministic inputs.** `recall_golden` guarded the two on the stored side (the approximate HNSW index, and ties) and missed the one on the query side: `recall_delta(run_golden(old), run_golden(new))` embeds each query twice. Against the real API that made a two-table comparison a four-way one, and the live source table deltaed against itself on 2 of 8 queries. `FrozenQueryEmbedder` pins it. The general rule: **the control for "did X change recall?" is the source measured against ITSELF**, and if that is not clean nothing measured against the target means anything.
 - [Phase 13-05]: **A deterministic fake hides exactly the class of defect that only appears against the real thing.** Three waves of green gates could not have found the query-vector variable, because every one of them used a bit-reproducible `FakeEmbedder` for which re-embedding a query is free. This is the same shape as 11-02's "a local Postgres found three bugs no fake could catch", and it is the argument for the one live demonstration this phase insisted on.
 - [Phase 13-05]: **A provider's `total_tokens` is telemetry, not an invoice** — demonstrated by it returning 0 for a one-word document that was successfully embedded. The reconciliation line was relabelled `billed` → `reported`, the truthiness test that read a reported 0 as "this embedder reports nothing" was fixed to `is not None`, and Voyage's usage dashboard is now named in the output as the only authority. Phase 14's spend accounting cannot be built on either this number or the local tokenizer's.
@@ -300,8 +320,31 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-06
-Stopped at: **Completed 13-02-PLAN.md — Wave 2 of Phase 13 is in.** Three commits on
+Last session: 2026-08-09
+Stopped at: **Completed 14-01-PLAN.md — Wave 1 of Phase 14 is in.** Two commits on
+`gsd/phase-14-real-cost-accounting`: `b79d506` (`CallUsage.inference_geo` captured from the response
+with the file's defensive `getattr`; `cost_discount_factor()` / `inference_geo_multiplier()` reading
+the env per call with a `> 0` clamp; `_geo_factor()` returning 1.0 for `""`/`"global"`, the env rate
+for `"us"`, and raising `UnknownModelPricing` for anything else; `cost_usd` multiplying the token
+portion by geo and the whole call including the web-search fee by the discount) and `345439b` (the
+boundary, clamp and preview-list-price tests). Suite **539 passed / 63 skipped plain, 601 passed /
+1 skipped armed** against 529/63 and 591/1 — **+10 in both arms, zero new skips**, which is exactly
+the nine new tests in `test_usage.py` plus the one in `test_migrate.py` and nothing else. `ruff
+check` clean. Nothing deployed; no push.
+**Falsified, not assumed — four mutations, all red by the intended assertion**, `src/` byte-identical
+after each revert: deleting the discount term (red on two cost assertions), applying geo
+unconditionally (red on the unmultiplied-`""` case), returning 1.0 for an unknown geo (red on the
+`"eu"` case), and leaking the discount into `preview_cost_usd` (red at $0.03 against $0.06).
+**Both `-k` selectors were run under `--collect-only` before being trusted** — 4 and 6 tests
+respectively — because the sixteenth vacuous gate was this phase's own additive-payload gate, whose
+selector collected zero while its verify command reported green.
+**README deliberately unchanged.** Line 204's "no enterprise discounts or `inference_geo`
+multiplier" is falsified by this wave's code, but 14-03 owns that sentence and is also the wave that
+gives an operator anything to read about the two env vars. It must not be treated as still-true prose.
+Resume file: None
+
+Superseded — previously recorded session (13-03, 13-04 and 13-05 completed after it without
+updating this section): **Completed 13-02-PLAN.md — Wave 2 of Phase 13 is in.** Three commits on
 `gsd/phase-13-embedding-migration`: `e7e2c06` (`src/research_agent/recall_golden.py` — 12 notes
 over three owners with per-owner-distinct vocabulary sets and `"chroma retry"` under both alice and
 bob as the tenancy probe; 8 queries including one that must return `[]`; `exact_scan_results`
