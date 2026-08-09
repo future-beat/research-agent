@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in_progress
-stopped_at: "Completed 15-03-PLAN.md (replay wiring + the all-must-pass exit rule + the SC-4 caveat) on gsd/phase-15-answer-quality-evals. Next: 15-04 — the dataset grows 12 → 40."
-last_updated: "2026-08-10T00:10:00.000Z"
-last_activity: "2026-08-09 — Phase 15 wave 3 executed: offline runs now replay committed recordings automatically (command unchanged, still keyless), and ANY red or errored replay case exits non-zero whatever the shared pass rate says — the split proven in one test (pass_rate 92.3% ≥ 0.9, ok True, exit 1). Caveat rewritten to print date/model/sha/age. 18 mutations, 18 red. Still nothing recorded, no spend."
+stopped_at: "Completed 15-04-PLAN.md (GOLDEN 12 → 40, the seeded_notes seam, the first no_prior_research case, seven dataset pins) on gsd/phase-15-answer-quality-evals. Next: 15-05 — the recorder CLI and the cost preview."
+last_updated: "2026-08-10T01:05:00.000Z"
+last_activity: "2026-08-10 — Phase 15 wave 4 executed: the golden set is 40 cases across the locked taxonomy, the no_prior_research stop has its first case (baseline was zero), two adversarial cases seed a poisoned note into their own store under a measured heavy-overlap rule, and seven property pins stop the benchmark shrinking. The 28 new reports are written to report length, so wave 6 calibrates against a corpus rather than stubs (existing 12: 0/12 on the 200-char floor; new 28: 27/28). 18 mutations, 17 red + 1 honest green. Still nothing recorded, no spend."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 30
-  percent: 68
+  completed_plans: 31
+  percent: 69
 ---
 
 # Project State
@@ -26,18 +26,20 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 15 of 17 (Answer-quality evals) — **IN PROGRESS**
-Plan: 3 of 6 complete · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged)
-Status: Waves 1–3 executed. The recorder mechanism exists (`run_case(capture_state=True)` +
+Plan: 4 of 6 complete · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged)
+Status: Waves 1–4 executed. The recorder mechanism exists (`run_case(capture_state=True)` +
 `evals/fixtures.py`), the grading vocabulary for recorded answers exists beside it (five
-deterministic quality graders), and both are now **wired into the offline run**: `python -m
-evals` replays whatever fixtures are committed, keylessly, and any red or errored replay case
-exits non-zero regardless of the 0.9 rate. The caveat prints date/model/sha/age when there is
-something to grade. **Nothing has been recorded and no money has been spent**, so the run
-still prints the original caveat and still exits 0 on 12/12. Suites 630/65 plain, 694/1
-armed, offline evals 12/12 keyless, `ruff` clean, `.github/workflows/ci.yml` untouched.
+deterministic quality graders), both are **wired into the offline run** (replay is automatic
+and keyless; any red or errored replay case exits non-zero regardless of the 0.9 rate), and
+**the dataset is now a benchmark**: 40 cases across the locked taxonomy, each stating what it
+exists to catch, with the `no_prior_research` gap closed and two adversarial cases seeding a
+poisoned note into their own store. **Nothing has been recorded and no money has been spent**,
+so the run still prints the original caveat and still exits 0 — now on 40/40. Suites 645/65
+plain, 709/1 armed, offline evals 40/40 keyless, `ruff` clean,
+`.github/workflows/ci.yml` untouched.
 
 Progress: [████████░░] 82% (14 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 15: [█████░░░░░] 3 of 6 plans — 15-01, 15-02, 15-03 complete
+Phase 15: [███████░░░] 4 of 6 plans — 15-01, 15-02, 15-03, 15-04 complete
 
 **Carry into execution:**
 - **15-01 is done.** `evals/fixtures.py` provides `SCHEMA_VERSION`, `FixtureError`,
@@ -77,15 +79,43 @@ Phase 15: [█████░░░░░] 3 of 6 plans — 15-01, 15-02, 15-03 
   floors must move at wave 6's calibration — not before.
 - Replay maps fixture turns to `case.followups` **by index**; turn COUNT is checked, question
   text is not. Plan 04 rewords follow-ups — consider a label-match check there.
-- `grade_case_pins` now runs inside replay and still cannot fail (no case pins anything).
 - Every quality grader ships a passing AND a failing synthetic fixture.
+- **15-04 is done. `GOLDEN` is 40 cases** — technical 13, contested 6, sparse 8, general 11 by
+  `expect_topic_type`, plus the two guardrail cases which assert none. `Case.seeded_notes`
+  pre-loads notes into the case's own store as owner `""` before the invoke;
+  `Followup.expect_forced_stop` names a guardrail a turn is expected to hit instead of
+  answering, and `grade_followup_forced_stop` is the fourth member of `FOLLOWUP_GRADERS`.
 - seeded_notes authoring RULE: ≥3 distinctive content words shared with the case task
-  (HashEmbedder buckets are per-process salted; 0.3 similarity floor).
+  (HashEmbedder buckets are per-process salted; 0.3 similarity floor). **Measured:** a
+  7-word-overlap seed recalls under 60/60 hash seeds, a 1-word one under 17/60.
+  `test_dataset_taxonomy_adversarial_cases_are_armed` enforces it.
+- **The thresholds now have a corpus, and it is the one wave 6 should calibrate against.**
+  Existing 12 scripted reports: 200-char floor 0/12, coverage-at-0.4 6/12. New 28: **27/28
+  on both** (326–392 chars), grounding 40/40, pins 40/40. The single miss is
+  `followup-with-no-prior-research`, whose budget stop fires before the writer runs. Neither
+  threshold was moved.
+- **Four cases carry a "Phase 17" tag** in their `why` (`followup-admits-a-gap`,
+  `followup-refuses-an-uncovered-figure`, `followup-refuses-a-forecast`,
+  `followup-with-no-prior-research`), asserted by a pin. Phase 17 must record the flip, not
+  edit the case.
+- `grade_case_pins` can now fail in principle (7 cases pin something) but still runs only on
+  the replay leg, and `evals/fixtures/` is still empty — so it contributes nothing to any
+  verdict yet. `test_dataset_taxonomy_authored_reports_satisfy_their_own_pins` covers the
+  authored side offline.
+- **Offline, the injection cases prove plumbing and pins, not resistance.** `ScriptedClient`
+  returns `case.report` whatever the prompt says. Real resistance is a question only the
+  recording answers.
+- Replay still maps fixture turns to `case.followups` **by index**; turn COUNT is checked,
+  question text is not. Deferred again — it belongs in `replay_case`, so plan 05/06.
+- `--min-pass-rate 0.9` now governs 40 behavioural cases: four reds is 90% and exits 0. The
+  replay leg cannot hide (all-must-pass); the behavioural leg can. Worth revisiting at close.
 - Wave 6 is a checkpoint: calibration recording ~$0.25 (operator spend), then a
   record-now-vs-defer decision on the full ~$10-16 run. Deferral does NOT block the phase;
   record-now locks intro pricing before 2026-09-01.
-- Local PG on :54329. Baselines for wave 4: plain **630/65**, armed **694/1**, offline evals
-  12/12 keyless, `tests/test_evals.py` 114.
+- Local PG on :54329 **was not running** at wave 4's start (no `docker` on this machine); a
+  Homebrew PG 17.10 cluster was started on that port with `LC_ALL=C` and pgvector 0.8.6, which
+  reproduced the stated armed baseline exactly. Baselines entering wave 5: plain **645/65**,
+  armed **709/1**, offline evals **40/40** keyless, `tests/test_evals.py` **129**.
 
 ## Performance Metrics
 
@@ -105,7 +135,7 @@ Phase 15: [█████░░░░░] 3 of 6 plans — 15-01, 15-02, 15-03 
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
 | 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
-| 15 | 3 of 6 (15-01, 15-02, 15-03) | 93min | 31min |
+| 15 | 4 of 6 (15-01, 15-02, 15-03, 15-04) | 171min | 43min |
 
 **Recent Trend:**
 
@@ -129,6 +159,11 @@ Recent decisions affecting current work:
 - [Phase 15-03]: **Clock-independence is pinned by an OLD recording, not by two identical runs.** "Replay twice and compare" is invariant under an age gate. `test_replay_never_reads_the_clock_for_a_verdict` replays a fixture dated 2019 against a fresh one and compares grades *including details*, so both an age gate and an age leaking into a reason go red.
 - [Phase 15-03]: **The staleness gate names which model it compares, because Phase 16 moves a different one.** `grade_fixture_current` reads `models["pipeline"]` against `graph.MODEL` — the writer/researcher model — and its "Cannot catch:" line says a critic-model change will NOT fire it, so recordings would stay green with only the printed date hinting staleness, until the `models` map grows a per-node entry, the gate compares it, and the fixtures are re-recorded. Do not restate the folklore that this gate catches Phase 16.
 - [Phase 15-03]: **A fixture captured from the scripted client cannot replay green, and wave 2's calibration table said so in advance.** The captured research draft is 171 chars (floor 200) and covers 17% of the question's terms (floor 40%). The plan's tests assumed a green replay off a scripted capture; the helper writes a report-shaped draft over the recorded state instead, with the measured numbers in a comment. **A plan's stated arithmetic is a claim to check.**
+- [Phase 15-04]: **Authored test data is a corpus, and writing it as stubs is how a threshold gets moved.** Wave 3 measured that a scripted-client capture fails structure (171 chars vs 200) and coverage (17% vs 40%). The 28 new reports were therefore written to report length — 326-392 chars, restating the question's terms — and audited against all four RECORDED_GRADERS before commit: existing 12 clear the floors 0/12 and 6/12, new 28 clear both **27/28** (the miss is the budget-stopped case whose writer never runs). Neither threshold was moved; wave 6 now calibrates against evidence instead of against stubs.
+- [Phase 15-04]: **An accommodation must read WHICH guardrail fired, not merely that one did.** The three forced-stop accommodations share one predicate that compares the reason. `bool(state['forced_stop_reason'])` is green against every test the plan listed, and absolves a follow-up that was meant to stop for `no_prior_research` and blew the budget instead. Two tests were added for exactly that discrimination.
+- [Phase 15-04]: **`len(grades) == len(REGISTRY)` shrinks in step with the registry it checks.** The no-prior case's harness test passed with `grade_followup_forced_stop` deleted from `FOLLOWUP_GRADERS`, because both sides of the assertion moved together; only wave 2's registry test caught it. Assert the grader's NAME. Fourth wave running where the assertion that looked like the gate was not the gate.
+- [Phase 15-04]: **A test fixture whose recall depends on a per-process hash salt is a coin toss.** `HashEmbedder` buckets on `hash(word)`, Python salts string hashing per process, and recall has a 0.3 floor. Measured across 60 seeds: a 7-word-overlap seed recalls 60/60, a 1-word one 17/60. The heavy-overlap rule is written into `Case.seeded_notes` itself and asserted by a dataset pin, so a marginal seed cannot land silently and flake for somebody else.
+- [Phase 15-04]: **Dataset pins count case properties, never a parallel stratum list kept beside the data.** A second list is a second source of truth, and the copy that drifts is the one nobody runs. Minimums rather than exact counts keep the +/-2 rebalance freedom — with the consequence, observed by mutation, that a floor with one case of slack tolerates a single reclassification and only reds on the second.
 - [Phase 15-02]: **A design detail with no test that can distinguish it from its absence is not a guard — twice in two waves now.** The refusal grader counts the follow-up's own question as a source, so an answer may repeat a figure the asker supplied. Deleting that rule broke nothing: the dataset's scripted refusal quotes no figure at all, so every test in the file was invariant under the change. Fixed by a refusal that echoes the question's year ("didn't cover Gartner's 2027 forecast"). Same family as 15-01's aliasing capture, 13-05's `FrozenQueryEmbedder`, 14-01's ratio assertion.
 - [Phase 15-02]: **Currency is a marker, not noise to strip.** The plan (and RESEARCH's sketch) stripped `$` and then dropped bare integers ≤ 10 as prose counts; composed, those rules are blind to every dollar figure under $10 — including the `$2/$10 per MTok` the flagship grounding case is about, so a draft quietly saying `$3/$9` grades green. A number carrying a unit (currency, percent, scale word, decimal point) is kept whatever its size; `$2,000` still normalises to `2000`. **A plan's stated rule is a claim to check by composing it with the plan's other stated rules.**
 - [Phase 15-02]: **A registry test must fail in both directions.** A grader dropped from `RECORDED_GRADERS` runs on nothing; a grader defined and never registered is a check that never ran. The test discovers quality graders by name *or* by claim-boundary docstring and asserts set equality with the registries, so both mutations red.
