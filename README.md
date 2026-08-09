@@ -10,7 +10,7 @@ until every claim is grounded. Watch the critic push back — that's the part
 worth seeing.
 
 A production service, not a notebook: bounded loops, per-run cost accounting,
-a spend cap, swappable Postgres/pgvector backends, an eval harness, and 630
+a spend cap, swappable Postgres/pgvector backends, an eval harness, and 645
 tests that run with no API keys.
 
 **Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
@@ -158,8 +158,8 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 630 tests, ~25s, no API keys, no network
-python -m evals           # 12 golden cases, offline and free
+pytest                    # 645 tests, ~25s, no API keys, no network
+python -m evals           # 40 golden cases, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 ```
 
@@ -207,7 +207,7 @@ Known, and deliberate for the scope.
 
 - **Follow-ups can't reach for new information.** By design: a follow-up needing a fresh search gets "the research didn't cover that" rather than an answer.
 - **The critic shares the writer's model.** Independent enough to catch ungrounded claims, not a genuinely independent evaluator. The eval judge runs on a stronger model precisely because of this.
-- **Offline evals can't measure answer quality**, and twelve live cases are a smoke test, not a benchmark.
+- **Offline evals can't measure answer quality.** The golden set is now forty cases across a stated taxonomy — technical, contested, sparse, general, off-menu classifier output, both guardrails, follow-ups the notes can and cannot answer, a follow-up with no prior research, and adversarial notes seeded into the run's own store — and each case says what it exists to catch. That makes the *pipeline* measurement defensible. It does not make the *answers* measurable: the answers those forty cases run against are still authored in the dataset, and no real answer has been recorded yet.
 - **Cost approximates the invoice. It is not the invoice.** What it now includes: list price scaled by two multipliers at the single point tokens become dollars — `COST_DISCOUNT_FACTOR`, a negotiated discount the API cannot report and you therefore declare, and the `inference_geo` multiplier, where `INFERENCE_GEO_MULTIPLIER` sets the *rate* but the **response's** `usage.inference_geo` decides per call whether it applies (a workspace default can put a request in a billed geo with no code change, so an env-only flag would disagree with the bill in one direction or the other). It also now includes Voyage embedding spend — around `$0.0002` of a `~$0.15` run, the point being that a whole provider is no longer missing rather than that the number moved. Those embedding dollars are computed from **Voyage-reported token counts, which are telemetry and not billing truth**: measured live, a corpus the tokenizer counted at 40 tokens was reported as 25, and a one-word document was reported as 0 while returning a perfectly good embedding. What is still **not** included: any reconciliation against the actual bill — nothing here reads an invoice; the geo multiplier on the `$10/1k` web-search fee, since the published `1.1x` is scoped to token pricing categories; Voyage's free-allowance tiers; and the 1-hour cache-write rate, which this service never uses and does not model. List prices remain effective-dated rather than fixed: Claude Sonnet 5's introductory window runs through `2026-08-31` and the standard window applies from `2026-09-01`, so any rate quoted as permanent is wrong by some date. `/pricing` reports the window accounting is using today, the one that comes next, and the multipliers in effect — read it there, not from a number in a document.
 - **Notes and sessions expire after seven days, and neither is shared.** Both belong to the identity that created them; a session stops resolving seven days after its last turn, a note seven days after it was written, and the next write sweeps what has aged out. Reads deliberately don't renew that clock — otherwise "seven days since you used it" would quietly mean "seven days since you looked at it". Scoping notes is a safety fix as much as a hygiene one: recalled notes are pasted into the researcher's prompt and the critic reviews what comes back, so a communal store put one visitor's text on the path to another visitor's verdict. What remains unbounded is *within* one identity — no dedup or summarisation, because neither has semantics that four different vector backends can agree on, and the whole claim here is that they behave identically.
 - **Running on SQLite pins you to one machine.** That's the local and container default: a second machine would hold its own database and 404 on sessions that exist. Production points `DATABASE_URL` at Supabase Postgres, which is what removes the constraint — the deploy config asserts the two can't drift apart in either direction.
