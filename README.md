@@ -10,7 +10,7 @@ until every claim is grounded. Watch the critic push back — that's the part
 worth seeing.
 
 A production service, not a notebook: bounded loops, per-run cost accounting,
-a spend cap, swappable Postgres/pgvector backends, an eval harness, and 645
+a spend cap, swappable Postgres/pgvector backends, an eval harness, and 662
 tests that run with no API keys.
 
 **Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
@@ -158,9 +158,10 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 645 tests, ~25s, no API keys, no network
+pytest                    # 662 tests, ~25s, no API keys, no network
 python -m evals           # 40 golden cases, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
+python -m evals --record  # price a recording run; refuses to spend without --yes
 ```
 
 The Claude client is stubbed and a fake embedder replaces Voyage; SQLite,
@@ -181,6 +182,17 @@ claim about what the pipeline said when it was recorded, not about what the
 current model would say. **No answers are recorded yet** (recording is a
 deliberate, paid, operator act), so today the CLI prints exactly the caveat it
 always did.
+
+Recording is `python -m evals --record`, and it is the only command here that
+spends money on purpose. It always prints a per-case cost preview and then
+stops: `--yes` is required before an API client is even constructed. The quote
+is computed at run time from the same effective-dated rate tables the service
+bills against — a case already recorded is priced from its fixture's measured
+cost, everything else from stated token assumptions — so it re-quotes itself
+when Sonnet 5's introductory window closes on `2026-08-31` instead of going
+quietly stale. It is an estimate and says so. A recording whose own graders or
+judge failed is refused rather than committed, which is what lets replay treat
+a fixture's verdicts as a gate rather than a restatement.
 
 ---
 
