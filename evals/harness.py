@@ -262,7 +262,18 @@ def run_case(
 
     try:
         graph._client = client_factory(case)
-        graph.set_memory(memory_factory())
+        # Bound rather than passed straight through, because a case may want
+        # to put something in its store before the graph reads it.
+        store = memory_factory()
+        graph.set_memory(store)
+        for note in case.seeded_notes:
+            # Owner "" is the identity this harness runs as, so a seeded note
+            # is recallable by this run and by nothing else -- the store is
+            # built per case, so there is no other run to leak into. See the
+            # heavy-overlap authoring rule on `Case.seeded_notes`: a note that
+            # shares little vocabulary with the task may not clear the recall
+            # floor, and a seed that is never recalled tests nothing.
+            store.add(note, owner="")
 
         with _budget(case.budget_usd):
             started = time.perf_counter()

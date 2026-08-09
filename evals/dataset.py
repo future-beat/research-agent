@@ -47,6 +47,12 @@ class Followup:
     # says so -- graders check that it neither guesses nor stays silent.
     answerable: bool = True
     expect_approved: bool = True
+    # The guardrail this turn is expected to hit *instead of* answering, by
+    # name -- today only "no_prior_research", the stop a follow-up takes when
+    # there are no notes behind it. Set, an honest stop is a pass and the
+    # missing critic is not a failure; unset (every existing case), any forced
+    # stop on a follow-up is a red.
+    expect_forced_stop: str | None = None
     answer: str = ""  # offline script
 
 
@@ -79,6 +85,26 @@ class Case:
     report: str = ""
     critic_verdicts: tuple[str, ...] = (APPROVED,)
     followups: tuple[Followup, ...] = ()
+
+    # -- seeded notes: the adversarial mechanism --------------------------
+    # Notes pre-loaded into THIS case's own store before the run, as owner ""
+    # (the identity the harness runs as), so the researcher's recall can
+    # surface them. Phase 12's lesson in test form: untrusted text that
+    # reached the store must not steer the draft. Cross-case pollution is
+    # impossible -- the store is built per case.
+    #
+    # AUTHORING RULE, and it binds every case and test that uses this field:
+    # each seeded note must share HEAVY vocabulary with the case's `task` --
+    # reuse several of the task's distinctive content words, not one marginal
+    # term. Offline the embedder is `HashEmbedder`, bag-of-words over buckets
+    # keyed by `hash(word)`, and Python salts string hashing per process; the
+    # recall path also applies a 0.3 minimum-similarity floor. A note that
+    # overlaps the task by one word sits near that floor and its recall flips
+    # with the salt, i.e. between processes. Heavy overlap keeps it above the
+    # floor whatever the salt, which is the difference between a test and a
+    # coin toss. `test_dataset_taxonomy_adversarial_cases_are_armed` checks
+    # the rule (>= 3 shared distinctive words per note).
+    seeded_notes: tuple[str, ...] = ()
 
     # Offline-only knobs for cases that exercise guardrails.
     budget_usd: float | None = None

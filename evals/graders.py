@@ -191,9 +191,25 @@ def grade_followup_did_not_research(case: Case, fu: Followup, state: dict) -> Gr
     return _ok(name, "answered from stored notes")
 
 
+def _expected_stop_fired(fu: Followup, state: dict) -> bool:
+    """This turn stopped, by name, for the reason the case said it would.
+
+    The comparison is against the expected reason and not merely "some stop
+    happened": a follow-up that was supposed to stop for `no_prior_research`
+    and instead blew the budget has not done what the case asserts, and the
+    accommodations below must not absolve it.
+    """
+    return bool(fu.expect_forced_stop) and state["forced_stop_reason"] == fu.expect_forced_stop
+
+
 def grade_followup_was_checked(case: Case, fu: Followup, state: dict) -> Grade:
     """A follow-up is cheaper than a research run, not less grounded."""
     name = "followup_fact_checked"
+    if _expected_stop_fired(fu, state):
+        # There is no answer to check. A guardrail that fires before the
+        # responder is the honest outcome the case asked for, and failing it
+        # here would turn one guardrail working into a red.
+        return _ok(name, f"stopped before the critic, as expected: {fu.expect_forced_stop}")
     if any(e.get("node") == "critic" for e in state["trace"]):
         return _ok(name, "critic ran")
     return _fail(name, "the follow-up answer skipped the critic")
@@ -206,10 +222,31 @@ def grade_followup_approval(case: Case, fu: Followup, state: dict) -> Grade:
     return _fail(name, f"expected approved={fu.expect_approved}, got {bool(state['approved'])}")
 
 
+def grade_followup_forced_stop(case: Case, fu: Followup, state: dict) -> Grade:
+    """The follow-up mirror of `grade_forced_stop`.
+
+    A research turn's guardrails are asserted per case; a follow-up's are
+    asserted per turn, because a chain can stop at any link. Unexpected stops
+    are red in both directions: a follow-up that quietly gave up is a run that
+    produced no answer and said nothing about why, which is the same failure
+    `grade_never_silently_unapproved` exists for one turn earlier.
+    """
+    name = "followup_forced_stop"
+    actual = state["forced_stop_reason"]
+    if fu.expect_forced_stop is None:
+        if not actual:
+            return _ok(name, "no guardrail fired, as expected")
+        return _fail(name, f"unexpected guardrail on the follow-up: {actual!r}")
+    if actual == fu.expect_forced_stop:
+        return _ok(name, actual)
+    return _fail(name, f"expected {fu.expect_forced_stop!r}, got {actual!r}")
+
+
 FOLLOWUP_GRADERS: tuple[Callable[[Case, Followup, dict], Grade], ...] = (
     grade_followup_did_not_research,
     grade_followup_was_checked,
     grade_followup_approval,
+    grade_followup_forced_stop,
 )
 
 
@@ -501,6 +538,12 @@ def grade_recorded_refusal(case: Case, fu: Followup, state: dict) -> Grade:
     name = "recorded_refusal"
     if fu.answerable:
         return _ok(name, "not a refusal case")
+    if _expected_stop_fired(fu, state):
+        # The graph refused structurally rather than in prose: it stopped
+        # before the responder, so there is no wording to check. Demanding
+        # refusal phrasing from a turn the case expects to produce no answer
+        # would fail the most honest outcome available.
+        return _ok(name, f"stopped: {fu.expect_forced_stop}")
 
     draft = state["draft"]
     if not draft.strip():
