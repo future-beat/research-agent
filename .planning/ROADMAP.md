@@ -282,7 +282,15 @@ Plans:
   2. The live case count grows past 12 to a size defensible as a benchmark.
   3. The every-push CI gate still runs offline, deterministically, with `ANTHROPIC_API_KEY=""`.
   4. The printed caveat matches whatever has become true — no run implies "the model is good" when the suite cannot support that.
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 15-01-PLAN.md — Recorder seam (`capture_state` in `run_case`) + fixture schema/refusal layer (`evals/fixtures.py`), proven against fakes
+- [ ] 15-02-PLAN.md — Deterministic quality graders (grounding/coverage/structure/refusal/case-pins), each with a passing AND failing synthetic fixture + claim-boundary docstrings
+- [ ] 15-03-PLAN.md — Automatic replay in offline mode + model-mismatch hard gate + SC-4 caveat rewrite; CI command and keyless invariant unchanged
+- [ ] 15-04-PLAN.md — Dataset 12 → 40 across the taxonomy; `seeded_notes` adversarial mechanism; `no_prior_research` gap closed; property pins (SC-2)
+- [ ] 15-05-PLAN.md — `--record`/`--yes`/`--force` CLI + runtime cost preview via `price_for()`, all machinery proven with fakes
+- [ ] 15-06-PLAN.md — ADR-0009 + README/DESIGN honesty rewrite + calibration recording checkpoint (~$0.25) + full-run record-or-defer decision
 
 **Notes for discuss-phase:**
 - **Reversal (in tension with DEC-20).** DESIGN.md argues offline evals *should not* claim to grade quality, and prints that caveat every run because "a green suite that quietly implies 'the model is good' is worse than no suite." The replacement guarantee to decide: what the suite is now allowed to claim, and how the caveat changes to stay honest. DEC-20 is not among the promoted five; record a new ADR here.
