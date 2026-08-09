@@ -5,6 +5,14 @@ Eval CLI.
     python -m evals --live                 real API + judge graders (costs money)
     python -m evals --report out.json      write the report artifact
     python -m evals --case followup-admits-a-gap --case revision-then-approval
+    python -m evals --record               price the recording and refuse to spend
+    python -m evals --record --yes         record fixtures for real (costs money)
+
+`--record` implies `--live` and is the only command here that spends money on
+purpose. It always prints a cost preview computed from the live rate tables,
+and without `--yes` it stops there and exits 2 without ever constructing an API
+client. `--force` writes a fixture whose own grades failed, stamped
+`forced: true`, for the operator who wants a known-bad recording pinned.
 
 Exits non-zero when the pass rate falls below `--min-pass-rate`, so CI can
 fail on a regression without anyone reading the output.
@@ -41,6 +49,7 @@ from evals.harness import (  # noqa: E402
     live_memory_factory,
     offline_client_factory,
     offline_memory_factory,
+    record_suite,
     replay_case,
     run_suite,
     summarise,
@@ -398,11 +407,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit non-zero below this pass rate (default: 0.9)",
     )
     parser.add_argument("--quiet", action="store_true", help="only print the summary")
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="record live runs as committed fixtures (implies --live, costs money)",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="required by --record before anything is spent",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="record a fixture even when its own grades failed (stamps forced: true)",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.force and not args.record:
+        # Not a warning: on its own it reads like "force the run", and the one
+        # thing it forces is committing a recording the graders rejected.
+        parser.error(
+            "--force only means anything with --record: it commits a fixture whose "
+            "own grades failed"
+        )
     colour = sys.stdout.isatty()
 
     try:
@@ -411,14 +443,35 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
+    estimate = 0.0
+    if args.record:
+        # The preview is built BEFORE any client exists, and that order is the
+        # property worth testing: a refusal that constructs the client first
+        # has already read a key and is one edit away from spending. It also
+        # always prints -- a preview an operator cannot rely on seeing is the
+        # same as no preview.
+        preview, estimate = record_preview(cases, _existing_fixtures())
+        print(preview)
+        if not args.yes:
+            print(
+                f"error: --yes is required to spend. {len(cases)} case(s) would be "
+                "recorded at the estimate above; nothing was run, and no API client "
+                "was built.",
+                file=sys.stderr,
+            )
+            return 2
+
     judge = None
-    if args.live:
+    if args.live or args.record:
         # Imported lazily so the offline path never needs an API key.
         import anthropic
 
         client = anthropic.Anthropic()
         judge = G.Judge(client)
         client_factory = lambda case: client  # noqa: E731 - one live client for all cases
+        # Per-case InMemoryStore with real embeddings, never the persistent
+        # store: Pitfall 5, and `record_suite` asserts the property rather
+        # than trusting this line.
         memory_factory = live_memory_factory
     else:
         client_factory = offline_client_factory
@@ -437,7 +490,21 @@ def main(argv: list[str] | None = None) -> int:
             # the moment that sentence is worth reading.
             print(f"        {_colour('why it matters: ' + result.why, DIM, colour)}")
 
-    mode = "live" if args.live else "offline"
+    def announce_recording(outcome) -> None:
+        if args.quiet:
+            return
+        if outcome.written:
+            mark = _colour("REC ", GREEN, colour)
+            forced = "" if outcome.result.passed else _colour("  (forced, known-bad)", RED, colour)
+            print(
+                f"  {mark}  {outcome.case_id}  ${outcome.cost_usd:.4f}  "
+                f"-> {outcome.path}{forced}"
+            )
+        else:
+            print(f"  {_colour('SKIP', RED, colour)}  {outcome.case_id}  ${outcome.cost_usd:.4f}")
+            print(f"        {_colour(outcome.refusal, RED, colour)}")
+
+    mode = "record" if args.record else ("live" if args.live else "offline")
     if not args.quiet:
         print(f"{_colour('Research agent evals', BOLD, colour)}  ({mode}, {len(cases)} cases)\n")
 
@@ -447,15 +514,29 @@ def main(argv: list[str] | None = None) -> int:
         behavioural.append(result)
         announce(result)
 
-    report = run_suite(
-        cases,
-        client_factory=client_factory,
-        memory_factory=memory_factory,
-        judge=judge,
-        mode=mode,
-        min_pass_rate=args.min_pass_rate,
-        on_result=collect,
-    )
+    if args.record:
+        # Recording IS the suite run -- one drive of the graph per case, graded
+        # and then written. Running `run_suite` as well would double the bill
+        # for the same forty answers.
+        report = record_suite(
+            cases,
+            client_factory=client_factory,
+            memory_factory=memory_factory,
+            judge=judge,
+            force=args.force,
+            min_pass_rate=args.min_pass_rate,
+            on_outcome=announce_recording,
+        )
+    else:
+        report = run_suite(
+            cases,
+            client_factory=client_factory,
+            memory_factory=memory_factory,
+            judge=judge,
+            mode=mode,
+            min_pass_rate=args.min_pass_rate,
+            on_result=collect,
+        )
 
     # Replay is automatic, and offline-only: the fixtures are committed files,
     # so grading them needs no key and the CI command does not change.
@@ -498,9 +579,15 @@ def main(argv: list[str] | None = None) -> int:
     # and weren't is a broken selector, not a green build.
     ungraded = len(matched) - len(replay_results)
 
+    # A refused recording is the writer working, not a rate to average: forty
+    # cases with one refusal is 97.5%, comfortably over any floor, and would
+    # exit 0 having committed a recording set that is quietly one case short.
+    recordings = report.get("recordings", [])
+    refused = [r for r in recordings if not r["written"]]
+
     # The headline verdict is the exit code, not the pass rate. A run that
     # prints PASS at the top and exits 1 teaches people to read neither.
-    ok = summary["ok"] and not replay_failures and not ungraded
+    ok = summary["ok"] and not replay_failures and not ungraded and not refused
     verdict = _colour("PASS", GREEN, colour) if ok else _colour("FAIL", RED, colour)
     print(
         f"\n{verdict}  {summary['passed']}/{summary['cases']} cases "
@@ -512,6 +599,36 @@ def main(argv: list[str] | None = None) -> int:
     print(_colour(footer, DIM, colour))
     if mode == "offline":
         print(_colour("  " + _caveat(loaded_fixtures), DIM, colour))
+
+    if args.record:
+        written = [r for r in recordings if r["written"]]
+        # The calibration line. The measured figure is the PIPELINE's spend --
+        # the judge holds its own client and its calls never reach a run's
+        # usage totals -- so the two numbers are not the same quantity, and
+        # saying which is which is the difference between calibrating the
+        # preview and misreading it.
+        print(
+            f"  recorded {len(written)}/{len(recordings)} case(s) · "
+            f"previewed ${estimate:.4f} · measured pipeline "
+            f"${summary['cost_usd']:.4f} + {report['judge_calls']} judge call(s), "
+            "which bill separately and are not metered here"
+        )
+        if refused:
+            print(
+                _colour(
+                    f"\n  {len(refused)} case(s) were NOT recorded:", RED, colour
+                )
+            )
+            for entry in refused:
+                print(f"    {_colour(entry['case_id'], RED, colour)}: {entry['refusal']}")
+            print(
+                _colour(
+                    "  a committed fixture is one the graders and the judge approved; "
+                    "re-run those cases, or --force to pin them known-bad",
+                    DIM,
+                    colour,
+                )
+            )
 
     if replay_failures:
         print(

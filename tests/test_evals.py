@@ -10,6 +10,8 @@ import datetime
 import json
 import pathlib
 import re
+import sys
+import types
 
 import pytest
 
@@ -26,6 +28,8 @@ from evals.harness import (
     grade_fixture_current,
     offline_client_factory,
     offline_memory_factory,
+    record_case_to_fixture,
+    record_suite,
     replay_case,
     run_case,
     run_suite,
@@ -1949,3 +1953,304 @@ def test_record_preview_names_a_model_it_cannot_price(monkeypatch):
     # that is missing a leg -- is gone, not merely contradicted further down.
     assert M.UPPER_BOUND_NOTE not in text
     assert total > 0  # the pipeline legs are still priced
+
+
+# --------------------------------------------------------------------------
+# Recording: the flags, the loop, and the refusal
+#
+# Every test here is fake-driven: a ScriptedClient for the pipeline, a judge
+# that never asks a model anything, a temporary fixtures directory. No network,
+# no key, no spend -- the real recording is an operator act with a checkpoint
+# in front of it, not something a test suite does.
+# --------------------------------------------------------------------------
+
+
+class FakeJudge:
+    """A judge with no client. `refuse_task` fails the verdicts for one case."""
+
+    def __init__(self, model="claude-opus-5", refuse_task=None):
+        self.model = model
+        self.calls = 0
+        self.refuse_task = refuse_task
+
+    def verdict(self, question: str) -> tuple[bool, str]:
+        self.calls += 1
+        if self.refuse_task and self.refuse_task in question:
+            return False, "the report is not grounded in the notes"
+        return True, "grounded in the notes"
+
+
+def record_with_fakes(case_ids, tmp_path, *, refuse_task=None, force=False):
+    return record_suite(
+        [by_id(case_id) for case_id in case_ids],
+        client_factory=offline_client_factory,
+        memory_factory=offline_memory_factory,
+        judge=FakeJudge(refuse_task=refuse_task),
+        force=force,
+        directory=tmp_path,
+    )
+
+
+def test_record_writes_a_fixture_per_case_with_fakes(tmp_path):
+    """The whole recording composition -- drive the graph with state capture,
+    build the fixture, write it through the refusing writer -- proven without
+    an API key. Only the model text is scripted; the states are real states
+    from the real graph."""
+    report = record_with_fakes(["technical-figures", "followups-chain"], tmp_path)
+
+    assert [r["written"] for r in report["recordings"]] == [True, True]
+    assert report["mode"] == "record"
+    for case_id in ("technical-figures", "followups-chain"):
+        # load_fixture, not json.loads: a file the loader rejects is not a
+        # recording, however good it looks in a diff.
+        fixture = F.load_fixture(tmp_path / f"{case_id}.json")
+        assert fixture["case_id"] == case_id
+        assert fixture["models"] == {"pipeline": graph.MODEL, "judge": "claude-opus-5"}
+        assert fixture["git_sha"] and fixture["pipeline_cost_usd"] > 0
+        assert "forced" not in fixture
+        # A judge verdict per turn, which is what makes replay a gate rather
+        # than a restatement of the recording.
+        assert all(turn["judge"] for turn in fixture["turns"])
+        assert len(fixture["turns"]) == 1 + len(by_id(case_id).followups)
+
+
+def test_record_refuses_a_failing_case_and_continues(tmp_path):
+    """One red recording does not end a paid loop, and it does not get
+    committed either. The cases behind it are still worth their money."""
+    report = record_with_fakes(
+        ["technical-figures", "contested-viewpoints"],
+        tmp_path,
+        refuse_task=by_id("contested-viewpoints").task,
+    )
+
+    written = {r["case_id"]: r["written"] for r in report["recordings"]}
+    assert written == {"technical-figures": True, "contested-viewpoints": False}
+    assert (tmp_path / "technical-figures.json").exists()
+    assert not (tmp_path / "contested-viewpoints.json").exists()
+    refusal = next(r["refusal"] for r in report["recordings"] if not r["written"])
+    assert "judge_answers_the_question" in refusal and "refusing to record" in refusal
+
+
+def test_force_stamps_forced_true(tmp_path):
+    """The deliberate known-bad pin. It writes, and it says so in the file --
+    nobody should have to reconstruct later why a red recording is committed."""
+    report = record_with_fakes(
+        ["contested-viewpoints"],
+        tmp_path,
+        refuse_task=by_id("contested-viewpoints").task,
+        force=True,
+    )
+
+    assert report["recordings"][0]["written"] is True
+    written = json.loads((tmp_path / "contested-viewpoints.json").read_text())
+    assert written["forced"] is True
+
+
+def test_recording_without_a_judge_is_not_possible(tmp_path):
+    """A judgeless recording would commit answers nothing ever graded, and then
+    replay them forever as evidence of quality. It is a programming error, not
+    a case-level failure, so it raises rather than quietly recording."""
+    with pytest.raises(ValueError, match="judge"):
+        record_case_to_fixture(
+            by_id("technical-figures"),
+            client_factory=offline_client_factory,
+            memory_factory=offline_memory_factory,
+            judge=None,
+            directory=tmp_path,
+        )
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_record_mode_refuses_a_shared_store_before_it_spends(tmp_path):
+    """Pitfall 5. A factory handing every case the same store makes each
+    recording depend on the ones before it -- and the check runs BEFORE the
+    first case, because finding it out on case forty costs forty cases."""
+    one_store = offline_memory_factory()
+
+    with pytest.raises(RuntimeError, match="fresh store per case"):
+        record_suite(
+            [by_id("technical-figures")],
+            client_factory=offline_client_factory,
+            memory_factory=lambda: one_store,
+            judge=FakeJudge(),
+            directory=tmp_path,
+        )
+
+    assert list(tmp_path.iterdir()) == []  # nothing ran, so nothing was spent
+
+
+def test_record_mode_refuses_the_persistent_store(tmp_path, monkeypatch):
+    """The other half of Pitfall 5, and the one that costs more than a flaky
+    result: the operator's own notes recalled into a committed fixture.
+
+    The factory here hands back the process store ONCE and fresh stores after,
+    which no real factory does -- and that is the point. A factory that always
+    returns the persistent store is caught by the repeat check one call later,
+    so against a realistic fake this guard is indistinguishable from its own
+    absence (measured: removing it left every test green). Only a factory that
+    cannot trip the other check can say whether this one exists.
+    """
+    persistent = offline_memory_factory()
+    monkeypatch.setattr(graph, "_memory", persistent)
+    handouts = [persistent]
+
+    def hands_back_the_process_store_once():
+        # Not `next(it, None) or fallback`: an empty store has __len__ 0 and is
+        # falsy, so that spelling quietly returns the fallback and tests nothing.
+        return handouts.pop() if handouts else offline_memory_factory()
+
+    with pytest.raises(RuntimeError, match="process's own memory store"):
+        record_suite(
+            [by_id("technical-figures")],
+            client_factory=offline_client_factory,
+            memory_factory=hands_back_the_process_store_once,
+            judge=FakeJudge(),
+            directory=tmp_path,
+        )
+
+    assert list(tmp_path.iterdir()) == []
+
+
+# --- the CLI: preview, refusal, and the flags -------------------------------
+
+
+class ExplodingAnthropic:
+    """Any attempt to build a client is the bug this is here to catch."""
+
+    def __init__(self, *args, **kwargs):
+        raise AssertionError("the refusal path constructed an API client")
+
+
+def no_anthropic(monkeypatch):
+    module = types.ModuleType("anthropic")
+    module.Anthropic = ExplodingAnthropic
+    monkeypatch.setitem(sys.modules, "anthropic", module)
+
+
+def test_record_refuses_without_yes(tmp_path, monkeypatch, capsys):
+    """The whole point of the flag. The preview prints, the exit is 2, and no
+    client is constructed -- checked by making construction an error, because
+    "we exited before spending" and "we exited before building the thing that
+    can spend" are different claims and only the second one is safe."""
+    no_anthropic(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(F, "FIXTURES_DIR", tmp_path / "fixtures")
+
+    code = main(["--record", "--case", "technical-figures"])
+
+    assert code == 2
+    captured = capsys.readouterr()
+    assert "cost preview" in captured.out and "upper bound" in captured.out
+    assert "--yes is required to spend" in captured.err
+    assert "no API client was built" in captured.err
+
+
+def test_record_without_yes_writes_nothing(tmp_path, monkeypatch):
+    """The refusal is a refusal, not a dry run that already happened."""
+    no_anthropic(monkeypatch)
+    fixtures_dir = tmp_path / "fixtures"
+    monkeypatch.setattr(F, "FIXTURES_DIR", fixtures_dir)
+
+    assert main(["--record", "--quiet"]) == 2
+    assert not fixtures_dir.exists()
+
+
+def test_force_without_record_is_rejected(capsys):
+    """On its own it reads like "force the run". What it forces is committing a
+    recording the graders rejected."""
+    with pytest.raises(SystemExit) as exc:
+        main(["--force"])
+
+    assert exc.value.code == 2
+    assert "--force only means anything with --record" in capsys.readouterr().err
+
+
+class RecordingFakeClient:
+    """One client for both roles, dispatching on the model.
+
+    The pipeline's calls go to a ScriptedClient for the case; the judge's go to
+    a canned structured verdict. Nothing leaves the process.
+    """
+
+    class _Block:
+        type = "text"
+
+        def __init__(self, text):
+            self.text = text
+
+    class _Response:
+        def __init__(self, payload):
+            self.content = [RecordingFakeClient._Block(json.dumps(payload))]
+            self.usage = None
+
+    def __init__(self, case, judge_passes=True):
+        self.scripted = ScriptedClient(case)
+        self.judge_passes = judge_passes
+        self.judge_calls = 0
+        self.messages = self
+
+    def create(self, **kwargs):
+        if kwargs["model"] == G.JUDGE_MODEL:
+            self.judge_calls += 1
+            return self._Response(
+                {"passed": self.judge_passes, "reason": "a canned verdict"}
+            )
+        return self.scripted.create(**kwargs)
+
+
+def cli_record(monkeypatch, tmp_path, case_id, *, judge_passes=True, argv=()):
+    """Drive `main`'s record branch end to end with fakes."""
+    module = types.ModuleType("anthropic")
+    module.Anthropic = lambda *a, **k: RecordingFakeClient(
+        by_id(case_id), judge_passes=judge_passes
+    )
+    monkeypatch.setitem(sys.modules, "anthropic", module)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(F, "FIXTURES_DIR", tmp_path)
+    # Record mode reaches for live_memory_factory, which embeds through Voyage.
+    # A per-case in-memory store with hashed vectors is the same SHAPE and the
+    # part this test is about; the real embedder is the operator's spend.
+    monkeypatch.setattr("evals.__main__.live_memory_factory", offline_memory_factory)
+    return main(["--record", "--yes", "--case", case_id, *argv])
+
+
+def test_record_with_yes_records_through_the_cli(tmp_path, monkeypatch, capsys):
+    """The branch nothing else covers: `main` actually recording. Without this,
+    every part of the recorder is proven and the command that composes them is
+    not."""
+    code = cli_record(monkeypatch, tmp_path, "technical-figures")
+
+    assert code == 0
+    fixture = F.load_fixture(tmp_path / "technical-figures.json")
+    assert fixture["models"]["pipeline"] == graph.MODEL
+    assert fixture["models"]["judge"] == G.JUDGE_MODEL
+    out = capsys.readouterr().out
+    assert "cost preview" in out  # the preview prints even when --yes is given
+    assert "recorded 1/1 case(s)" in out
+    assert "previewed $" in out and "measured pipeline $" in out
+
+
+def test_a_refused_recording_fails_the_build_at_a_rate_that_would_pass(
+    tmp_path, monkeypatch, capsys
+):
+    """The exit rule, applied to recording. A refusal is the writer working,
+    not a rate to average: forty cases with one refusal is 97.5% and would
+    exit 0 having committed a set that is quietly one case short."""
+    report_path = tmp_path / "report.json"
+    code = cli_record(
+        monkeypatch,
+        tmp_path,
+        "technical-figures",
+        judge_passes=False,
+        argv=("--min-pass-rate", "0", "--report", str(report_path)),
+    )
+
+    summary = json.loads(report_path.read_text())["summary"]
+    assert summary["pass_rate"] >= summary["min_pass_rate"]  # the rate gate says pass
+    assert summary["ok"] is True  # ... explicitly
+    assert code == 1  # and the build fails regardless
+    assert not (tmp_path / "technical-figures.json").exists()
+    out = capsys.readouterr().out
+    assert "1 case(s) were NOT recorded" in out
+    assert "judge_grounding" in out

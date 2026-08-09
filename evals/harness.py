@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import contextlib
 import os
+import pathlib
 import time
 from dataclasses import dataclass, field
 
+from evals import fixtures as F
 from evals import graders as G
 from evals.dataset import APPROVED, Case, Followup
 from research_agent import graph
@@ -422,6 +424,191 @@ def replay_case(case: Case, fixture: dict) -> CaseResult:
         result.error = f"{type(exc).__name__}: {exc}"
 
     return result
+
+
+# --------------------------------------------------------------------------
+# Recording: the one leg that spends money
+#
+# A recording is `run_case` with the state kept, graded by a real judge, and
+# written through the writer that refuses anything the graders failed. There is
+# no second driver: the recorder is the same function the live suite runs, with
+# `capture_state=True`, because a parallel loop would drift from the shipped
+# graph in exactly the way this harness exists to prevent.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class RecordOutcome:
+    """What became of one case's recording: a file, or a stated refusal."""
+
+    case_id: str
+    result: CaseResult
+    path: pathlib.Path | None = None
+    refusal: str = ""
+
+    @property
+    def written(self) -> bool:
+        return self.path is not None
+
+    @property
+    def cost_usd(self) -> float:
+        return self.result.cost_usd
+
+    def as_dict(self) -> dict:
+        return {
+            "case_id": self.case_id,
+            "written": self.written,
+            "path": str(self.path) if self.path else None,
+            "refusal": self.refusal,
+            "cost_usd": round(self.cost_usd, 6),
+        }
+
+
+def record_case_to_fixture(
+    case: Case,
+    *,
+    client_factory,
+    memory_factory,
+    judge: G.Judge | None,
+    force: bool = False,
+    directory: pathlib.Path | None = None,
+) -> RecordOutcome:
+    """Run one case for real, keep its states, and write the fixture.
+
+    The judge is MANDATORY, and this is the only place that can enforce it: its
+    verdicts are the fixture's metadata *and* the refusal gate, so a judgeless
+    recording would commit answers that nothing ever graded and then replay
+    them forever as evidence of quality. A missing judge is a programming
+    error, not a case-level failure, so it raises rather than becoming an
+    outcome -- there is nothing here worth continuing a paid loop for.
+
+    A refusal is NOT an exception: `write_fixture` declining a recording whose
+    own grades failed is the system working, one case among forty, and the
+    remaining thirty-nine are still worth their money.
+    """
+    if judge is None:
+        raise ValueError(
+            "record mode requires a judge -- a fixture's recorded verdicts are both "
+            "its metadata and the gate that lets replay assert anything about "
+            "quality; there is no judgeless recording"
+        )
+
+    result = run_case(
+        case,
+        client_factory=client_factory,
+        memory_factory=memory_factory,
+        judge=judge,
+        capture_state=True,
+    )
+    outcome = RecordOutcome(case_id=case.id, result=result)
+
+    try:
+        fixture = F.build_fixture(
+            case.id,
+            result,
+            # A map, never a flat string: Phase 16 moves one of these models
+            # without moving the other, and a recording that cannot say which
+            # is which goes stale invisibly.
+            models={"pipeline": graph.MODEL, "judge": judge.model},
+        )
+        outcome.path = F.write_fixture(fixture, result, force=force, directory=directory)
+    except F.FixtureError as exc:
+        outcome.refusal = str(exc)
+
+    return outcome
+
+
+def _per_case_memory(memory_factory):
+    """Wrap a memory factory so a shared store cannot survive the loop.
+
+    Pitfall 5: a record run inherits the operator's laptop. If `DATABASE_URL`
+    is set and the recorder reaches for the persistent store, every case
+    recalls the previous ones' notes -- and worse, the operator's real notes --
+    which makes the recordings unreproducible and quietly poisons what a
+    grounding grader is grading. `live_memory_factory` is the right factory;
+    this checks the property rather than the identity, because the property is
+    what matters and a test needs to be able to pass a fake.
+    """
+    seen: list = []
+
+    def per_case():
+        store = memory_factory()
+        # Two failures, two messages, deliberately. A factory that always hands
+        # back the persistent store trips the second check too (on its second
+        # call), which is how a single shared message ends up unprovable: no
+        # realistic factory can tell the two clauses apart, so the first one
+        # looks like a guard while being decorative. Distinct messages make the
+        # distinction observable, and the diagnosis is the point -- "you reached
+        # for the process's store" and "you reused a store" are different bugs
+        # with different fixes.
+        if store is graph._memory:
+            raise RuntimeError(
+                "record mode was handed the process's own memory store. A recording "
+                "that recalls the operator's real notes is not reproducible, and "
+                "those notes end up inside a committed fixture."
+            )
+        if any(store is previous for previous in seen):
+            raise RuntimeError(
+                "record mode requires a fresh store per case: this factory handed "
+                "back a store a previous case already used. Cross-case recall makes "
+                "a recording depend on the order the dataset happens to be in."
+            )
+        seen.append(store)
+        return store
+
+    return per_case
+
+
+def record_suite(
+    cases,
+    *,
+    client_factory,
+    memory_factory,
+    judge: G.Judge | None,
+    force: bool = False,
+    directory: pathlib.Path | None = None,
+    min_pass_rate: float = 0.9,
+    on_outcome=None,
+) -> dict:
+    """Record every selected case. One fixture per case that earned one.
+
+    A refused case does not stop the loop, and the report says which were
+    refused and why: stopping would waste the spend already made on the cases
+    behind it, and hiding it would commit a partial recording set that looks
+    complete.
+    """
+    guarded = _per_case_memory(memory_factory)
+    # Before anything is spent, not after: a factory that hands out one shared
+    # store would poison all forty recordings, and finding that out on case
+    # forty costs forty cases' worth of money.
+    guarded()
+    guarded()
+
+    outcomes: list[RecordOutcome] = []
+    for case in cases:
+        outcome = record_case_to_fixture(
+            case,
+            client_factory=client_factory,
+            memory_factory=guarded,
+            judge=judge,
+            force=force,
+            directory=directory,
+        )
+        outcomes.append(outcome)
+        if on_outcome:
+            on_outcome(outcome)
+
+    results = [o.result for o in outcomes]
+    return {
+        "mode": "record",
+        "model": graph.MODEL,
+        "judge_model": judge.model if judge else None,
+        "judge_calls": judge.calls if judge else 0,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "cases": [r.as_dict() for r in results],
+        "summary": summarise(results, min_pass_rate),
+        "recordings": [o.as_dict() for o in outcomes],
+    }
 
 
 # --------------------------------------------------------------------------
