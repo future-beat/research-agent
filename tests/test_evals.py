@@ -20,8 +20,10 @@ from evals.harness import (
     HashEmbedder,
     ScriptedClient,
     TurnResult,
+    grade_fixture_current,
     offline_client_factory,
     offline_memory_factory,
+    replay_case,
     run_case,
     run_suite,
     summarise,
@@ -1168,3 +1170,150 @@ def test_no_quality_grader_reads_the_clock():
     source = (pathlib.Path(G.__file__)).read_text()
     assert "datetime.now" not in source
     assert "date.today" not in source
+
+
+# --------------------------------------------------------------------------
+# Replay: grading a recorded run
+# --------------------------------------------------------------------------
+
+# A scripted report is 37-183 chars and repeats almost none of the question's
+# terms, so a fixture captured straight off the offline client fails
+# `recorded_structure` (200-char floor) and `recorded_coverage` (40% floor) --
+# measured, not assumed: `run_case` on this case yields a 171-char draft
+# covering 17% of the terms. So the recorded research state gets a
+# report-shaped draft written over it. Everything else in these fixtures is a
+# real state produced by the real graph; the draft is the one field a scripted
+# client cannot make report-sized.
+REPLAYABLE_DRAFT = (
+    "# How LLM agents implement long-term memory\n\n"
+    "LLM agents implement long-term memory by writing their research notes into a vector "
+    "store and retrieving them later by cosine similarity. LangGraph models the control "
+    "flow as an explicit state graph, and a relevance floor keeps unrelated notes out of "
+    "the context that gets recalled."
+)
+
+
+def replayable(
+    case_id: str = "followup-uses-prior-notes",
+    *,
+    judge_passed: bool = True,
+    models: dict | None = None,
+    draft: str = REPLAYABLE_DRAFT,
+):
+    """A fixture built the way plan 05's recorder will build one: a real
+    `run_case(capture_state=True)` plus a judge verdict, through
+    `build_fixture` -- no network, no key, no spend."""
+    case = by_id(case_id)
+    result = run_case(
+        case,
+        client_factory=offline_client_factory,
+        memory_factory=offline_memory_factory,
+        capture_state=True,
+    )
+    result.turns[0].state["draft"] = draft
+    result.turns[0].grades.append(
+        G.Grade("judge_grounding", judge_passed, "synthetic verdict", judged=True)
+    )
+    return case, F.build_fixture(case.id, result, models=models or MODELS)
+
+
+def graded(result: CaseResult) -> list[tuple[str, bool, str]]:
+    return [(g.grader, g.passed, g.detail) for turn in result.turns for g in turn.grades]
+
+
+def test_replay_grades_a_recorded_case_green():
+    """The whole replay vocabulary over one recording: behavioural graders,
+    quality graders, the staleness gate, and the recorded judge verdict."""
+    case, fixture = replayable()
+
+    result = replay_case(case, fixture)
+
+    assert result.passed, result.error or [(g.grader, g.detail) for g in result.failures]
+    assert result.case_id == "followup-uses-prior-notes@recorded"
+    assert result.why == case.why
+    names = [g[0] for g in graded(result)]
+    assert "terminates" in names  # behavioural, research turn
+    assert "followup_reuses_notes" in names  # behavioural, follow-up turn
+    assert "recorded_grounding" in names  # quality, research turn
+    assert "recorded_refusal" in names  # quality, follow-up turn
+    assert "fixture_current" in names  # the staleness gate
+    assert "recorded_judge_grounding" in names  # the recorded verdict, replayed
+    assert not any(g.judged for turn in result.turns for g in turn.grades)
+
+
+def test_model_mismatch_gates_replay():
+    """The recordings describe a pipeline that no longer exists. Nothing else
+    about the fixture changed, so this gate is the only thing that can notice."""
+    case, fixture = replayable()
+    fixture["models"]["pipeline"] = "claude-sonnet-4"
+
+    result = replay_case(case, fixture)
+
+    assert not result.passed
+    assert [g.grader for g in result.failures] == ["fixture_current"]
+    detail = result.failures[0].detail
+    assert "claude-sonnet-4" in detail and graph.MODEL in detail and "re-record" in detail
+
+
+def test_a_recorded_failed_judge_verdict_gates_replay():
+    """`write_fixture` refuses a recording whose judge said no, so a committed
+    fixture carrying a failed verdict was hand-edited or `--force`d. Either
+    way the verdict is data now, and data that says FAIL fails."""
+    case, fixture = replayable(judge_passed=False)
+
+    result = replay_case(case, fixture)
+
+    assert not result.passed
+    assert [g.grader for g in result.failures] == ["recorded_judge_grounding"]
+
+
+def test_replay_turn_count_mismatch_is_an_error():
+    """The dataset moved under the recording. Grading the turns that happen to
+    line up would report on a case that no longer exists."""
+    case, fixture = replayable()
+    fixture["turns"].append(dict(fixture["turns"][-1]))
+
+    result = replay_case(case, fixture)
+
+    assert not result.passed
+    assert "3 turn(s)" in result.error and "has 2" in result.error
+
+
+def test_a_malformed_recorded_state_fails_the_replay_loudly():
+    """A recorded state missing a key some grader reads is the exact shape of
+    the bug that would otherwise grade vacuously green. It is isolated into
+    `error` the way `run_case` isolates a crashing case -- never a traceback
+    that ends the suite."""
+    case, fixture = replayable()
+    del fixture["turns"][0]["state"]["trace"]
+
+    result = replay_case(case, fixture)
+
+    assert not result.passed
+    assert "KeyError" in result.error and "trace" in result.error
+
+
+def test_replay_never_reads_the_clock_for_a_verdict():
+    """Age prints; age never grades. A five-year-old recording and a fresh one
+    must produce byte-identical grades, or the same commit passes in August
+    and fails in October."""
+    case, fixture = replayable()
+    ancient = {**fixture, "recorded_at": "2019-01-01T00:00:00+0000"}
+
+    fresh, old = replay_case(case, fixture), replay_case(case, ancient)
+
+    assert fresh.passed and old.passed
+    # Details compared too: an age that leaked into a grade's reason would
+    # differ here even if the verdict did not.
+    assert graded(fresh) == graded(old)
+
+
+def test_the_replay_model_gate_states_its_claim_boundary():
+    """The one gate that lives outside graders.py still owes the reader the
+    same honesty the five rubrics do -- and its boundary is the sharpest of
+    them, because Phase 16 walks straight through it."""
+    doc = grade_fixture_current.__doc__ or ""
+
+    assert "Cannot catch:" in doc
+    assert "graph.MODEL" in doc
+    assert "CRITIC" in doc and "Phase 16" in doc

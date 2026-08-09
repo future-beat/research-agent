@@ -6,8 +6,11 @@ back. Two modes:
 
     offline   a scripted client stands in for the API. Free, deterministic,
               CI-safe. Grades the pipeline -- routing, guardrails, honesty --
-              and the graders themselves. It cannot grade model quality,
-              because the model output is authored in the dataset.
+              and the graders themselves. The scripted output is authored in
+              the dataset, so nothing about the current model's quality can be
+              read from it; `replay_case` grades the answers a real run once
+              gave (committed fixtures), which is a claim about what the
+              pipeline said then, not what it would say now.
 
     live      real API, real web search, plus judge graders on a stronger
               model. This is the one that measures quality; it costs money
@@ -297,6 +300,115 @@ def run_case(
     finally:
         graph._client = previous_client
         graph.set_memory(previous_memory)
+
+    return result
+
+
+# --------------------------------------------------------------------------
+# Replaying one recorded case
+#
+# A fixture is a run that already happened. Replay grades it with exactly the
+# vocabulary a live run is graded with -- the same deterministic graders over
+# the same state dicts -- plus the two things only a recording can be asked:
+# is it still current, and do the verdicts it was recorded with still hold.
+# No client, no memory, no network, no key, no spend.
+# --------------------------------------------------------------------------
+
+
+def grade_fixture_current(fixture: dict) -> G.Grade:
+    """The recording must have been made on the model this tree runs.
+
+    This is the deterministic staleness gate, and the only one there is: age
+    prints in the caveat but never grades, because a grader that fails on the
+    calendar makes the same commit pass in August and fail in October.
+    `models.pipeline` against `graph.MODEL` fires exactly when a code change
+    invalidates the recordings, and never otherwise.
+
+    Cannot catch: a change to any model this map does not compare. It reads
+    `models["pipeline"]` against `graph.MODEL` -- the writer/researcher model --
+    and nothing else. Phase 16 makes the CRITIC's model configurable
+    INDEPENDENTLY of `graph.MODEL` (ROADMAP, Phase 16 SC-1), so a critic-model
+    change will NOT fire this gate: the recordings would stay green with only
+    the printed recording date hinting that they describe an older pipeline.
+    Closing that needs three things together -- a per-node entry in the
+    fixture's `models` map, this gate extended to compare it, and the fixtures
+    re-recorded. The map exists precisely so that extension is additive rather
+    than a schema bump.
+
+    It lives here rather than in graders.py so that graders.py never imports
+    the graph: the quality rubrics are pure functions of a recorded state, and
+    a gate that reads the running code is a different kind of check.
+    """
+    name = "fixture_current"
+    recorded = fixture.get("models", {}).get("pipeline")
+    if recorded == graph.MODEL:
+        return G.Grade(name, True, f"recorded on {recorded}, which is what this tree runs")
+    return G.Grade(
+        name,
+        False,
+        f"recorded on {recorded!r} but this tree runs {graph.MODEL!r} -- "
+        "the recording describes a pipeline that no longer exists; re-record",
+    )
+
+
+def _recorded_judge_grades(turn: dict) -> list[G.Grade]:
+    """The judge verdicts this turn was recorded with, replayed as gates.
+
+    They are fixed data now, so `judged` is False: nothing was asked of a
+    model to produce these. The recorder refuses to write a fixture whose own
+    grades failed, so a red here means a hand-edited file or a `--force`d
+    recording -- both worth a red, and both worth a non-zero exit.
+    """
+    grades = []
+    for entry in turn["judge"]:
+        detail = entry.get("detail") or entry.get("reason") or ""
+        grades.append(
+            G.Grade(f"recorded_{entry['grader']}", bool(entry["passed"]), detail, judged=False)
+        )
+    return grades
+
+
+def replay_case(case: Case, fixture: dict) -> CaseResult:
+    """Grade a recorded run: the behavioural graders, the quality graders, the
+    staleness gate, and the recorded judge verdicts.
+
+    The case ids are suffixed `@recorded` so the printout and the report can
+    never confuse the replay leg with the behavioural one -- they grade the
+    same case for different reasons and can disagree.
+
+    Malformed input is isolated the way `run_case` isolates a crashing case:
+    into `result.error`, loud and red, rather than ending the run. A recorded
+    state missing a key some grader reads is exactly the shape of the bug that
+    would otherwise grade vacuously green.
+    """
+    result = CaseResult(case_id=f"{case.id}@recorded", why=case.why)
+
+    turns = fixture.get("turns", [])
+    expected = 1 + len(case.followups)
+    if len(turns) != expected:
+        result.error = (
+            f"fixture records {len(turns)} turn(s) but case {case.id!r} has {expected} "
+            f"(research + {len(case.followups)} follow-up(s)) -- the dataset moved "
+            "under the recording; re-record"
+        )
+        return result
+
+    try:
+        model_gate = grade_fixture_current(fixture)
+        for index, turn in enumerate(turns):
+            state = turn["state"]
+            if index == 0:
+                grades = [grader(case, state) for grader in G.DETERMINISTIC_GRADERS]
+                grades += [grader(case, state) for grader in G.RECORDED_GRADERS]
+                grades.append(model_gate)
+            else:
+                fu = case.followups[index - 1]
+                grades = [grader(case, fu, state) for grader in G.FOLLOWUP_GRADERS]
+                grades += [grader(case, fu, state) for grader in G.RECORDED_FOLLOWUP_GRADERS]
+            grades += _recorded_judge_grades(turn)
+            result.turns.append(TurnResult(label=turn["label"], grades=grades))
+    except Exception as exc:  # noqa: BLE001 - one bad fixture shouldn't end the suite
+        result.error = f"{type(exc).__name__}: {exc}"
 
     return result
 
