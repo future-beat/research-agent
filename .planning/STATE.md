@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in_progress
-stopped_at: "Completed 15-02-PLAN.md (quality graders + claim boundaries) on gsd/phase-15-answer-quality-evals. Next: 15-03 — wiring replay into the offline run."
-last_updated: "2026-08-10T00:05:00.000Z"
-last_activity: "2026-08-09 — Phase 15 wave 2 executed: five deterministic quality graders over a recorded state (grounding, coverage, structure, refusal, per-case pins), each with a synthetic state it passes and one it fails, each carrying a 'Cannot catch:' line a test enforces. 23 mutations, 22 red on the intended assertion; the 23rd went green and exposed an ungated rule. Nothing wired into a run yet, no spend."
+stopped_at: "Completed 15-03-PLAN.md (replay wiring + the all-must-pass exit rule + the SC-4 caveat) on gsd/phase-15-answer-quality-evals. Next: 15-04 — the dataset grows 12 → 40."
+last_updated: "2026-08-10T00:10:00.000Z"
+last_activity: "2026-08-09 — Phase 15 wave 3 executed: offline runs now replay committed recordings automatically (command unchanged, still keyless), and ANY red or errored replay case exits non-zero whatever the shared pass rate says — the split proven in one test (pass_rate 92.3% ≥ 0.9, ok True, exit 1). Caveat rewritten to print date/model/sha/age. 18 mutations, 18 red. Still nothing recorded, no spend."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 29
-  percent: 66
+  completed_plans: 30
+  percent: 68
 ---
 
 # Project State
@@ -26,16 +26,18 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 15 of 17 (Answer-quality evals) — **IN PROGRESS**
-Plan: 2 of 6 complete · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged)
-Status: Waves 1–2 executed. The recorder mechanism exists and is proven against the scripted
-client (`run_case(capture_state=True)` + `evals/fixtures.py`), and the grading vocabulary for
-recorded answers now exists beside it: five deterministic quality graders, each with a
-passing and a failing synthetic state, each stating what it cannot catch. **Nothing has been
-recorded, nothing is wired into a run, and no money has been spent.** Suites 615/65 plain,
-679/1 armed, offline evals 12/12 keyless, `ruff` clean.
+Plan: 3 of 6 complete · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged)
+Status: Waves 1–3 executed. The recorder mechanism exists (`run_case(capture_state=True)` +
+`evals/fixtures.py`), the grading vocabulary for recorded answers exists beside it (five
+deterministic quality graders), and both are now **wired into the offline run**: `python -m
+evals` replays whatever fixtures are committed, keylessly, and any red or errored replay case
+exits non-zero regardless of the 0.9 rate. The caveat prints date/model/sha/age when there is
+something to grade. **Nothing has been recorded and no money has been spent**, so the run
+still prints the original caveat and still exits 0 on 12/12. Suites 630/65 plain, 694/1
+armed, offline evals 12/12 keyless, `ruff` clean, `.github/workflows/ci.yml` untouched.
 
 Progress: [████████░░] 82% (14 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 15: [███░░░░░░░] 2 of 6 plans — 15-01, 15-02 complete
+Phase 15: [█████░░░░░] 3 of 6 plans — 15-01, 15-02, 15-03 complete
 
 **Carry into execution:**
 - **15-01 is done.** `evals/fixtures.py` provides `SCHEMA_VERSION`, `FixtureError`,
@@ -61,19 +63,29 @@ Phase 15: [███░░░░░░░] 2 of 6 plans — 15-01, 15-02 complet
   asserted for this case" everywhere. Plan 04 authors the pins against real recordings;
   until then this grader contributes nothing to any verdict, by design and temporarily.
 - `REQ-offline-eval-quality` is deliberately still **Pending** — it spans all six plans.
-- Exit rule: any failing/errored replay CaseResult → non-zero exit; 0.9 governs only the
-  behavioural denominator. The split test proves both halves in one test.
-- Fixtures record a models MAP ({pipeline, judge}, extensible); the mismatch gate compares
-  models["pipeline"] == graph.MODEL and carries its own "Cannot catch:" line.
+- **15-03 is done, and the exit rule is live.** `replay_case(case, fixture)` in
+  `evals/harness.py` grades a recording with `DETERMINISTIC_GRADERS` + `RECORDED_GRADERS` +
+  `grade_fixture_current` + the recorded judge verdicts (follow-up turns: `FOLLOWUP_GRADERS`
+  + `RECORDED_FOLLOWUP_GRADERS` + verdicts), case_id `"{id}@recorded"`. `evals/__main__.py`
+  replays automatically in offline mode, folds the results into the same report and the same
+  0.9 denominator, and exits 1 on ANY red/errored replay case or on any matched fixture that
+  produced no result. `report["fixtures"]` carries count/models/recorded_at_oldest/git_shas.
+- **A fixture captured from the SCRIPTED client cannot replay green** — measured: the
+  research draft is 171 chars against `REPORT_MIN_CHARS` 200, and covers 17% of the
+  question's terms against `COVERAGE_THRESHOLD` 0.4. Test fixtures write a report-shaped
+  draft over the recorded state. Plan 04's authored reports must clear both floors, or the
+  floors must move at wave 6's calibration — not before.
+- Replay maps fixture turns to `case.followups` **by index**; turn COUNT is checked, question
+  text is not. Plan 04 rewords follow-ups — consider a label-match check there.
+- `grade_case_pins` now runs inside replay and still cannot fail (no case pins anything).
 - Every quality grader ships a passing AND a failing synthetic fixture.
 - seeded_notes authoring RULE: ≥3 distinctive content words shared with the case task
   (HashEmbedder buckets are per-process salted; 0.3 similarity floor).
-- Orphaned fixtures (case_id gone from GOLDEN) are a loud red CaseResult, not a KeyError.
 - Wave 6 is a checkpoint: calibration recording ~$0.25 (operator spend), then a
   record-now-vs-defer decision on the full ~$10-16 run. Deferral does NOT block the phase;
   record-now locks intro pricing before 2026-09-01.
-- Local PG on :54329. Baselines for wave 3: plain **615/65**, armed **679/1**, offline evals
-  12/12 keyless.
+- Local PG on :54329. Baselines for wave 4: plain **630/65**, armed **694/1**, offline evals
+  12/12 keyless, `tests/test_evals.py` 114.
 
 ## Performance Metrics
 
@@ -93,7 +105,7 @@ Phase 15: [███░░░░░░░] 2 of 6 plans — 15-01, 15-02 complet
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
 | 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
-| 15 | 2 of 6 (15-01, 15-02) | 63min | 32min |
+| 15 | 3 of 6 (15-01, 15-02, 15-03) | 93min | 31min |
 
 **Recent Trend:**
 
@@ -111,6 +123,12 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 15-03]: **A rate gate and an all-must-pass gate are different gates, and a leg whose every red the rate absorbs is decorative.** `summarise`'s `ok` is a pass rate and nothing else (harness.py:291-318): errored results never move it, and 12 green behavioural + 1 red replay = 92.3% ≥ 90% ⇒ exit 0. Under a rate-only verdict a model mismatch, a hand-edited verdict, a broken fixture and an orphaned fixture would each print FAIL and pass the build. The replay leg is therefore all-must-pass at the exit code while the behavioural leg stays rate-governed, and **one test proves both halves**: report `pass_rate` ≥ 0.9 AND `ok is True` AND return code 1. Under the mutation it fails on `assert 0 == 1` with both rate assertions passing.
+- [Phase 15-03]: **The headline verdict must follow the exit code, not the pass rate.** The first real run against a stale recording printed `PASS 13/14 cases (93% vs 90% required)` and exited 1. A run that prints PASS at the top and fails the build teaches people to read neither — the same decorative-gate failure, in presentation form. The rate line stays; the mark in front of it is now the exit code.
+- [Phase 15-03]: **A guard against a silent SKIP cannot be observed through code that never skips.** Every fixture path produces exactly one CaseResult, so the vacuous-replay guard (`matched` vs `graded`) is unfalsifiable against the shipped loop; it defends a *future* edit. The test stubs `_replay_fixtures` to return nothing with two fixtures on disk — a guard proven against a simulated future, stated as such in its docstring rather than dressed up as a live gate. Third wave running where the question "can this test discriminate?" changed the test.
+- [Phase 15-03]: **Clock-independence is pinned by an OLD recording, not by two identical runs.** "Replay twice and compare" is invariant under an age gate. `test_replay_never_reads_the_clock_for_a_verdict` replays a fixture dated 2019 against a fresh one and compares grades *including details*, so both an age gate and an age leaking into a reason go red.
+- [Phase 15-03]: **The staleness gate names which model it compares, because Phase 16 moves a different one.** `grade_fixture_current` reads `models["pipeline"]` against `graph.MODEL` — the writer/researcher model — and its "Cannot catch:" line says a critic-model change will NOT fire it, so recordings would stay green with only the printed date hinting staleness, until the `models` map grows a per-node entry, the gate compares it, and the fixtures are re-recorded. Do not restate the folklore that this gate catches Phase 16.
+- [Phase 15-03]: **A fixture captured from the scripted client cannot replay green, and wave 2's calibration table said so in advance.** The captured research draft is 171 chars (floor 200) and covers 17% of the question's terms (floor 40%). The plan's tests assumed a green replay off a scripted capture; the helper writes a report-shaped draft over the recorded state instead, with the measured numbers in a comment. **A plan's stated arithmetic is a claim to check.**
 - [Phase 15-02]: **A design detail with no test that can distinguish it from its absence is not a guard — twice in two waves now.** The refusal grader counts the follow-up's own question as a source, so an answer may repeat a figure the asker supplied. Deleting that rule broke nothing: the dataset's scripted refusal quotes no figure at all, so every test in the file was invariant under the change. Fixed by a refusal that echoes the question's year ("didn't cover Gartner's 2027 forecast"). Same family as 15-01's aliasing capture, 13-05's `FrozenQueryEmbedder`, 14-01's ratio assertion.
 - [Phase 15-02]: **Currency is a marker, not noise to strip.** The plan (and RESEARCH's sketch) stripped `$` and then dropped bare integers ≤ 10 as prose counts; composed, those rules are blind to every dollar figure under $10 — including the `$2/$10 per MTok` the flagship grounding case is about, so a draft quietly saying `$3/$9` grades green. A number carrying a unit (currency, percent, scale word, decimal point) is kept whatever its size; `$2,000` still normalises to `2000`. **A plan's stated rule is a claim to check by composing it with the plan's other stated rules.**
 - [Phase 15-02]: **A registry test must fail in both directions.** A grader dropped from `RECORDED_GRADERS` runs on nothing; a grader defined and never registered is a check that never ran. The test discovers quality graders by name *or* by claim-boundary docstring and asserts set equality with the registries, so both mutations red.
