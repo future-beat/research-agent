@@ -207,17 +207,32 @@ def _caveat(loaded: list[dict]) -> str:
 # What one turn is ASSUMED to cost in tokens when the case has never been
 # recorded. These are estimates, and they are named constants precisely so the
 # one-case calibration run can correct them by editing seven numbers rather
-# than an arithmetic expression. Chosen against 15-RESEARCH's table (a research
-# turn measured at ~$0.15-0.25 at introductory Sonnet rates); a research "turn"
-# is every model call the graph makes for it -- classifier, researcher, writer,
-# critic and any revision -- not one call.
-ASSUMED_RESEARCH_INPUT_TOKENS = 40_000
-ASSUMED_RESEARCH_OUTPUT_TOKENS = 8_000
-ASSUMED_FOLLOWUP_INPUT_TOKENS = 6_000
-ASSUMED_FOLLOWUP_OUTPUT_TOKENS = 2_000
-ASSUMED_JUDGE_INPUT_TOKENS = 4_000
-ASSUMED_JUDGE_OUTPUT_TOKENS = 1_500
-WEB_SEARCHES_PER_RESEARCH_TURN = 2
+# than an arithmetic expression. A research "turn" is every model call the
+# graph makes for it -- classifier, researcher, writer, critic and any
+# revision -- not one call.
+#
+# CALIBRATED 2026-08-10 against the first real recording (`technical-figures`,
+# fixture git_sha 225b06b): 4 calls, 0 revisions, 71,333 input / 5,000 output
+# tokens and 5 web searches, costing a measured $0.2427 against a quote of
+# $0.1800 for the pipeline half -- a 35% UNDER-quote, hidden inside a total
+# that looked conservative only because the judge assumption was generous. The
+# correction rule applied here is "raise what the measurement exceeded, keep
+# what it did not", so the quote stays an upper bound for the topology that was
+# measured rather than becoming a point estimate fitted to a single run.
+#
+# What is still uncalibrated, and stated rather than implied: the FOLLOW-UP
+# constants (the calibration case has no follow-ups) and both JUDGE constants
+# (the judge holds its own client, so its tokens never reach a run's usage
+# totals and this recording measured none of them). And the measured turn took
+# the CHEAPEST path the graph has -- a case whose critic sends the draft back
+# adds a writer and a critic call that no number here anticipates.
+ASSUMED_RESEARCH_INPUT_TOKENS = 72_000  # measured 71,333
+ASSUMED_RESEARCH_OUTPUT_TOKENS = 8_000  # measured 5,000 -- kept, as headroom
+ASSUMED_FOLLOWUP_INPUT_TOKENS = 6_000  # unmeasured
+ASSUMED_FOLLOWUP_OUTPUT_TOKENS = 2_000  # unmeasured
+ASSUMED_JUDGE_INPUT_TOKENS = 4_000  # unmeasured
+ASSUMED_JUDGE_OUTPUT_TOKENS = 1_500  # unmeasured
+WEB_SEARCHES_PER_RESEARCH_TURN = 5  # measured 5
 # A follow-up turn is judged once (`harness._grade_followup` appends
 # `judge_followup_honesty` and nothing else). The research turn's count is read
 # off `G.JUDGE_GRADERS` rather than written down, so adding a judge grader
