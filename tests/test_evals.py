@@ -6,12 +6,14 @@ grader that can't fail, a summary that rounds a regression away, or a runner
 that reports success on zero cases would all make CI green through a bug.
 """
 
+import datetime
 import json
 import pathlib
 import re
 
 import pytest
 
+from evals import __main__ as M
 from evals import fixtures as F
 from evals import graders as G
 from evals.__main__ import main
@@ -29,7 +31,7 @@ from evals.harness import (
     run_suite,
     summarise,
 )
-from research_agent import graph
+from research_agent import graph, usage
 from research_agent.graph import initial_state
 
 
@@ -1785,3 +1787,165 @@ def test_a_fixture_the_replay_leg_never_graded_is_not_a_green_build(
 
     assert code == 1
     assert "2 of 2" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------
+# The record cost preview
+#
+# The quote an operator reads before spending real money. Every test here
+# checks that the numbers came out of usage.py's tables at call time: a preview
+# that is right today and wrong on 2026-09-01 is worse than no preview, because
+# it will be believed.
+# --------------------------------------------------------------------------
+
+# Deliberately absurd, and deliberately 100x apart: a preview that priced judge
+# calls at the pipeline's rate would be off by orders of magnitude here, where
+# against the real tables ($2/$10 vs $5/$25) it would still look plausible.
+FAKE_PIPELINE_PRICE = usage.Price(input=1.0, output=10.0, cache_write_5m=0.0, cache_read=0.0)
+FAKE_JUDGE_PRICE = usage.Price(input=100.0, output=1000.0, cache_write_5m=0.0, cache_read=0.0)
+
+PER_MTOK = 1_000_000
+
+
+def fake_price_for(model, on=None):
+    return FAKE_JUDGE_PRICE if model == G.JUDGE_MODEL else FAKE_PIPELINE_PRICE
+
+
+def line_for(text: str, case_id: str) -> str:
+    matches = [ln for ln in text.splitlines() if ln.strip().startswith(f"{case_id} ")]
+    assert matches, f"no preview line for {case_id!r} in:\n{text}"
+    return matches[0]
+
+
+def judge_calls_for(case) -> int:
+    return len(G.JUDGE_GRADERS) + M.JUDGE_CALLS_PER_FOLLOWUP_TURN * len(case.followups)
+
+
+def judge_leg(case, price) -> float:
+    """What the judge's calls cost a case at `price`."""
+    per_call = (
+        M.ASSUMED_JUDGE_INPUT_TOKENS * price.input
+        + M.ASSUMED_JUDGE_OUTPUT_TOKENS * price.output
+    ) / PER_MTOK
+    return judge_calls_for(case) * per_call
+
+
+def hand_computed(case) -> float:
+    """The estimate spelled out from the named constants and the fake rates.
+
+    Written independently of `record_preview`'s own expression on purpose: this
+    is the arithmetic 15-RESEARCH's table describes, and the preview has to
+    agree with it rather than with itself.
+    """
+    research = (
+        M.ASSUMED_RESEARCH_INPUT_TOKENS * FAKE_PIPELINE_PRICE.input
+        + M.ASSUMED_RESEARCH_OUTPUT_TOKENS * FAKE_PIPELINE_PRICE.output
+    ) / PER_MTOK + M.WEB_SEARCHES_PER_RESEARCH_TURN * usage.WEB_SEARCH_USD_PER_REQUEST
+    followup = (
+        M.ASSUMED_FOLLOWUP_INPUT_TOKENS * FAKE_PIPELINE_PRICE.input
+        + M.ASSUMED_FOLLOWUP_OUTPUT_TOKENS * FAKE_PIPELINE_PRICE.output
+    ) / PER_MTOK
+    return research + len(case.followups) * followup + judge_leg(case, FAKE_JUDGE_PRICE)
+
+
+def test_record_preview_prices_through_price_for(monkeypatch):
+    """The preview's math is the rate table's math. Swap the table and every
+    figure moves with it -- including the judge's calls, which are priced on
+    the judge's model, and the web searches, which are priced per request."""
+    monkeypatch.setattr(usage, "price_for", fake_price_for)
+    # One case of each shape: an uncounted follow-up turn, or an uncounted
+    # follow-up judge call, is invisible in a research-only case.
+    research_only = next(c for c in GOLDEN if not c.followups)
+    chained = next(c for c in GOLDEN if len(c.followups) >= 2)
+
+    text, total = M.record_preview([research_only, chained], {})
+
+    assert total == pytest.approx(hand_computed(research_only) + hand_computed(chained))
+    for case in (research_only, chained):
+        assert f"${hand_computed(case):.4f}" in line_for(text, case.id)
+
+
+def test_record_preview_prefers_measured_fixture_costs(monkeypatch):
+    """A case recorded before has a real number attached, and a real number
+    beats an assumption. The judge is still assumed: its calls never land in a
+    run's usage totals, so a fixture's `pipeline_cost_usd` is the pipeline and
+    nothing else -- adding the judge back is what keeps this a quote rather
+    than an under-quote."""
+    monkeypatch.setattr(usage, "price_for", fake_price_for)
+    case = next(c for c in GOLDEN if not c.followups)
+    fixture = {"pipeline_cost_usd": 0.214, "recorded_at": "2026-08-09T23:07:41+0100"}
+
+    text, total = M.record_preview([case], {case.id: fixture})
+
+    line = line_for(text, case.id)
+    assert "0.214" in line and "measured" in line and "2026-08-09" in line
+    assert total == pytest.approx(0.214 + judge_leg(case, FAKE_JUDGE_PRICE))
+    # ... and it is genuinely a different quote from the assumed one, or this
+    # would pass against a preview that read the fixture and ignored it.
+    _, assumed_total = M.record_preview([case], {})
+    assert total != pytest.approx(assumed_total)
+
+
+def test_record_preview_states_its_basis_and_uncertainty():
+    """Phase 13's live demo caught its own preview over-counting by 60%. An
+    estimate that does not say it is one gets read as a price."""
+    recorded = next(c for c in GOLDEN if not c.followups)
+    fresh = next(c for c in GOLDEN if c.followups)
+    fixture = {"pipeline_cost_usd": 0.19, "recorded_at": "2026-08-09T23:07:41+0100"}
+
+    text, _ = M.record_preview([recorded, fresh], {recorded.id: fixture})
+
+    assert "upper bound" in text and "calibration" in text
+    assert "measured" in line_for(text, recorded.id)
+    assert "assumed tokens" in line_for(text, fresh.id)
+    assert "1 measured, 1 assumed" in text
+    assert "total" in text
+
+
+def test_record_preview_requotes_itself_when_the_rate_window_flips():
+    """The sharpest test of "at runtime", and nothing in it is patched: Sonnet
+    5's introductory window closes on 2026-08-31, and a preview holding a rate
+    rather than resolving one quotes the same number on both sides of it."""
+    case = next(c for c in GOLDEN if c.followups)
+
+    intro, intro_total = M.record_preview([case], {}, on=datetime.date(2026, 8, 31))
+    standard, standard_total = M.record_preview([case], {}, on=datetime.date(2026, 9, 1))
+
+    assert "$2/$10 per MTok" in intro and "$3/$15 per MTok" in standard
+    # Opus has one undated window and the search fee is flat, so the whole
+    # increase belongs to the pipeline's tokens -- and it is the published 50%.
+    flat = (
+        judge_leg(case, usage.price_for(G.JUDGE_MODEL, datetime.date(2026, 8, 31)))
+        + M.WEB_SEARCHES_PER_RESEARCH_TURN * usage.WEB_SEARCH_USD_PER_REQUEST
+    )
+    assert standard_total - intro_total == pytest.approx(0.5 * (intro_total - flat))
+
+
+def test_record_preview_lands_in_the_researched_range():
+    """The anti-vacuity gate for the tests above. They pin the ARITHMETIC, and
+    every one of them would still pass with the token constants zeroed, because
+    both sides of the comparison read the same constants. This pins the ANSWER:
+    the whole 40-case run against 15-RESEARCH's independently derived $10-16 at
+    introductory rates, with slack for that being an estimate. A range, never a
+    literal -- the claim is that the quote is the right size."""
+    _, total = M.record_preview(GOLDEN, {}, on=datetime.date(2026, 8, 31))
+
+    assert 8.0 < total < 20.0, f"the {len(GOLDEN)}-case quote is ${total:.2f}"
+
+
+def test_record_preview_names_a_model_it_cannot_price(monkeypatch):
+    """`EVAL_JUDGE_MODEL` points wherever an operator points it, and `price_for`
+    raises for a model the table does not list. An unpriced model must be said
+    out loud rather than costed at zero in silence -- and the closing line has
+    to stop claiming an upper bound it no longer has."""
+    monkeypatch.setattr(G, "JUDGE_MODEL", "claude-opus-9")
+    case = next(c for c in GOLDEN if not c.followups)
+
+    text, total = M.record_preview([case], {})
+
+    assert "UNPRICED" in text and "claude-opus-9" in text
+    assert "FLOOR" in text
+    # The line the priced path closes on -- an upper-bound claim over a total
+    # that is missing a leg -- is gone, not merely contradicted further down.
+    assert M.UPPER_BOUND_NOTE not in text
+    assert total > 0  # the pipeline legs are still priced

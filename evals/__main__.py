@@ -45,6 +45,7 @@ from evals.harness import (  # noqa: E402
     run_suite,
     summarise,
 )
+from research_agent import graph, usage  # noqa: E402
 
 GREEN, RED, DIM, BOLD, RESET = "\033[32m", "\033[31m", "\033[2m", "\033[1m", "\033[0m"
 
@@ -179,6 +180,200 @@ def _caveat(loaded: list[dict]) -> str:
         f"({sha}, {when}) — that grades what the pipeline said then, not what the "
         "current model would say; run with --live to measure that"
     )
+
+
+# --------------------------------------------------------------------------
+# The record cost preview
+#
+# Recording is the one act in this repo that spends real money on purpose, so
+# the quote an operator sees before spending it must come from the same tables
+# the invoice will. Nothing here is a dollar literal: every figure is tokens
+# (named constants, below) run through `usage.CallUsage.cost_usd`, which is the
+# one place in the service where tokens become dollars, and which resolves the
+# rate through `usage.price_for` for the day the preview runs. The Sonnet 5
+# introductory window closes on 2026-08-31; the morning after, this preview
+# quotes 50% more without anybody editing this file.
+# --------------------------------------------------------------------------
+
+# What one turn is ASSUMED to cost in tokens when the case has never been
+# recorded. These are estimates, and they are named constants precisely so the
+# one-case calibration run can correct them by editing seven numbers rather
+# than an arithmetic expression. Chosen against 15-RESEARCH's table (a research
+# turn measured at ~$0.15-0.25 at introductory Sonnet rates); a research "turn"
+# is every model call the graph makes for it -- classifier, researcher, writer,
+# critic and any revision -- not one call.
+ASSUMED_RESEARCH_INPUT_TOKENS = 40_000
+ASSUMED_RESEARCH_OUTPUT_TOKENS = 8_000
+ASSUMED_FOLLOWUP_INPUT_TOKENS = 6_000
+ASSUMED_FOLLOWUP_OUTPUT_TOKENS = 2_000
+ASSUMED_JUDGE_INPUT_TOKENS = 4_000
+ASSUMED_JUDGE_OUTPUT_TOKENS = 1_500
+WEB_SEARCHES_PER_RESEARCH_TURN = 2
+# A follow-up turn is judged once (`harness._grade_followup` appends
+# `judge_followup_honesty` and nothing else). The research turn's count is read
+# off `G.JUDGE_GRADERS` rather than written down, so adding a judge grader
+# re-prices the run instead of quietly making the quote too low.
+JUDGE_CALLS_PER_FOLLOWUP_TURN = 1
+
+UPPER_BOUND_NOTE = (
+    "estimate — treat as an upper bound; run a one-case calibration first"
+)
+
+
+def _call_cost(model: str, day: datetime.date, unpriced: set[str], **tokens: int) -> float:
+    """Price one assumed call, or record that this model has no price on file.
+
+    `price_for` raises for a model the table does not list, and `EVAL_JUDGE_MODEL`
+    is an env var an operator can point anywhere. A traceback instead of a quote
+    would be the worst of both: no preview, and no idea why.
+    """
+    try:
+        return usage.CallUsage(**tokens).cost_usd(model, day)
+    except usage.UnknownModelPricing:
+        unpriced.add(model)
+        return 0.0
+
+
+def _assumed_pipeline_cost(case, day: datetime.date, unpriced: set[str]) -> float:
+    total = _call_cost(
+        graph.MODEL,
+        day,
+        unpriced,
+        input_tokens=ASSUMED_RESEARCH_INPUT_TOKENS,
+        output_tokens=ASSUMED_RESEARCH_OUTPUT_TOKENS,
+        web_search_requests=WEB_SEARCHES_PER_RESEARCH_TURN,
+    )
+    for _followup in case.followups:
+        total += _call_cost(
+            graph.MODEL,
+            day,
+            unpriced,
+            input_tokens=ASSUMED_FOLLOWUP_INPUT_TOKENS,
+            output_tokens=ASSUMED_FOLLOWUP_OUTPUT_TOKENS,
+        )
+    return total
+
+
+def _judge_calls_for(case) -> int:
+    return len(G.JUDGE_GRADERS) + JUDGE_CALLS_PER_FOLLOWUP_TURN * len(case.followups)
+
+
+def _assumed_judge_cost(calls: int, day: datetime.date, unpriced: set[str]) -> float:
+    return calls * _call_cost(
+        G.JUDGE_MODEL,
+        day,
+        unpriced,
+        input_tokens=ASSUMED_JUDGE_INPUT_TOKENS,
+        output_tokens=ASSUMED_JUDGE_OUTPUT_TOKENS,
+    )
+
+
+def _rate_line(model: str, day: datetime.date) -> str:
+    try:
+        price = usage.price_for(model, day)
+    except usage.UnknownModelPricing:
+        return f"{model} UNPRICED"
+    return f"{model} ${price.input:g}/${price.output:g} per MTok"
+
+
+def record_preview(
+    cases, fixtures_by_case_id: dict, *, on: datetime.date | None = None
+) -> tuple[str, float]:
+    """What recording `cases` is expected to cost, and why that number.
+
+    Two bases, and each line says which one it used. A case that has been
+    recorded before is quoted from its fixture's MEASURED `pipeline_cost_usd`,
+    which beats any assumption. A case that has not is quoted from the assumed
+    token constants above. Judge spend is assumed either way: it never lands in
+    a run's `usage` totals (the judge holds its own client), so a fixture's
+    `pipeline_cost_usd` is the pipeline and nothing else -- adding the judge's
+    calls back is the difference between a quote and an under-quote.
+
+    Returns the printable text and the total, and prices nothing at zero
+    silently: a model with no rate on file is named, and the closing line then
+    says the total is a floor rather than an upper bound.
+    """
+    day = on or datetime.datetime.now(datetime.UTC).date()
+    unpriced: set[str] = set()
+
+    lines: list[tuple[str, float, str]] = []
+    total = 0.0
+    measured_cases = 0
+    followup_turns = 0
+    judge_calls = 0
+
+    for case in cases:
+        calls = _judge_calls_for(case)
+        judge_calls += calls
+        followup_turns += len(case.followups)
+        judged = _assumed_judge_cost(calls, day, unpriced)
+
+        fixture = fixtures_by_case_id.get(case.id)
+        recorded_cost = fixture.get("pipeline_cost_usd") if fixture else None
+        if isinstance(recorded_cost, (int, float)) and not isinstance(recorded_cost, bool):
+            pipeline = float(recorded_cost)
+            when = str(fixture.get("recorded_at") or "")[:10] or "date unknown"
+            basis = f"measured pipeline ${pipeline:.4f} (fixture {when}) + assumed judge"
+            measured_cases += 1
+        else:
+            pipeline = _assumed_pipeline_cost(case, day, unpriced)
+            basis = f"assumed tokens at {day.isoformat()} rates"
+
+        lines.append((case.id, pipeline + judged, basis))
+        total += pipeline + judged
+
+    width = max((len(case_id) for case_id, _, _ in lines), default=0)
+    assumed_cases = len(lines) - measured_cases
+    dominant = "measured fixture costs" if measured_cases > assumed_cases else "assumed tokens"
+
+    text = ["cost preview"]
+    text.append(
+        f"  recording      {len(lines)} case(s), {followup_turns} follow-up turn(s), "
+        f"{judge_calls} judge call(s)"
+    )
+    text.append(
+        f"  rates          {_rate_line(graph.MODEL, day)} · "
+        f"{_rate_line(G.JUDGE_MODEL, day)} · "
+        f"web search ${usage.WEB_SEARCH_USD_PER_REQUEST:g}/request (resolved for "
+        f"{day.isoformat()})"
+    )
+    text.append("")
+    for case_id, amount, basis in lines:
+        text.append(f"  {case_id.ljust(width)}  ${amount:.4f}  {basis}")
+    text.append("")
+    text.append(f"  total          ${total:.4f}")
+    text.append(
+        f"  basis          {measured_cases} measured, {assumed_cases} assumed "
+        f"— {dominant} dominate this quote"
+    )
+
+    if unpriced:
+        text.append(
+            f"  UNPRICED       {', '.join(sorted(unpriced))} — no rate on file for "
+            f"{day.isoformat()}; the total above EXCLUDES those calls and is a FLOOR, "
+            "not an upper bound"
+        )
+    else:
+        text.append(f"  {UPPER_BOUND_NOTE}")
+
+    return "\n".join(text) + "\n", total
+
+
+def _existing_fixtures() -> dict[str, dict]:
+    """Recordings already on disk, keyed by case, for the measured basis.
+
+    An unreadable fixture is not the preview's problem to solve: it falls back
+    to the assumed basis for that case rather than denying the operator a quote.
+    The replay leg is where a broken fixture is a red.
+    """
+    found: dict[str, dict] = {}
+    for path in fixtures.fixture_paths():
+        try:
+            fixture = fixtures.load_fixture(path)
+        except fixtures.FixtureError:
+            continue
+        found[fixture["case_id"]] = fixture
+    return found
 
 
 def build_parser() -> argparse.ArgumentParser:
