@@ -35,6 +35,15 @@ vectors the test embedder produces, ties are easy to create by accident --
 distinct vocabulary sets are NOT enough, since similarity depends only on
 (overlap, size) and e.g. {chroma,retry} and {chroma,voyage} sit at exactly the
 same distance from the query "chroma".
+
+AND THE QUERY VECTOR HAS TO BE HELD STILL TOO. The index and the ties are both
+properties of the stored side. The third source of variance is the *query*
+side: comparing two tables means asking each golden query twice, and a real
+embedding API does not guarantee a bit-identical vector for the same text on
+two separate calls. Measured live on 2026-08-09, the source table compared
+with ITSELF deltaed on 2 of the 8 golden queries for exactly that reason.
+Wrap the embedder in `FrozenQueryEmbedder` for any comparison whose embedder
+is not provably deterministic; see its docstring.
 """
 
 from __future__ import annotations
@@ -114,6 +123,52 @@ class Embedder(Protocol):  # pragma: no cover - structural typing only
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]: ...
 
     def embed_query(self, text: str) -> list[float]: ...
+
+
+class FrozenQueryEmbedder:
+    """Embed each query text once, then reuse that vector for every table.
+
+    THE SECOND VARIABLE NOBODY WAS LOOKING FOR. `recall_delta` compares
+    `run_golden(old)` with `run_golden(new)`, and each of those calls
+    `embed_query` on the same text again -- so a comparison meant to isolate
+    one variable actually contains two: the table, and whatever the embedder
+    returned the second time it was asked.
+
+    Under a deterministic test embedder that is free, which is why every local
+    gate in this phase was green without it. Against a real embedding API it is
+    not: on 2026-08-09, comparing the live Supabase source table with ITSELF
+    produced a nonzero delta on 2 of the 8 golden queries -- same notes, same
+    order, similarities differing around the fourth decimal, because the two
+    runs got query vectors that were not bit-identical. Repeated back-to-back
+    calls often DO agree, which is worse than if they never did: the artefact
+    is intermittent, so a run that happens to come back clean is not evidence
+    that the next one will.
+
+    Wrapping the embedder in this makes the query vector a constant of the
+    measurement instead of a fresh sample per table, which is what "one
+    variable at a time" required all along. Use it for any comparison across
+    two tables whose embedder is not provably deterministic -- and note that
+    across a MODEL change each model needs its own wrapper, since the point
+    there is that the two query vectors differ.
+
+    `embed_documents` is delegated rather than cached: seeding is not a
+    repeated question about the same text, and pretending otherwise would hide
+    a corpus being written twice.
+    """
+
+    def __init__(self, inner: Embedder):
+        self.inner = inner
+        self._cache: dict[str, list[float]] = {}
+        self.calls = 0
+
+    def embed_query(self, text: str) -> list[float]:
+        if text not in self._cache:
+            self.calls += 1
+            self._cache[text] = self.inner.embed_query(text)
+        return self._cache[text]
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return self.inner.embed_documents(texts)
 
 
 # --------------------------------------------------------------------------
