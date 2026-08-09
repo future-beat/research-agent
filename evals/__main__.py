@@ -287,9 +287,26 @@ def main(argv: list[str] | None = None) -> int:
         report["fixtures"] = _fixture_metadata(loaded_fixtures)
 
     summary = report["summary"]
-    verdict = (
-        _colour("PASS", GREEN, colour) if summary["ok"] else _colour("FAIL", RED, colour)
-    )
+
+    # THE EXIT RULE. `summarise`'s `ok` is a pass rate and nothing else: an
+    # errored case does not move it, and one red among twelve greens is 92.3%,
+    # comfortably over the 90% floor. Left there, every hard replay gate would
+    # be decorative -- a model mismatch, a hand-edited verdict, an unreadable
+    # or orphaned fixture would each print FAIL and exit 0. So the replay leg
+    # is all-must-pass on its own, and the behavioural leg stays rate-governed.
+    replay_failures = [r for r in replay_results if r.error or not r.passed]
+
+    # The vacuous-replay guard, and it is not made redundant by the rule above:
+    # a fixture that is silently skipped produces no CaseResult at all, so
+    # there is no red for all-must-pass to see. Zero fixtures on disk is legal
+    # (nothing has been recorded yet); fixtures that should have been graded
+    # and weren't is a broken selector, not a green build.
+    ungraded = len(matched) - len(replay_results)
+
+    # The headline verdict is the exit code, not the pass rate. A run that
+    # prints PASS at the top and exits 1 teaches people to read neither.
+    ok = summary["ok"] and not replay_failures and not ungraded
+    verdict = _colour("PASS", GREEN, colour) if ok else _colour("FAIL", RED, colour)
     print(
         f"\n{verdict}  {summary['passed']}/{summary['cases']} cases "
         f"({summary['pass_rate']:.0%} vs {summary['min_pass_rate']:.0%} required)"
@@ -301,13 +318,6 @@ def main(argv: list[str] | None = None) -> int:
     if mode == "offline":
         print(_colour("  " + _caveat(loaded_fixtures), DIM, colour))
 
-    # THE EXIT RULE. `summarise`'s `ok` is a pass rate and nothing else: an
-    # errored case does not move it, and one red among twelve greens is 92.3%,
-    # comfortably over the 90% floor. Left there, every hard replay gate would
-    # be decorative -- a model mismatch, a hand-edited verdict, an unreadable
-    # or orphaned fixture would each print FAIL and exit 0. So the replay leg
-    # is all-must-pass on its own, and the behavioural leg stays rate-governed.
-    replay_failures = [r for r in replay_results if r.error or not r.passed]
     if replay_failures:
         print(
             _colour(
@@ -328,12 +338,6 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
 
-    # The vacuous-replay guard, and it is not made redundant by the rule above:
-    # a fixture that is silently skipped produces no CaseResult at all, so
-    # there is no red for all-must-pass to see. Zero fixtures on disk is legal
-    # (nothing has been recorded yet); fixtures that should have been graded
-    # and weren't is a broken selector, not a green build.
-    ungraded = len(matched) - len(replay_results)
     if ungraded:
         print(
             f"error: {ungraded} of {len(matched)} committed fixture(s) were never "
@@ -347,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dump(report, f, indent=2)
         print(_colour(f"  report written to {args.report}", DIM, colour))
 
-    return 0 if summary["ok"] and not replay_failures and not ungraded else 1
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

@@ -1426,6 +1426,10 @@ def test_replay_red_exits_nonzero_while_behavioural_stays_rate_gated(
     assert "followup-uses-prior-notes@recorded" in out
     assert "fixture_current" in out
     assert "replay is all-must-pass" in out
+    # The headline verdict is the exit code, not the rate: a run that prints
+    # PASS at the top and exits 1 teaches people to read neither.
+    headline = next(line for line in out.splitlines() if "required)" in line)
+    assert headline.startswith("FAIL"), headline
 
 
 def test_a_broken_fixture_file_is_a_loud_replay_red(tmp_path, monkeypatch, capsys):
