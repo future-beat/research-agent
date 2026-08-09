@@ -119,6 +119,13 @@ def reserved_run_usd() -> float:
     against a $5 budget -- throttling the demo far below what it actually
     spends. An estimate that is honest keeps the cap a bound rather than a
     queue.
+
+    Phase 14 settles against *multiplied* cost (discount x geo) plus embedding
+    spend, and this default survives it unchanged: at ~$0.15 a run, the $0.20
+    reservation only under-estimates once the combined multiplier passes about
+    1.33, which the published 1.1 cannot reach with any discount at or below
+    1.0 -- and a discount below 1.0 makes the reservation more conservative,
+    never less. See docs/OPERATIONS.md.
     """
     return max(0.0, _env_float("DEMO_RESERVED_RUN_USD", 0.20))
 
