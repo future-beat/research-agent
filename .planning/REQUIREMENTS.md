@@ -37,7 +37,7 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
   stronger model precisely because of this" becomes false the moment this lands. The eval
   judge decision must be **re-derived, not inherited**.
 
-- [ ] **REQ-offline-eval-quality**: Answer quality becomes measurable without billing every
+- [x] **REQ-offline-eval-quality**: Answer quality becomes measurable without billing every
   push, and the live case count grows past 12 to a size defensible as a benchmark.
   *In tension with DEC-20.* Grading quality is fine; re-introducing the implication that a
   green suite means "the model is good," or breaking the free/deterministic/every-push
@@ -127,7 +127,7 @@ Requirements for the current milestone. Each maps to exactly one roadmap phase.
 | REQ-store-lifecycle-and-ownership | Phase 12 | Complete — code in 12-04 (sessions) / 12-05 (notes), ownership demonstrated live on release v9 (second identity gets `{"sessions":[]}` and a 404 indistinguishable from missing, on read and write). 7-day expiry/TTL proven against the DB clock in the Postgres-gated suite, not live |
 | REQ-embedding-model-migration | Phase 13 | Complete |
 | REQ-real-cost-accounting | Phase 14 | Complete |
-| REQ-offline-eval-quality | Phase 15 | Pending |
+| REQ-offline-eval-quality | Phase 15 | Complete — with its coverage stated. The mechanism is real and proven end to end by a paid run: `technical-figures` was recorded live on 2026-08-10 ($0.2427), committed, and is graded keylessly on every push (offline 41/41, exit 0). The case set is 40 across a stated taxonomy, and `ANTHROPIC_API_KEY=""` never moved (ci.yml has zero diffs). What is measured today is **1 of 40 answers**: the full record run is an explicit, recorded deferral (~$16.51), not an unstated gap. The claim boundary — including what the graders and the staleness gate each cannot catch — is [ADR-0009](../docs/adr/0009-recorded-answer-quality-evals.md). |
 | REQ-independent-critic-model | Phase 16 | Pending |
 | REQ-followup-live-search | Phase 17 | Pending |
 
