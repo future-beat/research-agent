@@ -742,11 +742,24 @@ def test_cli_exits_zero_when_the_suite_passes(capsys):
     assert main(["--quiet"]) == 0
 
 
-def test_cli_exits_nonzero_when_the_threshold_is_not_met(monkeypatch, capsys):
-    """The exit code is the whole contract with CI."""
+def test_cli_exits_nonzero_when_the_threshold_is_not_met(tmp_path, monkeypatch, capsys):
+    """The exit code is the whole contract with CI.
+
+    This is about the BEHAVIOURAL leg's rate gate, so it is isolated from
+    whatever happens to be recorded: `FIXTURES_DIR` points at an empty
+    directory. Until 15-06 the isolation was accidental -- the repo had no
+    recordings, so the replay merge below `run_suite` never executed and this
+    stub never had to look like a real report. The first committed fixture ran
+    that code for the first time and this test failed with `KeyError: 'cases'`,
+    which is a fact about the fake, not about the CLI: `run_suite` always
+    returns a `cases` list. The stub now carries one, and the redirect keeps a
+    growing fixture set from silently rewriting this test's summary.
+    """
+    monkeypatch.setattr(F, "FIXTURES_DIR", tmp_path / "no-recordings")
     monkeypatch.setattr(
         "evals.__main__.run_suite",
-        lambda *a, **k: {"summary": {"ok": False, "passed": 3, "cases": 12,
+        lambda *a, **k: {"cases": [],
+                         "summary": {"ok": False, "passed": 3, "cases": 12,
                                      "pass_rate": 0.25, "min_pass_rate": 0.9,
                                      "cost_usd": 0.0, "duration_ms": 0.0},
                          "judge_calls": 0},
@@ -1608,8 +1621,11 @@ def test_the_replay_model_gate_states_its_claim_boundary():
 # --------------------------------------------------------------------------
 # Replay through the CLI: the exit rule, the guards, and the caveat
 #
-# Every test here monkeypatches FIXTURES_DIR: the repo has no recordings yet,
-# and CI must pass on a checkout that has none.
+# Every test here monkeypatches FIXTURES_DIR. That was hygiene while the repo
+# had no recordings; since 15-06 committed the first one it is load-bearing —
+# a test that reads the real directory grades whatever the last record run
+# happened to leave there, and its verdict then moves with the fixture set
+# rather than with the code it is about.
 # --------------------------------------------------------------------------
 
 
