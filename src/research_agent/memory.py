@@ -37,7 +37,7 @@ from typing import Protocol
 
 import numpy as np
 
-from research_agent import db
+from research_agent import db, usage
 
 EMBEDDING_MODEL = os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-3.5")
 
@@ -129,20 +129,41 @@ class VoyageEmbedder:
         return self._client
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        return self.client.embed(
+        response = self.client.embed(
             list(texts),
             model=self.model,
             input_type="document",
             output_dimension=self.output_dimension,
-        ).embeddings
+        )
+        self._report(response)
+        return response.embeddings
 
     def embed_query(self, text: str) -> list[float]:
-        return self.client.embed(
+        response = self.client.embed(
             [text],
             model=self.model,
             input_type="query",
             output_dimension=self.output_dimension,
-        ).embeddings[0]
+        )
+        self._report(response)
+        return response.embeddings[0]
+
+    def _report(self, response) -> None:
+        """Hand the billed token count to whoever is metering this scope.
+
+        The `Embedder` seam stays vectors-in-vectors-out -- widening it would
+        touch a Protocol, an ABC, four backends and every test fake to carry a
+        number three of them would immediately discard. Instead the count goes
+        out of band to `usage.report_embedding`, which is a no-op unless a
+        caller opened a meter. Without this the response's `total_tokens`
+        arrived here and was dropped on the floor, which is how a whole
+        provider stayed off the cost report.
+
+        Read defensively, exactly as `migrate.py` reads the same field: an
+        absent count means "nothing to report", not a crash halfway through a
+        run that has already been billed for.
+        """
+        usage.report_embedding(self.model, getattr(response, "total_tokens", 0))
 
 
 # --------------------------------------------------------------------------

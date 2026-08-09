@@ -16,6 +16,7 @@ import json
 import sqlite3
 import time
 import uuid
+from datetime import date
 
 import pytest
 from test_memory_stores import FakeEmbedder
@@ -600,6 +601,23 @@ def test_voyage_pricing_unknown_model_fails_loud():
     # And the arithmetic wrapper does not swallow it into a free run.
     with pytest.raises(usage.UnknownModelPricing):
         usage.preview_cost_usd(10_000_000, "voyage-99")
+
+
+def test_preview_cost_stays_list_price_under_non_neutral_env(monkeypatch):
+    """The preview says it quotes list price, so it has to keep doing that.
+
+    The cost multipliers are an Anthropic dimension: a negotiated Anthropic
+    discount and a data-residency rate published against Claude models. Voyage
+    is a different vendor with a different rate card and never offered either.
+    Letting them leak in here would put a number in front of an operator who is
+    about to spend money, and that number would be lower than the bill.
+    """
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.5")
+    monkeypatch.setenv("INFERENCE_GEO_MULTIPLIER", "2.0")
+
+    assert usage.preview_cost_usd(
+        1_000_000, "voyage-3.5", date(2026, 8, 9)
+    ) == pytest.approx(0.06)
 
 
 # --------------------------------------------------------------------------

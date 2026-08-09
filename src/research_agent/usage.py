@@ -12,12 +12,29 @@ Prices are effective-dated. Claude Sonnet 5 is on introductory pricing
 single hardcoded rate would silently under-report by a third the moment that
 window closes. `price_for()` resolves the rate for a date, defaulting to today.
 
+List price is not the invoice, so two multipliers scale the computed number
+without ever touching the table: `COST_DISCOUNT_FACTOR` (a negotiated discount,
+invisible to the API) and `INFERENCE_GEO_MULTIPLIER` (the data-residency rate,
+applied only to calls whose response reports they ran in a billed geo). Both
+apply inside `CallUsage.cost_usd` and nowhere else -- every other consumer in
+the service reads that one number.
+
+Anthropic is not the only provider on the invoice. Every research run also
+embeds -- once to recall, once to store -- and that spend was accounted
+nowhere until `record_embedding` folded it in here. Embedding tokens are
+counted separately (a different provider's unit) but their dollars land in the
+same `cost_usd`, so the caps, `/metrics` and the API payload inherit them
+without a single consumer change.
+
 Rates: https://platform.claude.com/docs/en/about-claude/pricing
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -110,12 +127,44 @@ class UnknownModelPricing(LookupError):
     """No price on file for this model on this date."""
 
 
-def price_for(model: str, on: date | None = None) -> Price:
+def window_for(model: str, on: date | None = None) -> PriceWindow:
+    """The price window in force for `model` on `on` (default: today, UTC).
+
+    `price_for` answers "what does a token cost"; this answers "and until
+    when". `/pricing` needs the dates, not just the rate, because the whole
+    reason the window exists is that it ends: Sonnet 5's introductory rate
+    stops on 2026-08-31 and the same run costs 50% more the next morning.
+
+    Date logic lives here rather than in the endpoint so it can be tested at
+    fixed dates. A test that had to know what today is would be a test that
+    starts failing on a date nobody chose.
+    """
     day = on or datetime.now(timezone.utc).date()
     for window in PRICES.get(model, ()):
         if window.covers(day):
-            return window.price
+            return window
     raise UnknownModelPricing(f"No price for {model!r} on {day.isoformat()}.")
+
+
+def next_window(model: str, on: date | None = None) -> PriceWindow | None:
+    """The window that opens after `on`, or None when none does.
+
+    None is the ordinary case, not an error: `claude-opus-5` and
+    `claude-haiku-4-5` have a single undated window and never will have a
+    "next", and Sonnet 5 stops having one the moment its September window is
+    the current one. Callers must treat it as nullable from the first day
+    this ships -- a payload field that is only ever a dict until 2026-09-01
+    is a time bomb with a date on it.
+    """
+    day = on or datetime.now(timezone.utc).date()
+    upcoming = [w for w in PRICES.get(model, ()) if w.since is not None and w.since > day]
+    return min(upcoming, key=lambda w: w.since) if upcoming else None
+
+
+def price_for(model: str, on: date | None = None) -> Price:
+    # One resolution loop, in `window_for`. Same exception, same message: this
+    # is the same question asked for less of the answer.
+    return window_for(model, on).price
 
 
 def voyage_price_for(model: str, on: date | None = None) -> float:
@@ -150,6 +199,64 @@ def preview_cost_usd(total_tokens: int, model: str, on: date | None = None) -> f
 
 
 # --------------------------------------------------------------------------
+# Multipliers: what the list price is not
+# --------------------------------------------------------------------------
+#
+# List prices above are the rate card. Two things move a real invoice away from
+# it: a negotiated discount, which the API cannot report because it is applied
+# at billing time, and the data-residency multiplier, which the API *can*
+# report per call. Both are applied to computed cost and neither mutates the
+# table -- effective-dating resolves exactly as it did before.
+#
+# Both readers read the environment on every call rather than caching at import
+# time, the same way `max_run_cost_usd` does, so a process that has its
+# configuration changed under it reports the new number.
+
+DEFAULT_COST_DISCOUNT_FACTOR = 1.0
+# The published data-residency rate: `inference_geo: "us"` bills 1.1x across
+# all token pricing categories for Claude 4.6 and later.
+# https://platform.claude.com/docs/en/about-claude/pricing
+DEFAULT_INFERENCE_GEO_MULTIPLIER = 1.1
+
+
+def cost_discount_factor() -> float:
+    """Negotiated discount applied to computed cost. Default 1.0 (list price).
+
+    Zero or negative falls back to neutral instead of being honoured. This is
+    not tidiness: the budget guardrails read the number this factor scales, so
+    `COST_DISCOUNT_FACTOR=0` -- a plausible typo, and a plausible reading of
+    "disable the discount" -- would cost every run at $0.00, and a per-run cap
+    compared against $0.00 never fires. That is DEC-12's fail-open scenario
+    arriving through a new door, so a misconfiguration fails toward reporting
+    *more* cost, never less.
+    """
+    try:
+        factor = float(os.environ.get("COST_DISCOUNT_FACTOR", "1.0"))
+    except ValueError:
+        return DEFAULT_COST_DISCOUNT_FACTOR
+    return factor if factor > 0 else DEFAULT_COST_DISCOUNT_FACTOR
+
+
+def inference_geo_multiplier() -> float:
+    """The rate charged when a response reports it ran in a billed geo.
+
+    This configures the *rate* only. Whether it applies to a given call is
+    decided by that call's reported `inference_geo` (see
+    `CallUsage._geo_factor`), because a workspace default can put a request in
+    a billed geo without the code ever asking for it.
+
+    Same clamp as the discount, for the same reason: a non-positive or
+    unparseable value would silently under-report a cost already incurred, so
+    it falls back to the published rate.
+    """
+    try:
+        factor = float(os.environ.get("INFERENCE_GEO_MULTIPLIER", "1.1"))
+    except ValueError:
+        return DEFAULT_INFERENCE_GEO_MULTIPLIER
+    return factor if factor > 0 else DEFAULT_INFERENCE_GEO_MULTIPLIER
+
+
+# --------------------------------------------------------------------------
 # Per-call extraction
 # --------------------------------------------------------------------------
 
@@ -169,6 +276,10 @@ class CallUsage:
     cache_creation_input_tokens: int = 0
     web_search_requests: int = 0
     web_fetch_requests: int = 0
+    # Where inference actually ran, as *the response reported it* -- not as
+    # configuration claims. See `_geo_factor` for why that distinction is the
+    # whole point of the field.
+    inference_geo: str = ""
 
     @classmethod
     def from_response(cls, response) -> CallUsage:
@@ -188,16 +299,57 @@ class CallUsage:
             cache_creation_input_tokens=field(usage, "cache_creation_input_tokens"),
             web_search_requests=field(server_tools, "web_search_requests"),
             web_fetch_requests=field(server_tools, "web_fetch_requests"),
+            # Same defensive read as every field above: absent on older SDKs
+            # and on test fakes, which must mean "not geo-billed", not a crash.
+            inference_geo=str(getattr(usage, "inference_geo", None) or ""),
+        )
+
+    def _geo_factor(self) -> float:
+        """The data-residency multiplier this particular call earned.
+
+        Applicability is observed, not configured. A workspace can set
+        `default_inference_geo: "us"` in the Console, so a request that never
+        sends the parameter can still be billed at the US rate -- an operator
+        env flag would then disagree with the invoice in either direction.
+        The response says where inference ran; only the *rate* is configuration.
+
+        An unrecognised value (a future `"eu"`) raises rather than being billed
+        at 1.0. `record()` turns that into `pricing_unknown`, which is DEC-12's
+        fail-loud shape applied to a pricing dimension instead of a model name.
+        """
+        if self.inference_geo in ("", "global"):
+            return 1.0
+        if self.inference_geo == "us":
+            return inference_geo_multiplier()
+        raise UnknownModelPricing(
+            f"No price adjustment on file for inference_geo "
+            f"{self.inference_geo!r}. Priced geos: '', 'global', 'us'."
         )
 
     def cost_usd(self, model: str, on: date | None = None) -> float:
+        """What this call cost, in USD -- the one place tokens become dollars.
+
+        Both multipliers apply *here* and nowhere else in the service. Every
+        consumer of the number (the per-run cap, the run record, `/metrics`,
+        `spend_since` and the daily-cap reserve math, the API payload, the
+        evals harness, the demo badge) reads it downstream, so a second
+        multiplication site anywhere would double-count silently.
+        """
         p = price_for(model, on)
-        return (
+        # The published data-residency multiplier is scoped to "token pricing
+        # categories", so it multiplies the four token classes only and leaves
+        # the per-search fee alone.
+        tokens_usd = (
             self.input_tokens * p.input
             + self.output_tokens * p.output
             + self.cache_read_input_tokens * p.cache_read
             + self.cache_creation_input_tokens * p.cache_write_5m
-        ) / _PER_MTOK + self.web_search_requests * WEB_SEARCH_USD_PER_REQUEST
+        ) / _PER_MTOK * self._geo_factor()
+        # A negotiated discount is applied at invoice time, to the whole
+        # Anthropic bill -- so it takes the web-search fee with it.
+        return (
+            tokens_usd + self.web_search_requests * WEB_SEARCH_USD_PER_REQUEST
+        ) * cost_discount_factor()
 
 
 # --------------------------------------------------------------------------
@@ -220,6 +372,14 @@ def new_usage() -> dict:
     totals = dict.fromkeys(TOKEN_FIELDS, 0)
     totals["calls"] = 0
     totals["cost_usd"] = 0.0
+    # Embeddings are a second provider on the same invoice. Their tokens are
+    # deliberately NOT in TOKEN_FIELDS and not in `total_tokens()`: a Voyage
+    # token and a Claude token are different units at different prices, and
+    # summing them would produce a number that means nothing. Their *dollars*
+    # are another matter -- those go into `cost_usd` with everything else.
+    totals["embedding_tokens"] = 0
+    totals["embedding_requests"] = 0
+    totals["embedding_cost_usd"] = 0.0
     # True once a call is made against a model with no price on file: its
     # tokens are counted but its cost is not, so `cost_usd` is a floor rather
     # than a total. Surfaced rather than silently costing the call at zero.
@@ -239,6 +399,112 @@ def record(totals: dict, call: CallUsage, model: str, on: date | None = None) ->
         totals["pricing_unknown"] = True
         return 0.0
 
+    totals["cost_usd"] = round(totals.get("cost_usd", 0.0) + cost, 10)
+    return cost
+
+
+# --------------------------------------------------------------------------
+# Embedding accounting: the meter and the fold
+# --------------------------------------------------------------------------
+#
+# The embedder seam returns vectors and nothing else, which is right -- four
+# store backends implement it and none of them has any business knowing about
+# tokens. So the token count travels out of band instead: the wrapper *reports*
+# what it was billed for, and whoever is metering picks it up.
+#
+# A contextvar rather than a counter on the embedder, because `graph.memory()`
+# is a module-global store shared by every concurrent run: an attribute on it
+# would attribute one visitor's embeddings to another's bill. The meter is
+# entered and read inside a single node frame, so set and read happen in one
+# context whichever thread LangGraph runs the node on, and concurrent runs are
+# isolated by construction rather than by hope.
+
+
+@dataclass
+class EmbeddingMeter:
+    """What one metered scope was billed for. Mutable on purpose."""
+
+    model: str = ""
+    total_tokens: int = 0
+    requests: int = 0
+
+
+_EMBEDDING_METER: ContextVar[EmbeddingMeter | None] = ContextVar(
+    "research_agent_embedding_meter", default=None
+)
+
+
+@contextmanager
+def embedding_meter() -> Iterator[EmbeddingMeter]:
+    """Collect every embedding billed inside this block."""
+    meter = EmbeddingMeter()
+    token = _EMBEDDING_METER.set(meter)
+    try:
+        yield meter
+    finally:
+        _EMBEDDING_METER.reset(token)
+
+
+def report_embedding(model: str, total_tokens: int | None) -> None:
+    """Tell the active meter what an embed call was billed for.
+
+    A silent no-op when nothing is metering, and that is the whole reason this
+    shape was chosen: the REPL demo, the re-embedding migration and every test
+    holding a fake embedder keep working untouched, because reporting into
+    nowhere costs nothing and raises nothing.
+    """
+    meter = _EMBEDDING_METER.get()
+    if meter is None:
+        return
+    meter.model = model
+    meter.total_tokens += int(total_tokens or 0)
+    meter.requests += 1
+
+
+def record_embedding(
+    totals: dict,
+    model: str,
+    tokens: int,
+    requests: int = 1,
+    on: date | None = None,
+) -> float:
+    """Fold a run's embedding spend into its totals. Returns the cost.
+
+    Mirrors `record()`, including the `.get(..., 0)` reads -- a usage dict
+    persisted before this existed has none of these keys, and a follow-up on
+    an old session must not KeyError its way to a 500.
+
+    Two deliberate asymmetries with `record()`:
+
+    * **No multipliers.** `COST_DISCOUNT_FACTOR` and the `inference_geo` rate
+      are Anthropic dimensions -- a negotiated Anthropic discount and a Claude
+      data-residency surcharge. Voyage is a different vendor on a different
+      rate card, and applying either here would invent a discount nobody
+      negotiated.
+    * **Zero tokens is not an error.** Voyage's reported count is telemetry,
+      not billing truth: Phase 13 watched it report 0 tokens for a one-word
+      document while returning a perfectly good embedding. That records as
+      $0.00 through the normal priced path. `pricing_unknown` means "this
+      service does not know what this MODEL costs", and reusing it for an odd
+      token count would discredit the whole cost figure over a rounding
+      anomaly at the provider's end.
+    """
+    counted = int(tokens or 0)
+    totals["embedding_tokens"] = totals.get("embedding_tokens", 0) + counted
+    totals["embedding_requests"] = totals.get("embedding_requests", 0) + requests
+
+    try:
+        rate = voyage_price_for(model, on)
+    except UnknownModelPricing:
+        # Same contract as an unpriced Claude model: the tokens are counted,
+        # the dollars are not, and `cost_usd` is honestly a floor rather than
+        # a total. Never silently zero.
+        totals["pricing_unknown"] = True
+        return 0.0
+
+    cost = counted * rate / _PER_MTOK
+    totals["embedding_cost_usd"] = round(totals.get("embedding_cost_usd", 0.0) + cost, 10)
+    # And once more into the one number every consumer already reads.
     totals["cost_usd"] = round(totals.get("cost_usd", 0.0) + cost, 10)
     return cost
 

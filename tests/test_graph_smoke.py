@@ -10,6 +10,7 @@ import pytest
 from test_memory_stores import FakeEmbedder
 
 from research_agent import graph
+from research_agent import usage as usage_accounting
 from research_agent.graph import app, followup_state, initial_state
 from research_agent.memory import InMemoryStore
 
@@ -294,6 +295,60 @@ def test_a_followup_is_costed_separately_from_its_research_run(fake_client):
 
     assert answer["usage"]["calls"] == 2  # responder + critic only
     assert answer["usage"]["cost_usd"] < first["usage"]["cost_usd"]
+
+
+class BillingStore:
+    """A store whose embedder bills, the way the real one does.
+
+    `InMemoryStore(FakeEmbedder())` -- what every other test here uses --
+    reports nothing, which is correct for those tests and useless for this
+    one: it cannot tell "the node opened a meter" apart from "the node forgot
+    to". This store reports 25 tokens per embed, exactly as the Voyage seam
+    now does, and only the researcher's own with-block can pick them up.
+    """
+
+    def __init__(self, tokens_per_embed=25):
+        self.tokens_per_embed = tokens_per_embed
+
+    def query(self, query_text, top_k=3, min_similarity=0.3, owner=""):
+        usage_accounting.report_embedding("voyage-3.5", self.tokens_per_embed)
+        return []
+
+    def add(self, text, owner=""):
+        usage_accounting.report_embedding("voyage-3.5", self.tokens_per_embed)
+
+
+def test_the_researcher_meters_the_embeddings_it_causes(fake_client):
+    """The wiring gate. Every piece below is unit-tested elsewhere; what only
+    a run can show is that the node actually *opens* the meter around both
+    embed calls and folds the result into this run's usage."""
+    fake_client()
+    graph.set_memory(BillingStore())
+    state = initial_state("why is the sky blue?")
+    state["topic_type"] = "technical"
+
+    result = graph.researcher_node(state)
+
+    usage = result["usage"]
+    assert usage["embedding_requests"] == 2  # one recall, one note written
+    assert usage["embedding_tokens"] == 50
+    assert usage["embedding_cost_usd"] > 0
+    # And it is in the one number every consumer reads, on top of the model
+    # call this node also made.
+    assert usage["cost_usd"] > usage["embedding_cost_usd"]
+    assert usage["pricing_unknown"] is False
+
+
+def test_a_run_whose_store_never_embeds_records_no_embedding_spend(fake_client):
+    """The other half: no embed calls means no $0.00 Voyage line item invented
+    for a run that never called Voyage. This is the path every other test in
+    this file takes, so it is also what keeps them unchanged."""
+    fake_client()
+    result = app.invoke(initial_state("why is the sky blue?"))
+
+    assert result["usage"]["embedding_requests"] == 0
+    assert result["usage"]["embedding_tokens"] == 0
+    assert result["usage"]["embedding_cost_usd"] == 0.0
 
 
 def test_every_run_carries_a_distinct_run_id(fake_client):

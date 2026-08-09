@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 13-05-PLAN.md — the live demonstration ran against production Supabase and the phase gate battery is closed. Branch gsd/phase-13-embedding-migration, 5 of 5 plans executed, nothing pushed. Next: /gsd:verify-work, then ONE PR for the whole phase."
-last_updated: "2026-08-09T08:45:00.000Z"
-last_activity: "2026-08-09 — Phase 13 wave 5 executed: the migration path ran once end to end against the production Supabase with real Voyage spend (~$0.000015). Copy leg ZERO recall delta; re-embed to voyage-3.5-lite moved 8 of 8 golden queries, one changing which notes came back; three migration_demo_* scratch tables dropped with pg_tables proving zero residue, confirmed twice. The two never-executed functions executed and both worked. FOUR findings the local gates could not reach: recall_delta was comparing two query vectors as well as two tables (the source table deltaed against ITSELF), Voyage's total_tokens is not an invoice (0 for a one-word document), the preview over-counts 40 vs 25, and PG_POOL_TIMEOUT=2.0 does not fit an operator laptop."
+stopped_at: "Completed 14-03-PLAN.md — the final wave of Phase 14 (/pricing multipliers + nullable windows.next + Voyage row + dual-provider 501, /metrics embedding aggregates contract-tested across both backends, README line 204 and OPERATIONS rewritten). All 3 plans executed. Branch gsd/phase-14-real-cost-accounting, NOT pushed — the user opens the PR. Next: /gsd:verify-work for Phase 14."
+last_updated: "2026-08-09T11:20:00.000Z"
+last_activity: "2026-08-09 — Phase 14 wave 3 executed, phase complete: usage.window_for/next_window make window resolution askable at fixed dates; /pricing gained multipliers-in-effect, current + NULLABLE next window and the Voyage row, with the 501 arm now covering both providers; /metrics breaks out embedding_tokens/requests/usd, proven identical across SQLite and Postgres through test_store_contract.py's parameterised fixture (NOT test_metrics.py, which is SQLite-only); README's list-price limitation and OPERATIONS' env table + ~1.33 reservation note rewritten. Five mutations (K, N, L, L′, M) all red by the intended route; the two prose gates recorded as honest green with the reason. No new ADR (extension of DEC-12, not a reversal); ships with the next deploy. Suite 563/65 plain, 627/1 armed."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 24
-  percent: 63
+  completed_plans: 27
+  percent: 64
 ---
 
 # Project State
@@ -25,107 +25,76 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 13 of 17 (Embedding model migration) — **ALL PLANS EXECUTED, AWAITING VERIFY + PR**
-Plan: 5 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
-(PR #6 merged). Not pushed.
-Status: All five ROADMAP success criteria hold, with SC-5 measured **live** on both legs.
-13-VALIDATION.md is signed off (`status: complete`, `nyquist_compliant: true`). The phase is
-NOT closed until `/gsd:verify-work` runs and the single phase PR is raised.
+Phase: 14 of 17 (Real cost accounting) — **EXECUTED, awaiting verify + PR**
+Plan: 3 of 3 complete · branch `gsd/phase-14-real-cost-accounting` off clean main (PR #7 merged),
+**not pushed** — the user opens the PR.
+Status: All three waves in. `discount × geo` applies at `CallUsage.cost_usd` and at no other
+site in `src/` (`service.py` now references the two readers but only to DISPLAY them, confirmed
+on the diff); Voyage embedding spend reaches the usage dict, the runs table, `spend_since` and
+now `/metrics`' own line items; `/pricing` reports the multipliers in effect, the current and
+next windows with `next` nullable from day one, and the Voyage row, and 501s for an unpriced
+model from **either** provider. Fifteen mutations across the three waves, every one red by the
+intended route; every `-k` selector confirmed to collect before being trusted.
 
-**Phase 12 shipped** (PR #6 merged, v9 live). Phases 10, 10.5, 11 merged.
-
-Progress: [███████░░░] 71% (12 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 13: [██████████] 5 of 5 plans — 13-01 … 13-05 done
+Progress: [████████░░] 82% (14 of 17 phases complete + hotfix; v1.0 shipped)
+Phase 14: [██████████] 3 of 3 plans — 14-01, 14-02, 14-03 complete
 
 **Carry into execution:**
-- ~~`migrate.py` has a LIVE data-loss bug today~~ **FIXED in 13-01.** Notes and sessions
-  carry `owner` and `created_at`; dedup keys on `(text, owner, created_at)`; the
-  expired-session skip is printed. `tests/test_migrate.py` gates all three.
-- `migrate_notes` now takes `table=`/`dimensions=` keyword parameters — waves 2–3 should
-  extend that idiom rather than reading module constants inside new functions.
-- ~~"Recall byte-identical" is NEVER asserted through the HNSW index~~ **IMPLEMENTED in 13-02.**
-  `recall_golden.exact_scan_results` is the only runner an equality-of-recall assertion may
-  use; `indexed_results` exists for `test_index_sanity`'s set-equality check alone. Wave 3
-  measures the re-embed delta with the same two runners — do not reach for the indexed one.
-- `recall_golden.assert_tie_free` checks rows **at or above each query's floor**, not every
-  row: with 5-dim binary vectors any two notes sharing no word with the query both sit at
-  similarity 0, so global tie-freedom is impossible, and rows a query cannot return cannot
-  affect its order. **Wave 5 must re-run it against the re-embedded table** — a new model
-  re-scores everything and tie-freedom does not travel. Carried through waves 3 and 4; the
-  OPERATIONS runbook now states it to operators too.
-- ~~`embeddings copy` is the CLI idiom to extend~~ **EXTENDED in 13-03.** `re-embed` is a
-  sibling `sub.add_parser(...)` in `_main_embeddings`; both table names go through
-  `memory.validate_table_name()`.
-- ~~voyage-3.5 `output_dimension=2048` exceeds pgvector's HNSW limit~~ **ENFORCED in 13-03.**
-  Refused before any DDL, naming 2000 and `halfvec`.
-- ~~Preview always prints; `--yes` required to spend~~ **IMPLEMENTED in 13-03**, and proven by
-  counting calls on an injected fake rather than by reading the code. `main()` takes
-  keyword-only `token_counter=`/`embedder_factory=`; use them rather than monkeypatching.
-- ~~**Two functions in migrate.py have never executed**~~ **BOTH EXECUTED in 13-05, and both
-  worked.** `_default_token_counter`: cold HF cache, first call 2.378s, second 0.439s, and the
-  fetch is **per model** (voyage-3.5-lite paid its own). `_ReembedEmbedder.embed_documents`:
-  returned real vectors and a real `total_tokens` — whose reconciliation line then turned out
-  to be wrong in two ways only a real response could have shown (see the token note below).
-- ~~**The re-embed recall delta is still unmeasured**~~ **MEASURED LIVE in 13-05.**
-  `assert_tie_free` was re-run against the re-embedded table under voyage-3.5-lite and
-  **passed**, so the delta is a number rather than an "unmeasurable": **8 of 8 golden queries
-  moved**, seven with the same notes in the same order at different similarities and one
-  (`'chroma retry'@'alice'`) returning a different note at rank 2. The copy leg was zero, so
-  that delta is the model's by construction.
-- **`recall_delta` has a THIRD variable nobody counted, and it is the query embedder.**
-  `run_golden(old)` and `run_golden(new)` each call `embed_query` on the same text, and the
-  real Voyage API is not bit-reproducible across separate calls — the live source table
-  compared with **itself** deltaed on 2 of 8 queries. Every local gate used a deterministic
-  fake, which is why three waves never saw it. **Wrap the embedder in
-  `recall_golden.FrozenQueryEmbedder`** for any cross-table comparison whose embedder is not
-  provably deterministic; across a model change use one wrapper per model. The intermittency
-  is uncharacterised: three back-to-back calls WERE identical, so a clean run without the
-  wrapper is not evidence the wrapper is unnecessary.
-- **Neither token number is an invoice.** `count_tokens` said 40 for the 12-note corpus;
-  `response.total_tokens` said 25; a one-word document reported **0** while returning a
-  perfectly good embedding. Read the predicted figure as an honest **upper bound**, the
-  reported figure as telemetry, and Voyage's usage dashboard as the only authority. Phase 14
-  inherits this: real spend accounting cannot be built on either number.
-- **`PG_POOL_TIMEOUT=2.0` is tuned for the Fly machines, not an operator laptop.** The
-  Supabase pooler handshake from a developer machine measured 0.43–5.63s, so the documented
-  migration commands fail intermittently with `PoolTimeout` before touching any data. Raise
-  `PG_POOL_TIMEOUT`/`PG_CONNECT_TIMEOUT`; a `PoolTimeout` is always safe to retry because it
-  is raised acquiring the connection, before any statement is sent. Now in the runbook.
-- **VOYAGE_PRICES lives in `usage.py`** with `voyage_price_for()`/`preview_cost_usd()`;
-  `PriceWindow.price` is now `Price | float`. Voyage spend is still absent from `/metrics`
-  (Phase 14) and the README says so.
-- ~~Wave 5 is a checkpoint~~ **DONE 2026-08-09.** Three `migration_demo_*` tables created,
-  used and dropped; `pg_tables LIKE 'migration_demo_%'` returned **0 rows**, confirmed through
-  both the app's client and `psql`. `research_notes` was never queried; no `fly secrets`, no
-  `fly deploy`, no production model flip. Total real Voyage spend ≈ **$0.000015**.
-- ~~`PGVECTOR_TABLE` cutover is untested~~ **PROVEN in 13-04.** `test_cutover_reversible`
-  flips a store forward and back through the constructor's `table=` parameter — the same
-  seam `PGVECTOR_TABLE` feeds at import — and re-fingerprints the old table after every
-  step. Never set the env var and reimport `memory`: that leaves a second module object
-  live for every later test in the process (Pitfall 5).
-- **`query()` returns `list[str]`, the exact-scan runner returns `(text, similarity)`.**
-  Compare texts-only, and remember `query()` is the *indexed* path — an equality against
-  exact-scan expectations is scale-bounded on `test_index_sanity`'s argument, not general.
-- ~~13-04.3's README/OPERATIONS gate~~ **CLOSED in 13-04.** The runbook lives at
-  `docs/OPERATIONS.md § Changing the embedding model or dimension`; the README bullet gained
-  the honest-scale caveat and the index-exclusion sentence wave 3 had left out.
-- **ADR-0008 exists** (`Accepted`, `Source:` line, supersedes nothing — DEC-10 was never
-  promoted). `docs/adr/README.md` counts eight records; DEC-10 links forward to it.
-- **TWO of 13-04's own verify clauses were vacuous and are recorded as such**:
-  `grep -q "0008" docs/adr/README.md` cannot see the difference between an index row and a
-  prose mention, and `grep -qi "rollback" docs/OPERATIONS.md` was green at baseline from an
-  unrelated Phase-11 sentence. A third acceptance criterion ("the 'deliberately not
-  exercised' claim is gone") had no clause at all. Stronger gates and their red mutations
-  are in 13-04-SUMMARY for 13-05.2 to reconcile.
-- Local PG17+pgvector on :54329 (scratchpad instance `pg12`; start with LC_ALL set).
-  Baselines after 13-05: plain **529/63**, armed **591/1** (`DATABASE_URL` only) or
-  **592/0** (with `REQUIRE_POSTGRES=1`). Quote which armed form you mean when comparing —
-  13-01's `575/1`, 13-02's `579/1`, 13-03's `588/1` and 13-04's `589/1` were all the
-  `DATABASE_URL`-only form. `pytest tests/test_migrate.py` armed = **18 passed**.
-- **The Supabase DSN is not in `.env`** (which holds only `ANTHROPIC_API_KEY` and
-  `VOYAGE_API_KEY`). It is a Fly secret, and secrets are write-only — read it from a running
-  machine with `fly ssh console -a research-agent -C "printenv DATABASE_URL"`, capture it to a
-  file, and never echo it.
+- ~~Multipliers at ONE choke point~~ **DONE (14-01), proven downstream-complete (14-02),
+  re-gated after the display site landed (14-03).**
+  `grep -rln "cost_discount_factor()\|inference_geo_multiplier()" src/research_agent/` now
+  returns **exactly `usage.py` + `service.py`**, and in `service.py` both call results appear
+  only as values in the returned `/pricing` payload (lines 921–922) — no arithmetic. The
+  behavioural guarantee remains 14-02's e2e ratio gate.
+- ~~`/pricing` and `/metrics` surface~~ **DONE (14-03).** `windows.next` is nullable from day
+  one (pinned at `date(2026, 9, 1)` and `date(2030, 1, 1)`), no assertion in `test_usage.py`
+  or `test_service.py` consults today's date, and `test_payload_additive_for_deployed_consumers`
+  names every pre-phase key explicitly — mutation M (rename `total_usd`) reds it.
+- ~~README line 204~~ **DONE (14-03).** Rewritten: approximation-not-invoice, the telemetry
+  caveat with the 0-token example, and four named exclusions. OPERATIONS carries both env
+  vars, the hybrid geo semantics and the ~1.33 note; `limits.py` is docstring-only.
+- **No new ADR for Phase 14, deliberately** — a pure extension of DEC-12, not a reversal, so
+  `docs/adr/README.md`'s supersession convention has nothing to apply to. Recorded in
+  14-03-SUMMARY rather than left silent.
+- **A plan's file list can contradict its own action text.** 14-03 pointed
+  `test_metrics_includes_embedding_spend` at `tests/test_metrics.py` (one SQLite fixture, no
+  parameterisation) while asking for the both-backends idiom. It went to
+  `tests/test_store_contract.py`, where the parameterised `runs` fixture is; following the
+  file list would have produced a green gate over an untested Postgres coercion path.
+- ~~Hybrid geo~~ **DONE (14-01).** `CallUsage.inference_geo` is captured with the file's
+  defensive `getattr`; `""`/`"global"` → 1.0, `"us"` → the env rate, anything else raises
+  into `pricing_unknown`. Nothing yet *reports* which geo was observed — /pricing (14-03)
+  shows the configured rate only, and the runs table still has no geo column.
+- ~~Voyage `total_tokens` is discarded at the wrapper~~ **DONE (14-02).** Captured via
+  `usage.report_embedding` (no-op without a meter) → `embedding_meter()` in
+  `researcher_node` → `record_embedding`. **NEITHER multiplier applies to it** — pinned by
+  an identical-under-`0.5`-and-`2.0` assertion, not by prose. Zero-token responses record
+  honestly (mutation O red on `pricing_unknown`).
+- ~~RunRecord schema migration~~ **DONE (14-02).** Three columns, both idioms, both proven
+  against a table that predates them AND has a row in it, with the columns' absence asserted
+  first. `grep -c "ADD COLUMN IF NOT EXISTS embedding" metrics.py` = 3, `PRAGMA
+  table_info(runs)` = 1.
+- **A prose gate is honest-green by construction, and the reason must be recorded.** For a
+  content-presence grep on documentation, the gate IS the content change — deleting the
+  sentence to watch it red tests `grep`, not the document. What makes it non-vacuous is a
+  measured baseline of **zero** before the edit (11-03's lesson); all five prose gates this
+  phase had one.
+- **A ratio test is invariant under the mutation it looks like it catches.** 14-01's
+  boundary test asserts the absolute cost as well as the 1.5× ratio, because 18/12 is 1.5
+  whether or not the discount was applied to both sides.
+- **Never `git checkout --` a file to revert a mutation while uncommitted work sits on it**
+  (12-06 logged this; 14-02 repeated it and lost the wave's `memory.py` edits, caught
+  immediately by two red tests). Copy the file to the scratchpad and restore from there.
+- **No deploy this phase; it ships with the next one** — now written into `docs/OPERATIONS.md`
+  as the chosen option, not merely planned. At neutral defaults the deployed numbers do not
+  move, and the runs-table migration is idempotent under `ensure_schema`'s advisory lock. The
+  post-deploy smoke (one demo run → non-zero `cost.embedding_usd`, `/pricing` windows) is
+  booked to whenever that deploy happens.
+- Local PG on :54329 running, and its `runs` table is left in the MIGRATED state by
+  `test_runrecord_schema_migrates_a_column_dropped_pg_table` — that is deliberate.
+  Baselines now: plain **563/65**, armed **627/1** (were 553/64 and 616/1; +10/+11, one new
+  skip, which is `test_metrics_includes_embedding_spend[postgres]` under the store-contract
+  file's standard `_skip_without_postgres` idiom).
 
 ## Performance Metrics
 
@@ -144,6 +113,7 @@ Phase 13: [██████████] 5 of 5 plans — 13-01 … 13-05 done
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
 | 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
+| 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
 
 **Recent Trend:**
 
@@ -166,6 +136,24 @@ Recent decisions affecting current work:
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
 - [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
+- [Phase 14-01]: **A billing dimension the API reports per call must be read from the response, not declared in config.** A workspace `default_inference_geo: "us"` bills 1.1× with no code change, so a blind `INFERENCE_GEO_MULTIPLIER` can disagree with the invoice in either direction. The env sets the *rate*; `usage.inference_geo` on each response decides *applicability*. Mutation B (apply unconditionally) is red on the unmultiplied-`""` assertion.
+- [Phase 14-01]: **A misconfigured cost factor must fail toward reporting MORE cost, never less.** `COST_DISCOUNT_FACTOR=0` is both a plausible typo and a plausible reading of "disable the discount", and honouring it costs every run at $0.00 — which the per-run cap and the daily cap read as a service that never spends. `≤ 0` or unparseable falls back to the default in both readers, pinned by a test that asserts the *arithmetic* still returns list price, not merely the reader's return value.
+- [Phase 14-01]: **An unrecognised value in a pricing dimension takes the existing fail-loud route, not a parallel one.** A future `inference_geo: "eu"` raises `UnknownModelPricing` and reaches `pricing_unknown` through `record()`'s untouched `except` clause, exactly as an unpriced model does. DEC-12 extended sideways rather than reimplemented.
+- [Phase 14-01]: **A ratio assertion is invariant under the mutation it appears to catch.** Deleting the discount term leaves the boundary test's `after == before × 1.5` green — 18/12 is 1.5 whether or not both sides were halved — so the test asserts the absolute cost as well. Same family as 13-03's M4′ and 13-02's M2′: the assertion that looks like the gate often is not the gate.
+- [Phase 14-01]: **Two multipliers, two different bases, written in the code rather than the plan.** The published 1.1× is scoped to token pricing categories so it skips the $10/1k web-search fee; a negotiated discount is applied to the invoice so it takes the fee with it. Both are RESEARCH assumptions (A1, A2) and both are commented where the arithmetic is, so a future reader amends a stated assumption rather than discovering one.
+- [Phase 14-02]: **A number a seam receives but its contract cannot return travels out of band, not by widening the contract.** `Embedder` is vectors-in-vectors-out and four stores implement it; three of them have no business knowing about tokens. `usage.report_embedding` is a no-op unless a caller opened a meter, so the REPL, the migration CLI and every fake-embedder test are unaffected *by construction* rather than by being remembered. The alternative — widening the Protocol and the ABC — would have touched four backends and every test fake to carry a number three of them would immediately discard.
+- [Phase 14-02]: **Set-and-read inside one function frame is what makes contextvar attribution safe under a thread pool.** `graph.memory()` is a module global shared by concurrent runs, so a counter on the embedder attributes one visitor's embeddings to another's bill. The meter is opened and read inside `researcher_node`'s own body; isolation is structural, and is pinned by two `copy_context()` runs *and* two real threads held simultaneously inside their own meters by a barrier.
+- [Phase 14-02]: **Voyage cost takes NEITHER multiplier, and that is asserted rather than commented.** `COST_DISCOUNT_FACTOR` is a negotiated *Anthropic* discount and `INFERENCE_GEO_MULTIPLIER` is a *Claude* data-residency surcharge; applying either to a different vendor's bill invents a discount nobody negotiated. Pinned by the same call returning an identical number under `0.5` and `2.0`.
+- [Phase 14-02]: **Provider telemetry that looks anomalous is recorded as reported.** Voyage returned 0 tokens for a one-word document that embedded fine (Phase 13, live). `pricing_unknown` means "no price on file for this MODEL"; spending it on a 0-token reading would flag a whole run's cost as a floor over a fraction of a cent. Mutation O (flag on `tokens == 0`) is red on that test's own assertion.
+- [Phase 14-02]: **A migration test must open a table that PREDATES the columns and has a row in it, and assert their absence first.** A migration test against a fresh table proves creation, not migration, and stays green with the migration deleted — the vacuity the plan review caught in advance. Both arms assert the columns are missing before constructing the store; mutations H (SQLite probe) and I (PG ALTERs) each go red with a database error naming an embedding column, i.e. through the INSERT, which is the production failure mode.
+- [Phase 14-02]: **A schema constant written out by hand beats one derived from the current schema.** `PRE_PHASE_14_RUNS_TABLE` is the old `CREATE TABLE` typed out; a constant computed from `SQLITE_SCHEMA` would silently stop being an *old* table the next time the schema moved.
+- [Phase 14-02]: **The plan's e2e geo formula was arithmetically false and was not implemented as written.** `C1 == C0 * 0.5 * 1.1` ignores that 14-01 scopes the geo multiplier to the four token classes and skips the `$10/1k` web-search fee — which the fake run incurs twice. Asserting it would have failed correct code. The arm was kept with the fee split out of the baseline using the run's own reported search count, so no price constant is hand-copied. **A plan's arithmetic is a claim to check, not a spec to satisfy.**
+- [Phase 14-03]: **A payload field that is only ever non-null until a known date is a time bomb with the date written on it.** `windows.next` is nullable from the first day it ships, not from 2026-09-01 when Sonnet 5 stops having a next window — and `None` is also the permanent state of every undated model. Pinned by helper tests at `date(2026, 9, 1)` and `date(2030, 1, 1)`, and by an endpoint test that accepts either shape rather than asserting which is current. No assertion in `tests/test_usage.py` or `tests/test_service.py` consults today's date; the suite reads identically on 2026-08-31 and the morning after.
+- [Phase 14-03]: **A both-backends claim belongs in the file that has a both-backends fixture.** The plan's file list sent `test_metrics_includes_embedding_spend` to `tests/test_metrics.py`, which has one SQLite fixture and no parameterisation, while its action text asked for `tests/test_store_contract.py`'s idiom. Following the list would have asserted the payload shape and never exercised the Postgres `Decimal` coercion that keeps `/metrics` from 500ing — a green gate over an untested path, and the plan's own verify command would have collected the test from neither file. **A plan's `<files>` list is a claim to check against the fixtures that actually exist.**
+- [Phase 14-03]: **An additive-payload gate is written as explicit name sets, never a snapshot.** A snapshot gets regenerated the moment it fails, which is the failure mode it exists to prevent; the eight pre-phase `cost` keys and fifteen pre-phase `RunResponse` fields are typed out. Mutation M (rename `total_usd` → `total`) reds it on the set difference. This is the selector that collected **zero** tests at plan time — the sixteenth vacuous gate — and it now names a real test that has been watched to fail.
+- [Phase 14-03]: **A mutation aimed at a status code can be intercepted by the test client before a status exists.** Moving `voyage_price_for` outside `/pricing`'s try/except reds `test_pricing_501_when_the_embedding_model_is_unpriced` via the exception re-raised by `TestClient(raise_server_exceptions=True)`, not via the `== 501` assertion. Not an unrelated crash — it names `voyage-4` from the moved line — but not the specified route either, so the status route was confirmed separately with `raise_server_exceptions=False`: **500 mutated, 501 reverted**.
+- [Phase 14-03]: **A prose grep gate is honest-green by construction, and the reason is the record.** For a content-presence check on documentation the gate IS the content change; deleting the sentence to watch it red tests `grep`, not the document. Non-vacuity comes from a **measured zero baseline** before the edit — `COST_DISCOUNT_FACTOR`, `INFERENCE_GEO_MULTIPLIER`, `1.33` in OPERATIONS and `telemetry` in README were all 0, and `Cost is computed from list prices` was 1 → 0.
+- [Phase 14-03]: **No new ADR, stated rather than left silent.** Phase 14 is a pure extension of DEC-12 — `pricing_unknown` still fails loud and never zero, effective-dating still resolves by run date, list prices are still list prices and the multipliers never touch the table — so nothing was overturned and `docs/adr/README.md`'s supersession convention has nothing to apply to. **The phase ships with the next deploy**, recorded in OPERATIONS as the chosen option rather than a cutover being invented for a change that moves no number at neutral defaults.
 - [Phase 13-05]: **A comparison harness has as many variables as it has non-deterministic inputs.** `recall_golden` guarded the two on the stored side (the approximate HNSW index, and ties) and missed the one on the query side: `recall_delta(run_golden(old), run_golden(new))` embeds each query twice. Against the real API that made a two-table comparison a four-way one, and the live source table deltaed against itself on 2 of 8 queries. `FrozenQueryEmbedder` pins it. The general rule: **the control for "did X change recall?" is the source measured against ITSELF**, and if that is not clean nothing measured against the target means anything.
 - [Phase 13-05]: **A deterministic fake hides exactly the class of defect that only appears against the real thing.** Three waves of green gates could not have found the query-vector variable, because every one of them used a bit-reproducible `FakeEmbedder` for which re-embedding a query is free. This is the same shape as 11-02's "a local Postgres found three bugs no fake could catch", and it is the argument for the one live demonstration this phase insisted on.
 - [Phase 13-05]: **A provider's `total_tokens` is telemetry, not an invoice** — demonstrated by it returning 0 for a one-word document that was successfully embedded. The reconciliation line was relabelled `billed` → `reported`, the truthiness test that read a reported 0 as "this embedder reports nothing" was fixed to `is not None`, and Voyage's usage dashboard is now named in the output as the only authority. Phase 14's spend accounting cannot be built on either this number or the local tokenizer's.
@@ -350,7 +338,11 @@ None yet.
   run and check+insert is serialised under `pg_advisory_xact_lock`; a two-thread race against
   real Postgres asserts exactly one of two concurrent reserves is admitted. `pydantic` is unpinned — used by every API model, absent from
   `pyproject.toml`, floating in via FastAPI. `requires-python = ">=3.10"` while Docker and
-  CI run 3.14, so the floor is untested. Voyage embedding spend is accounted nowhere.
+  CI run 3.14, so the floor is untested. ~~Voyage embedding spend is accounted nowhere.~~
+  **RESOLVED 2026-08-09, plan 14-02** — the wrapper's discarded `total_tokens` now reaches
+  the usage dict through a contextvar meter, is priced against `VOYAGE_PRICES` and folds
+  into `cost_usd`, so the per-run cap, the daily cap, `RunResponse` and `spend_since` all
+  see it; `/metrics` totals include it, and the per-provider breakdown is 14-03's.
   Decide in Phase 12 planning which of these belong there versus a later phase.
 
 - **Six requirements are design reversals, not bug fixes.** Each needs a replacement guarantee decided in its own discuss-phase. Two are severe: Phase 17 (REQ-followup-live-search) retires the guarantee DESIGN.md calls "the single failure mode this whole pipeline exists to prevent"; Phase 16 (REQ-independent-critic-model) falsifies README's eval-judge rationale, which must be re-derived rather than inherited. See ROADMAP.md → Reversal register.
@@ -379,8 +371,31 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-06
-Stopped at: **Completed 13-02-PLAN.md — Wave 2 of Phase 13 is in.** Three commits on
+Last session: 2026-08-09
+Stopped at: **Completed 14-01-PLAN.md — Wave 1 of Phase 14 is in.** Two commits on
+`gsd/phase-14-real-cost-accounting`: `b79d506` (`CallUsage.inference_geo` captured from the response
+with the file's defensive `getattr`; `cost_discount_factor()` / `inference_geo_multiplier()` reading
+the env per call with a `> 0` clamp; `_geo_factor()` returning 1.0 for `""`/`"global"`, the env rate
+for `"us"`, and raising `UnknownModelPricing` for anything else; `cost_usd` multiplying the token
+portion by geo and the whole call including the web-search fee by the discount) and `345439b` (the
+boundary, clamp and preview-list-price tests). Suite **539 passed / 63 skipped plain, 601 passed /
+1 skipped armed** against 529/63 and 591/1 — **+10 in both arms, zero new skips**, which is exactly
+the nine new tests in `test_usage.py` plus the one in `test_migrate.py` and nothing else. `ruff
+check` clean. Nothing deployed; no push.
+**Falsified, not assumed — four mutations, all red by the intended assertion**, `src/` byte-identical
+after each revert: deleting the discount term (red on two cost assertions), applying geo
+unconditionally (red on the unmultiplied-`""` case), returning 1.0 for an unknown geo (red on the
+`"eu"` case), and leaking the discount into `preview_cost_usd` (red at $0.03 against $0.06).
+**Both `-k` selectors were run under `--collect-only` before being trusted** — 4 and 6 tests
+respectively — because the sixteenth vacuous gate was this phase's own additive-payload gate, whose
+selector collected zero while its verify command reported green.
+**README deliberately unchanged.** Line 204's "no enterprise discounts or `inference_geo`
+multiplier" is falsified by this wave's code, but 14-03 owns that sentence and is also the wave that
+gives an operator anything to read about the two env vars. It must not be treated as still-true prose.
+Resume file: None
+
+Superseded — previously recorded session (13-03, 13-04 and 13-05 completed after it without
+updating this section): **Completed 13-02-PLAN.md — Wave 2 of Phase 13 is in.** Three commits on
 `gsd/phase-13-embedding-migration`: `e7e2c06` (`src/research_agent/recall_golden.py` — 12 notes
 over three owners with per-owner-distinct vocabulary sets and `"chroma retry"` under both alice and
 bob as the tenancy probe; 8 queries including one that must return `[]`; `exact_scan_results`

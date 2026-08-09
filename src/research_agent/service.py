@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from research_agent import db, graph, limits
+from research_agent import db, graph, limits, memory
 from research_agent import usage as usage_accounting
 from research_agent.graph import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
 from research_agent.identity import IdentityMiddleware
@@ -861,17 +861,50 @@ def metrics_summary(metrics: MetricsStore = Depends(get_metrics)) -> dict:
     return metrics.summary()
 
 
+def _window_payload(window: usage_accounting.PriceWindow) -> dict:
+    """One price window, JSON-shaped. Dates are ISO strings or null."""
+    price = window.price
+    return {
+        "since": window.since.isoformat() if window.since else None,
+        "until": window.until.isoformat() if window.until else None,
+        "usd_per_mtok": {
+            "input": price.input,
+            "output": price.output,
+            "cache_write_5m": price.cache_write_5m,
+            "cache_read": price.cache_read,
+        },
+    }
+
+
 @app.get("/pricing", tags=["ops"])
 def pricing() -> dict:
-    """The rates cost accounting is using today.
+    """The rates cost accounting is using today, and what is about to change.
 
     Worth exposing: Claude Sonnet 5 is on introductory pricing that ends
     2026-08-31, so the same run costs 50% more the following day. A cost
-    dashboard that steps without explanation is a support ticket.
+    dashboard that steps without explanation is a support ticket. `windows`
+    makes that step visible before it happens -- `next` is null whenever no
+    further window is on file, which is the ordinary state of every other
+    model and Sonnet 5's own state from 2026-09-01.
+
+    The multipliers are *displayed* here and multiplied nowhere: this endpoint
+    reports what accounting is configured with, and `CallUsage.cost_usd` stays
+    the only place tokens become dollars.
+
+    An unpriced model 501s -- for the embedding provider exactly as for the
+    LLM. A service that cannot say what its embeddings cost is misconfigured
+    in precisely the way DEC-12 refuses to paper over with a zero.
     """
     model = graph.MODEL
+    # Read at request time, not bound at import: an operator changes
+    # VOYAGE_EMBEDDING_MODEL by restarting, and a test changes it with
+    # monkeypatch.setattr.
+    embedding_model = memory.EMBEDDING_MODEL
     try:
         price = usage_accounting.price_for(model)
+        current_window = usage_accounting.window_for(model)
+        upcoming_window = usage_accounting.next_window(model)
+        embedding_usd_per_mtok = usage_accounting.voyage_price_for(embedding_model)
     except usage_accounting.UnknownModelPricing as exc:
         raise HTTPException(501, str(exc)) from exc
     return {
@@ -884,6 +917,25 @@ def pricing() -> dict:
         },
         "web_search_usd_per_request": usage_accounting.WEB_SEARCH_USD_PER_REQUEST,
         "max_run_cost_usd": usage_accounting.max_run_cost_usd(),
+        "multipliers": {
+            "cost_discount_factor": usage_accounting.cost_discount_factor(),
+            "inference_geo_multiplier": usage_accounting.inference_geo_multiplier(),
+            "inference_geo_note": (
+                "applied per response usage.inference_geo; this service sends global routing"
+            ),
+        },
+        "windows": {
+            "current": _window_payload(current_window),
+            "next": _window_payload(upcoming_window) if upcoming_window else None,
+        },
+        "embedding": {
+            "model": embedding_model,
+            "usd_per_mtok": embedding_usd_per_mtok,
+            "note": (
+                "computed from Voyage-reported token counts -- telemetry, not billing "
+                "truth; an approximation of the invoice, not the invoice"
+            ),
+        },
     }
 
 

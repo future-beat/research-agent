@@ -401,6 +401,33 @@ def test_metrics_group_forced_stops_and_errors(runs):
     assert summary["reliability"]["errors"] == {"RateLimitError": 1}
 
 
+def test_metrics_includes_embedding_spend(runs):
+    """Voyage spend has its own line in the cost section, in both backends.
+
+    This lives here rather than in test_metrics.py because that file has one
+    SQLite fixture and no backend parameterisation: the aggregate arrives
+    from Postgres as a Decimal, so a SQLite-only assertion would leave the
+    coercion that keeps /metrics JSON-serialisable entirely untested.
+
+    The third record carries the pre-phase shape -- zeros for all three
+    columns, the way every row written before this phase reads -- so the sum
+    is over a mixed table rather than a table where every row is new.
+    """
+    runs.record(run_record(embedding_tokens=25, embedding_requests=1,
+                           embedding_cost_usd=0.0000015))
+    runs.record(run_record(embedding_tokens=50, embedding_requests=2,
+                           embedding_cost_usd=0.000003))
+    runs.record(run_record())
+
+    cost = runs.summary()["cost"]
+    assert cost["embedding_tokens"] == 75
+    assert cost["embedding_requests"] == 3
+    assert cost["embedding_usd"] == round(0.0000045, 6)
+    # Plain numbers, not Decimal -- the /metrics response is JSON.
+    assert isinstance(cost["embedding_tokens"], int)
+    assert isinstance(cost["embedding_usd"], float)
+
+
 def test_metrics_sum_cost_and_tokens_as_plain_numbers(runs):
     """Postgres returns SUM(BIGINT) as Decimal, which is not JSON
     serialisable -- /metrics would 500 on the first recorded run."""

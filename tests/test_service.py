@@ -17,11 +17,14 @@ from html.parser import HTMLParser
 import anthropic
 import httpx
 import pytest
+import test_graph_smoke
 from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
 from test_memory_stores import FakeEmbedder
 
 from research_agent import db, graph, identity, limits, service
+from research_agent import memory as memory_module
+from research_agent import usage as usage_accounting
 from research_agent.memory import InMemoryStore, PgVectorMemoryStore
 from research_agent.metrics import PostgresMetricsStore, SQLiteMetricsStore
 from research_agent.sessions import PostgresSessionStore, SQLiteSessionStore
@@ -134,6 +137,16 @@ class RecordingLimits(limits.InMemoryLimits):
 def limits_store() -> RecordingLimits:
     """The store make_client injected into the app under test."""
     return service.app.dependency_overrides[service.get_limits]()
+
+
+def metrics_store():
+    """The metrics store make_client injected, for reading settled spend back.
+
+    Same accessor shape as `limits_store` above. Note that every client built
+    from one `make_client` fixture shares the same database file, so a test
+    comparing two runs reads the delta rather than the total.
+    """
+    return service.app.dependency_overrides[service.get_metrics]()
 
 
 @pytest.fixture
@@ -1281,6 +1294,90 @@ def test_pricing_endpoint_reports_todays_rates(make_client):
     assert body["max_run_cost_usd"] > 0
 
 
+def test_pricing_payload_carries_multipliers_windows_and_embedding(make_client, monkeypatch):
+    """The three additive sections, asserted by shape and never by which
+    window happens to be current today.
+
+    Values that depend on the calendar are checked the way this file already
+    checks the input rate -- membership in the set of rates on file -- so the
+    suite reads the same on 2026-08-31 and on 2026-09-01.
+    """
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.9")
+    client, _ = make_client()
+    body = client.get("/pricing").json()
+
+    # Nothing a deployed consumer already reads has moved.
+    assert body["model"] == graph.MODEL
+    assert set(body["usd_per_mtok"]) == {"input", "output", "cache_write_5m", "cache_read"}
+    assert body["web_search_usd_per_request"] == 0.01
+    assert body["max_run_cost_usd"] > 0
+
+    # /pricing reports what is in effect, not what the defaults are.
+    assert body["multipliers"]["cost_discount_factor"] == 0.9
+    assert body["multipliers"]["inference_geo_multiplier"] > 0
+    assert "usage.inference_geo" in body["multipliers"]["inference_geo_note"]
+
+    current = body["windows"]["current"]
+    assert set(current["usd_per_mtok"]) == {"input", "output", "cache_write_5m", "cache_read"}
+    assert current["usd_per_mtok"]["input"] in (2.0, 3.0)
+    # Present and nullable. Which of the two it is depends on today's date,
+    # and asserting either would be an assertion about the calendar.
+    assert "next" in body["windows"]
+    upcoming = body["windows"]["next"]
+    assert upcoming is None or set(upcoming) == {"since", "until", "usd_per_mtok"}
+
+    assert body["embedding"]["model"] == memory_module.EMBEDDING_MODEL
+    assert body["embedding"]["usd_per_mtok"] > 0
+    assert "approximation" in body["embedding"]["note"]
+
+
+def test_pricing_501_when_the_embedding_model_is_unpriced(make_client, monkeypatch):
+    """The embedding provider fails as loud as the LLM one. A service that
+    cannot say what its embeddings cost is misconfigured, and DEC-12's rule
+    is that a misconfiguration is never reported as $0.00."""
+    monkeypatch.setattr(memory_module, "EMBEDDING_MODEL", "voyage-4")
+    client, _ = make_client()
+
+    response = client.get("/pricing")
+
+    assert response.status_code == 501
+    assert "voyage-4" in response.json()["detail"]
+
+
+def test_payload_additive_for_deployed_consumers(make_client):
+    """Phase 12's rollout constraint, as a test rather than as a promise.
+
+    The demo page and anything else reading these payloads is deployed
+    separately from the service, so for a window of time an old consumer
+    talks to a new service. New keys are free; a renamed or removed one is a
+    broken client that cannot be fixed at the same instant.
+
+    Written as explicit name sets rather than a snapshot: the point is that
+    *these particular* names survive, and a snapshot that gets regenerated
+    when it fails proves nothing.
+    """
+    client, _ = make_client()
+
+    cost = client.get("/metrics").json()["cost"]
+    pre_phase_cost_keys = {
+        "total_usd", "avg_usd_per_run", "model_calls", "input_tokens",
+        "output_tokens", "cache_read_tokens", "cache_creation_tokens", "web_searches",
+    }
+    assert pre_phase_cost_keys <= set(cost)
+    assert {"embedding_tokens", "embedding_requests", "embedding_usd"} <= set(cost)
+
+    body = client.post("/research", json={"question": "why?"}).json()
+    pre_phase_run_fields = {
+        "session_id", "mode", "task", "topic_type", "answer", "approved",
+        "forced_stop_reason", "revision_count", "max_revisions", "iterations",
+        "max_iterations", "retries", "usage", "cost_usd", "trace",
+    }
+    assert pre_phase_run_fields <= set(body)
+    # The usage dict is where this phase added keys; it may grow, and the
+    # fields around it may not.
+    assert {"calls", "cost_usd", "pricing_unknown"} <= set(body["usage"])
+
+
 def test_metrics_start_empty(make_client):
     client, _ = make_client()
     summary = client.get("/metrics").json()
@@ -1960,6 +2057,78 @@ def test_a_failed_stream_settles_its_reservation(make_client, monkeypatch):
     assert [name for name, _ in sse_events(response)] == ["error"]  # it did fail
     assert store.reserved  # and it did reserve
     assert store.reservation_ids() == set()
+
+
+def test_settle_sees_multiplied_cost(make_client, monkeypatch):
+    """Reserve -> run -> record -> settle carries the multiplied cost, once.
+
+    The whole premise of Phase 14 is that multipliers apply at
+    `CallUsage.cost_usd` and every consumer inherits them for free. That is a
+    claim about code nobody edited, so only a run can check it: the number in
+    the API response and the number the daily cap will read back out of the
+    runs table both have to move, by exactly the configured factor and no more.
+
+    Written as ratios against an unmultiplied baseline rather than against
+    hand-copied prices, so it keeps working when the Sonnet 5 introductory
+    window closes in three weeks. The two failure modes it exists to catch are
+    both red by construction: applying the discount a second time downstream
+    gives 0.25, and a consumer that reads a pre-multiplier number gives 1.0.
+
+    The cap is turned ON. `make_client` ships `DEMO_DAILY_USD_CAP=0`, under
+    which `reserve_or_429` returns before reserving anything -- and "the
+    reservation is gone afterwards" is trivially true of a reservation that was
+    never made.
+    """
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "100.00")  # generous, but live
+    monkeypatch.delenv("COST_DISCOUNT_FACTOR", raising=False)
+    monkeypatch.delenv("INFERENCE_GEO_MULTIPLIER", raising=False)
+
+    # -- Run A: list price, nothing configured -----------------------------
+    client, _ = make_client()
+    metrics = metrics_store()
+    reservations = limits_store()
+
+    body = client.post("/research", json={"question": "why?"}).json()
+    c0 = body["cost_usd"]
+    s0 = metrics.spend_since(0.0)
+
+    assert c0 > 0  # non-vacuity: a $0.00 run makes every ratio below trivial
+    assert s0 == pytest.approx(c0)  # the settled row IS the reported cost
+    assert reservations.reserved  # non-vacuity: the cap was live and reserved
+    assert reservations.reservation_ids() == set()  # and the run settled it
+
+    # -- Run B: the same run at a negotiated half price --------------------
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.5")
+    client_b, _ = make_client()
+    metrics_b = metrics_store()
+    spent_before_b = metrics_b.spend_since(0.0)  # the file is shared with run A
+
+    c1 = client_b.post("/research", json={"question": "why?"}).json()["cost_usd"]
+    s1 = metrics_b.spend_since(0.0) - spent_before_b
+
+    assert c1 == pytest.approx(c0 * 0.5)
+    assert s1 == pytest.approx(c1)
+    assert limits_store().reservation_ids() == set()
+
+    # -- Run C: and the geo rate composes with it, on the token half -------
+    # The response reports where inference ran; the fake carries the field as a
+    # class attribute so every call in this run declares it. The published 1.1x
+    # is scoped to token pricing categories, so the per-search fee -- which
+    # this run does incur, two of them -- takes the discount and not the geo.
+    monkeypatch.setattr(test_graph_smoke.Usage, "inference_geo", "us", raising=False)
+    client_c, _ = make_client()
+    metrics_c = metrics_store()
+    spent_before_c = metrics_c.spend_since(0.0)
+
+    body_c = client_c.post("/research", json={"question": "why?"}).json()
+    c2 = body_c["cost_usd"]
+    s2 = metrics_c.spend_since(0.0) - spent_before_c
+
+    fee = body_c["usage"]["web_search_requests"] * usage_accounting.WEB_SEARCH_USD_PER_REQUEST
+    assert fee > 0  # non-vacuity: the fee/token split below is a real split
+    assert c2 == pytest.approx(((c0 - fee) * 1.1 + fee) * 0.5)
+    assert s2 == pytest.approx(c2)
+    assert c2 > c1  # the geo rate is a surcharge, and it survived the discount
 
 
 def test_a_demo_token_gates_writes_but_not_reads(make_client, monkeypatch):

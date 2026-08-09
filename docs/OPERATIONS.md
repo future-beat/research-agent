@@ -457,7 +457,9 @@ Environment variables:
 | `HEALTH_PROBE_BUDGET` | Wall-clock seconds one `/health` store probe may take, end to end | `3.0` |
 | `CHROMA_PATH` · `CHROMA_COLLECTION` | Chroma location and collection | `chroma_store` / `research_notes` |
 | `VOYAGE_EMBEDDING_MODEL` | Embedding model | `voyage-3.5` |
-| `AGENT_MAX_RUN_COST_USD` | Per-run spend cap; `0` disables | `1.00` |
+| `AGENT_MAX_RUN_COST_USD` | Per-run spend cap; `0` disables. Bounds **multiplied** cost since Phase 14 — see below | `1.00` |
+| `COST_DISCOUNT_FACTOR` | Negotiated discount applied to computed Anthropic cost, including the per-search fee. `≤ 0` or unparseable falls back to `1.0`, so a typo cannot disarm the spend caps by costing every run at $0.00 | `1.0` |
+| `INFERENCE_GEO_MULTIPLIER` | The **rate** charged when a response reports `usage.inference_geo == "us"`; applicability is observed from the API per call, never declared here. Same clamp as the discount | `1.1` |
 | `AGENT_MAX_ATTEMPTS` | Attempts per node, including the first | `4` |
 | `AGENT_RETRY_BASE_DELAY` · `AGENT_RETRY_MAX_DELAY` | Backoff bounds, seconds | `1.0` / `30.0` |
 | `DEMO_DAILY_USD_CAP` | Rolling 24h ceiling across all callers; `0` disables | `5.00` |
@@ -508,6 +510,57 @@ rather than per-machine memory, so the fleet reads one number. What remains is
 smaller and bounded: a run whose process dies keeps its reservation for 900s
 before it is reclaimed, and a wrong estimate makes the cap fire slightly early or
 slightly late, never not at all.
+
+### The two cost multipliers, and what they do to the caps
+
+`COST_DISCOUNT_FACTOR` and `INFERENCE_GEO_MULTIPLIER` both scale computed cost
+and neither touches the price table — list prices stay list prices and
+effective-dating resolves exactly as before. Both apply in one function,
+`CallUsage.cost_usd`, which every consumer already reads: the per-run cap, the
+runs table, `/metrics`, the daily-cap reserve math, the API payload, the evals
+harness and the demo badge all inherit them without a line of their own.
+`/pricing` reports both values in effect, and multiplies nothing.
+
+**They are not the same kind of knob.** The discount is a fact about your
+contract that the API cannot report, so you declare it. The geo multiplier is a
+fact about where a particular call ran, which the API *does* report, so the env
+var sets only the **rate** and the response's `usage.inference_geo` decides
+whether it applies at all. Unset the geo variable and nothing changes; set it to
+anything you like and still nothing changes until a response says a call ran in
+a billed geo. This is deliberate: a workspace `default_inference_geo` can put
+requests in a billed geo with no code change, and an env-only flag would then
+disagree with the invoice in one direction or the other. An unrecognised geo
+value is not billed at 1.0 — it raises, and lands as `pricing_unknown`, the same
+way an unpriced model does.
+
+Both clamp to their default on `≤ 0` or an unparseable value. The reason is the
+caps, not tidiness: `COST_DISCOUNT_FACTOR=0` is a plausible typo and a plausible
+reading of "no discount", and honouring it would cost every run at $0.00, which
+a per-run or daily cap compared against $0.00 never fires on.
+
+**What this does to `DEMO_RESERVED_RUN_USD`: nothing, and here is the
+arithmetic.** A research run lands around **$0.15** against a **$0.20**
+reservation, so the reservation only becomes an *under*-estimate once the
+combined multiplier exceeds about **1.33** — unreachable at the published `1.1`
+with any discount at or below `1.0`. So this is a note, not a resize. A discount
+below `1.0` moves the wrong way to be a problem at all: it makes the reservation
+*more* conservative, so the cap binds slightly sooner during a burst and never
+overshoots. Revisit the default if a future pricing dimension pushes a typical
+run above $0.20 — raise `DEMO_RESERVED_RUN_USD` proportionally rather than
+adjusting anything else.
+
+`AGENT_MAX_RUN_COST_USD` now bounds **multiplied** cost, which is the correct
+semantics rather than a side effect: a discounted deployment gets more work per
+capped dollar because the cap bounds *spend*, not calls.
+
+**Deployment:** this ships with the **next deploy** — no dedicated cutover, no
+migration step to run by hand. At neutral defaults (both variables unset, and
+responses reporting no billed geo) the deployed numbers are unchanged, so there
+is nothing to sequence. The runs table gains three embedding columns on first
+construction in both backends, idempotently and under the same advisory lock
+`ensure_schema` already holds. Smoke it whenever the next deploy happens: one
+demo run, then confirm `/metrics` shows a non-zero `cost.embedding_usd` and that
+`/pricing` reports the windows and multipliers you expect.
 
 The two tokens are not interchangeable in production, and since Phase 12 they
 no longer do comparable jobs. A session now records the identity that created
