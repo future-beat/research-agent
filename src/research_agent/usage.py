@@ -19,12 +19,22 @@ applied only to calls whose response reports they ran in a billed geo). Both
 apply inside `CallUsage.cost_usd` and nowhere else -- every other consumer in
 the service reads that one number.
 
+Anthropic is not the only provider on the invoice. Every research run also
+embeds -- once to recall, once to store -- and that spend was accounted
+nowhere until `record_embedding` folded it in here. Embedding tokens are
+counted separately (a different provider's unit) but their dollars land in the
+same `cost_usd`, so the caps, `/metrics` and the API payload inherit them
+without a single consumer change.
+
 Rates: https://platform.claude.com/docs/en/about-claude/pricing
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -330,6 +340,14 @@ def new_usage() -> dict:
     totals = dict.fromkeys(TOKEN_FIELDS, 0)
     totals["calls"] = 0
     totals["cost_usd"] = 0.0
+    # Embeddings are a second provider on the same invoice. Their tokens are
+    # deliberately NOT in TOKEN_FIELDS and not in `total_tokens()`: a Voyage
+    # token and a Claude token are different units at different prices, and
+    # summing them would produce a number that means nothing. Their *dollars*
+    # are another matter -- those go into `cost_usd` with everything else.
+    totals["embedding_tokens"] = 0
+    totals["embedding_requests"] = 0
+    totals["embedding_cost_usd"] = 0.0
     # True once a call is made against a model with no price on file: its
     # tokens are counted but its cost is not, so `cost_usd` is a floor rather
     # than a total. Surfaced rather than silently costing the call at zero.
@@ -349,6 +367,112 @@ def record(totals: dict, call: CallUsage, model: str, on: date | None = None) ->
         totals["pricing_unknown"] = True
         return 0.0
 
+    totals["cost_usd"] = round(totals.get("cost_usd", 0.0) + cost, 10)
+    return cost
+
+
+# --------------------------------------------------------------------------
+# Embedding accounting: the meter and the fold
+# --------------------------------------------------------------------------
+#
+# The embedder seam returns vectors and nothing else, which is right -- four
+# store backends implement it and none of them has any business knowing about
+# tokens. So the token count travels out of band instead: the wrapper *reports*
+# what it was billed for, and whoever is metering picks it up.
+#
+# A contextvar rather than a counter on the embedder, because `graph.memory()`
+# is a module-global store shared by every concurrent run: an attribute on it
+# would attribute one visitor's embeddings to another's bill. The meter is
+# entered and read inside a single node frame, so set and read happen in one
+# context whichever thread LangGraph runs the node on, and concurrent runs are
+# isolated by construction rather than by hope.
+
+
+@dataclass
+class EmbeddingMeter:
+    """What one metered scope was billed for. Mutable on purpose."""
+
+    model: str = ""
+    total_tokens: int = 0
+    requests: int = 0
+
+
+_EMBEDDING_METER: ContextVar[EmbeddingMeter | None] = ContextVar(
+    "research_agent_embedding_meter", default=None
+)
+
+
+@contextmanager
+def embedding_meter() -> Iterator[EmbeddingMeter]:
+    """Collect every embedding billed inside this block."""
+    meter = EmbeddingMeter()
+    token = _EMBEDDING_METER.set(meter)
+    try:
+        yield meter
+    finally:
+        _EMBEDDING_METER.reset(token)
+
+
+def report_embedding(model: str, total_tokens: int | None) -> None:
+    """Tell the active meter what an embed call was billed for.
+
+    A silent no-op when nothing is metering, and that is the whole reason this
+    shape was chosen: the REPL demo, the re-embedding migration and every test
+    holding a fake embedder keep working untouched, because reporting into
+    nowhere costs nothing and raises nothing.
+    """
+    meter = _EMBEDDING_METER.get()
+    if meter is None:
+        return
+    meter.model = model
+    meter.total_tokens += int(total_tokens or 0)
+    meter.requests += 1
+
+
+def record_embedding(
+    totals: dict,
+    model: str,
+    tokens: int,
+    requests: int = 1,
+    on: date | None = None,
+) -> float:
+    """Fold a run's embedding spend into its totals. Returns the cost.
+
+    Mirrors `record()`, including the `.get(..., 0)` reads -- a usage dict
+    persisted before this existed has none of these keys, and a follow-up on
+    an old session must not KeyError its way to a 500.
+
+    Two deliberate asymmetries with `record()`:
+
+    * **No multipliers.** `COST_DISCOUNT_FACTOR` and the `inference_geo` rate
+      are Anthropic dimensions -- a negotiated Anthropic discount and a Claude
+      data-residency surcharge. Voyage is a different vendor on a different
+      rate card, and applying either here would invent a discount nobody
+      negotiated.
+    * **Zero tokens is not an error.** Voyage's reported count is telemetry,
+      not billing truth: Phase 13 watched it report 0 tokens for a one-word
+      document while returning a perfectly good embedding. That records as
+      $0.00 through the normal priced path. `pricing_unknown` means "this
+      service does not know what this MODEL costs", and reusing it for an odd
+      token count would discredit the whole cost figure over a rounding
+      anomaly at the provider's end.
+    """
+    counted = int(tokens or 0)
+    totals["embedding_tokens"] = totals.get("embedding_tokens", 0) + counted
+    totals["embedding_requests"] = totals.get("embedding_requests", 0) + requests
+
+    try:
+        rate = voyage_price_for(model, on)
+    except UnknownModelPricing:
+        # Same contract as an unpriced Claude model: the tokens are counted,
+        # the dollars are not, and `cost_usd` is honestly a floor rather than
+        # a total. Never silently zero.
+        totals["pricing_unknown"] = True
+        return 0.0
+
+    cost = counted * rate / _PER_MTOK
+    totals["embedding_cost_usd"] = round(totals.get("embedding_cost_usd", 0.0) + cost, 10)
+    # And once more into the one number every consumer already reads.
     totals["cost_usd"] = round(totals.get("cost_usd", 0.0) + cost, 10)
     return cost
 

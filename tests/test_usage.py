@@ -3,6 +3,8 @@ Cost accounting. Rates are asserted against the published price table, so a
 mistake here shows up as a failing test rather than as a wrong invoice.
 """
 
+import contextvars
+import threading
 from datetime import date
 
 import pytest
@@ -405,3 +407,169 @@ def test_a_nonpositive_geo_multiplier_falls_back_to_the_published_rate(monkeypat
 
     monkeypatch.delenv("INFERENCE_GEO_MULTIPLIER", raising=False)
     assert usage_accounting.inference_geo_multiplier() == 1.1
+
+
+# --------------------------------------------------------------------------
+# Embedding spend: the second provider on the invoice
+# --------------------------------------------------------------------------
+#
+# Voyage's list price for voyage-3.5 is $0.06/MTok, so a million tokens is
+# exactly six cents -- every expectation below is that rate read forwards, and
+# `on=` is always written out for the same reason it is everywhere else here.
+
+A_MILLION_EMBEDDING_TOKENS_AT_LIST = 0.06  # voyage-3.5
+
+
+def test_zero_token_response_honest():
+    """A 0-token embedding is telemetry, not a pricing failure.
+
+    Phase 13's live re-embed watched Voyage report `total_tokens == 0` for a
+    one-word document while returning a perfectly good 1024-dimension vector.
+    Treating that as `pricing_unknown` would flag the entire run's cost as a
+    floor -- discrediting a $0.15 figure over a provider's rounding of a
+    fraction of a cent. It records as what it is: zero tokens, zero dollars.
+    """
+    totals = new_usage()
+    totals["cost_usd"] = 0.25  # a run that has already made some model calls
+
+    cost = usage_accounting.record_embedding(
+        totals, "voyage-3.5", 0, requests=1, on=FIXED_AUGUST
+    )
+
+    assert cost == 0.0
+    assert totals["embedding_tokens"] == 0
+    assert totals["embedding_requests"] == 1  # the call happened, and is counted
+    assert totals["embedding_cost_usd"] == 0.0
+    assert totals["cost_usd"] == 0.25  # untouched
+    assert totals["pricing_unknown"] is False
+
+
+def test_an_unpriced_voyage_model_flags_pricing_unknown():
+    """SC-4 reaches Voyage too: an unlisted model is never costed at zero.
+
+    voyage-4 exists and this service has no rate on file for it. The tokens
+    are still counted -- they were still spent -- but the dollars are declared
+    missing rather than guessed, exactly as an unlisted Claude model is.
+    """
+    totals = new_usage()
+
+    cost = usage_accounting.record_embedding(
+        totals, "voyage-4", 1_000_000, on=FIXED_AUGUST
+    )
+
+    assert cost == 0.0
+    assert totals["embedding_tokens"] == 1_000_000
+    assert totals["embedding_requests"] == 1
+    assert totals["embedding_cost_usd"] == 0.0
+    assert totals["cost_usd"] == 0.0
+    assert totals["pricing_unknown"] is True
+
+
+def test_embedding_cost_folds_into_cost_usd_once(monkeypatch):
+    """The fold, and the multiplier that must not follow it.
+
+    `cost_usd` is the one number the caps, /metrics, spend_since and the API
+    payload all read, so embedding spend has to land there or the accounting
+    surface is complete everywhere except where anyone looks. It lands there
+    exactly once, and it lands *unmultiplied*: the discount is an Anthropic
+    discount and the geo rate is a Claude surcharge, and neither has anything
+    to say about a different vendor's bill.
+    """
+    monkeypatch.delenv("COST_DISCOUNT_FACTOR", raising=False)
+    monkeypatch.delenv("INFERENCE_GEO_MULTIPLIER", raising=False)
+
+    totals = new_usage()
+    cost = usage_accounting.record_embedding(
+        totals, "voyage-3.5", 1_000_000, on=FIXED_AUGUST
+    )
+
+    assert cost == pytest.approx(A_MILLION_EMBEDDING_TOKENS_AT_LIST)
+    assert totals["embedding_cost_usd"] == pytest.approx(A_MILLION_EMBEDDING_TOKENS_AT_LIST)
+    assert totals["cost_usd"] == pytest.approx(A_MILLION_EMBEDDING_TOKENS_AT_LIST)
+
+    # The same call under a doubly non-neutral environment: identical numbers.
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.5")
+    monkeypatch.setenv("INFERENCE_GEO_MULTIPLIER", "2.0")
+
+    discounted = new_usage()
+    assert usage_accounting.record_embedding(
+        discounted, "voyage-3.5", 1_000_000, on=FIXED_AUGUST
+    ) == pytest.approx(A_MILLION_EMBEDDING_TOKENS_AT_LIST)
+    assert discounted["cost_usd"] == pytest.approx(totals["cost_usd"])
+    assert discounted["embedding_cost_usd"] == pytest.approx(totals["embedding_cost_usd"])
+
+
+def test_embedding_tokens_stay_out_of_the_claude_token_sum():
+    """Different provider, different unit. Summing them means nothing.
+
+    `total_tokens()` answers "how many tokens did Claude bill for", which is
+    the number the token-shaped parts of /metrics report. A Voyage token is
+    priced 30x lower and is not interchangeable with one.
+    """
+    totals = new_usage()
+    record(totals, CallUsage(input_tokens=1000, output_tokens=100), "claude-sonnet-5",
+           FIXED_AUGUST)
+    usage_accounting.record_embedding(totals, "voyage-3.5", 5000, on=FIXED_AUGUST)
+
+    assert total_tokens(totals) == 1100
+    assert totals["embedding_tokens"] == 5000
+    # The dollars, unlike the tokens, do combine.
+    assert totals["cost_usd"] > totals["embedding_cost_usd"] > 0
+
+
+def test_record_embedding_survives_a_usage_dict_from_before_this_phase():
+    """A follow-up on a session persisted last week arrives with none of these
+    keys, and must not KeyError its way to a 500."""
+    old = {"calls": 2, "cost_usd": 0.1, "pricing_unknown": False}
+
+    usage_accounting.record_embedding(old, "voyage-3.5", 1_000_000, on=FIXED_AUGUST)
+
+    assert old["embedding_tokens"] == 1_000_000
+    assert old["embedding_requests"] == 1
+    assert old["cost_usd"] == pytest.approx(0.1 + A_MILLION_EMBEDDING_TOKENS_AT_LIST)
+
+
+def test_meter_isolation_across_contexts():
+    """Two runs metering at once must not read each other's tokens.
+
+    The service runs graph nodes in a thread pool and the memory store is a
+    module global, so "which run was this embedding for" cannot be answered by
+    anything hanging off the embedder. A contextvar answers it structurally:
+    a copied context sees its own meter or none at all.
+    """
+    def metered(tokens: int) -> tuple[int, int]:
+        with usage_accounting.embedding_meter() as meter:
+            usage_accounting.report_embedding("voyage-3.5", tokens)
+            return meter.total_tokens, meter.requests
+
+    assert contextvars.copy_context().run(metered, 25) == (25, 1)
+    assert contextvars.copy_context().run(metered, 4000) == (4000, 1)
+
+    # Concurrently, on the threads the service actually uses: each thread
+    # starts from an empty context, and both are inside their own meter at the
+    # same moment thanks to the barrier.
+    both_inside = threading.Barrier(2, timeout=10)
+    seen: dict[str, tuple[int, int]] = {}
+
+    def work(name: str, tokens: int) -> None:
+        with usage_accounting.embedding_meter() as meter:
+            usage_accounting.report_embedding("voyage-3.5", tokens)
+            both_inside.wait()
+            seen[name] = (meter.total_tokens, meter.requests)
+
+    threads = [
+        threading.Thread(target=work, args=("a", 25)),
+        threading.Thread(target=work, args=("b", 4000)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert seen == {"a": (25, 1), "b": (4000, 1)}
+
+    # And outside every meter, reporting is a no-op rather than an error --
+    # the REPL demo, the migration CLI and every fake-embedder test go through
+    # this path on every embed.
+    usage_accounting.report_embedding("voyage-3.5", 999)
+    with usage_accounting.embedding_meter() as after:
+        assert (after.total_tokens, after.requests, after.model) == (0, 0, "")

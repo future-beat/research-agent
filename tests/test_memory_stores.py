@@ -10,6 +10,7 @@ import pytest
 
 from research_agent import graph
 from research_agent import memory as vector_memory
+from research_agent import usage as usage_accounting
 from research_agent.memory import (
     InMemoryStore,
     JSONMemoryStore,
@@ -208,3 +209,82 @@ def test_the_graph_only_uses_the_abstract_interface():
 def test_vector_memory_alias_still_points_at_the_json_store():
     """Kept so existing callers and docs don't break."""
     assert vector_memory.VectorMemory is JSONMemoryStore
+
+
+# --------------------------------------------------------------------------
+# The Voyage seam: what it was billed for
+# --------------------------------------------------------------------------
+
+
+class FakeEmbeddingsObject:
+    """Voyage's `EmbeddingsObject`: vectors, and the count they were billed at.
+
+    The second field is the point. The wrapper used to return `.embeddings`
+    and drop `.total_tokens` on the floor, which is how an entire provider
+    stayed off the cost report.
+    """
+
+    def __init__(self, embeddings, total_tokens):
+        self.embeddings = embeddings
+        self.total_tokens = total_tokens
+
+
+class FakeVoyageClient:
+    def __init__(self, total_tokens=25):
+        self.total_tokens = total_tokens
+        self.calls = []
+
+    def embed(self, texts, model=None, input_type=None, output_dimension=None):
+        self.calls.append((list(texts), input_type))
+        return FakeEmbeddingsObject([[0.1, 0.2]] * len(texts), self.total_tokens)
+
+
+def voyage_embedder(total_tokens=25):
+    """A VoyageEmbedder wired to a fake client. `_client` is set directly so
+    the lazy `client` property never imports voyageai or reads an API key."""
+    embedder = vector_memory.VoyageEmbedder(model="voyage-3.5")
+    embedder._client = FakeVoyageClient(total_tokens=total_tokens)
+    return embedder
+
+
+def test_voyage_tokens_captured_at_the_seam():
+    """Both embed methods report what they were billed for, to whoever asked.
+
+    25 tokens twice is 50, and the model name travels with them: pricing is
+    per model, and a meter that knew the count but not the rate card row would
+    be counting in a unit it could not convert.
+    """
+    embedder = voyage_embedder(total_tokens=25)
+
+    with usage_accounting.embedding_meter() as meter:
+        assert embedder.embed_documents(["a note worth keeping"]) == [[0.1, 0.2]]
+        assert embedder.embed_query("what did we learn?") == [0.1, 0.2]
+
+    assert meter.total_tokens == 50
+    assert meter.requests == 2
+    assert meter.model == "voyage-3.5"
+    # And the seam still passes the request through unchanged.
+    assert [input_type for _, input_type in embedder._client.calls] == ["document", "query"]
+
+
+def test_the_seam_reports_into_nothing_when_no_one_is_metering():
+    """The REPL, the migration CLI and the eval harness all embed outside any
+    meter. Reporting has to cost them nothing and raise nothing -- which is the
+    whole reason the count travels out of band instead of through the
+    `Embedder` protocol's return type."""
+    embedder = voyage_embedder(total_tokens=25)
+
+    assert embedder.embed_documents(["a note"]) == [[0.1, 0.2]]
+    assert embedder.embed_query("a question") == [0.1, 0.2]
+
+
+def test_a_zero_token_report_is_still_a_request():
+    """Phase 13's live finding, at the seam rather than at the fold: Voyage
+    reported 0 tokens for a one-word document and returned a valid embedding.
+    The call still happened, so the meter still counts it."""
+    embedder = voyage_embedder(total_tokens=0)
+
+    with usage_accounting.embedding_meter() as meter:
+        embedder.embed_documents(["hi"])
+
+    assert (meter.total_tokens, meter.requests) == (0, 1)

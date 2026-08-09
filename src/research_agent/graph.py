@@ -260,39 +260,54 @@ def classifier_node(state: AgentState) -> AgentState:
 @retry_node("researcher")
 def researcher_node(state: AgentState) -> AgentState:
     store = memory()
-    # Scoped to the caller in both directions, and this is the whole of the
-    # fix. Recall used to read one communal store, so a note written during
-    # someone else's run arrived in this prompt -- and the draft built from it
-    # is what the critic then reviews, which is how untrusted text from one
-    # visitor could steer another visitor's report toward APPROVED. A run now
-    # only ever reads what its own caller caused to be written.
-    recalled = store.query(state["task"], top_k=3, owner=state["owner"])
-    recalled_block = (
-        "Relevant notes from previous research sessions:\n" + "\n".join(recalled) + "\n\n"
-        if recalled else ""
-    )
+    # This is the only node that embeds -- recall on the way in, the note on
+    # the way out -- so it is the only node with an embedding bill. The meter
+    # spans both, and it is opened and read inside this one function frame:
+    # that is what makes the contextvar attribution safe when two runs are in
+    # flight on different threads of the service's pool. The model call in the
+    # middle reports nothing into it and is simply carried along.
+    with usage_accounting.embedding_meter() as embeddings:
+        # Scoped to the caller in both directions, and this is the whole of the
+        # fix. Recall used to read one communal store, so a note written during
+        # someone else's run arrived in this prompt -- and the draft built from
+        # it is what the critic then reviews, which is how untrusted text from
+        # one visitor could steer another visitor's report toward APPROVED. A
+        # run now only ever reads what its own caller caused to be written.
+        recalled = store.query(state["task"], top_k=3, owner=state["owner"])
+        recalled_block = (
+            "Relevant notes from previous research sessions:\n" + "\n".join(recalled) + "\n\n"
+            if recalled else ""
+        )
 
-    response = call_model(
-        state,
-        "researcher",
-        max_tokens=4000,
-        thinking={"type": "adaptive"},
-        output_config={"effort": "medium"},
-        tools=[{"type": "web_search_20260209", "name": "web_search"}],
-        messages=[{
-            "role": "user",
-            "content": (
-                f"{recalled_block}"
-                f"Search the web and summarize 4-5 concrete, recent facts "
-                f"relevant to: {state['task']}. Be specific and cite what you find. "
-                f"Prefer new information not already covered above. "
-                f"{RESEARCH_STRATEGY[state['topic_type']]}"
-            ),
-        }],
-    )
-    notes = _text(response)
-    state["research_notes"] = notes
-    store.add(f"[{state['task']}] {notes}", owner=state["owner"])
+        response = call_model(
+            state,
+            "researcher",
+            max_tokens=4000,
+            thinking={"type": "adaptive"},
+            output_config={"effort": "medium"},
+            tools=[{"type": "web_search_20260209", "name": "web_search"}],
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"{recalled_block}"
+                    f"Search the web and summarize 4-5 concrete, recent facts "
+                    f"relevant to: {state['task']}. Be specific and cite what you find. "
+                    f"Prefer new information not already covered above. "
+                    f"{RESEARCH_STRATEGY[state['topic_type']]}"
+                ),
+            }],
+        )
+        notes = _text(response)
+        state["research_notes"] = notes
+        store.add(f"[{state['task']}] {notes}", owner=state["owner"])
+
+    # Nothing embedded means nothing to bill: a store backed by a fake embedder
+    # reports nothing, and folding a zero-request meter would invent a $0.00
+    # Voyage line item for a run that never called Voyage.
+    if embeddings.requests:
+        usage_accounting.record_embedding(
+            state["usage"], embeddings.model, embeddings.total_tokens, embeddings.requests
+        )
     state["trace"].append({
         "node": "researcher", "notes_length": len(notes),
         "recalled_from_memory": len(recalled),
