@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: planned
-stopped_at: "Phase 15 planned on gsd/phase-15-answer-quality-evals. 6 plans, 6 waves; checker 1 blocker (rate gate neutralized the hard replay gates) + 4 warnings, all fixed. Next: /gsd:execute-phase 15."
-last_updated: "2026-08-09T11:20:00.000Z"
-last_activity: "2026-08-06 — Phase 15 planned: recorded-response replay graded deterministically offline, dataset 12→40 with no_prior_research and seeded_notes adversarial cases, models-map fixtures, all-must-pass replay exit rule, ADR-0009. Calibration spend ~$0.25 and the full ~$10-16 record run are operator checkpoints."
+status: in_progress
+stopped_at: "Completed 15-01-PLAN.md (recorder seam + fixture layer) on gsd/phase-15-answer-quality-evals. Next: 15-02 — deterministic quality graders."
+last_updated: "2026-08-09T23:15:00.000Z"
+last_activity: "2026-08-09 — Phase 15 wave 1 executed: run_case(capture_state=True) keeps each turn's final AgentState, and evals/fixtures.py writes it as a validated JSON fixture that refuses a failed recording and refuses to load a malformed one. Nine mutations red, one of which exposed a guard that could not fail. Nothing recorded yet, no spend."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 27
+  completed_plans: 28
   percent: 64
 ---
 
@@ -25,18 +25,26 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 15 of 17 (Answer-quality evals) — **PLANNED, not started**
-Plan: 0 of 6 · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged)
-Status: Planned and verified. Checker blocker: the shared --min-pass-rate 0.9 mathematically
-neutralized every "hard" replay gate (12 green + 1 red replay = 92.3% → exit 0). Fixed with
-an all-must-pass replay exit rule; behavioural leg stays rate-gated. Plus: the Phase 16
-claim on the model-mismatch gate was FALSE (Phase 16 changes the critic model, not
-graph.MODEL) — fixtures now carry a models MAP so the gate is extensible.
+Phase: 15 of 17 (Answer-quality evals) — **IN PROGRESS**
+Plan: 1 of 6 complete · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged)
+Status: Wave 1 executed. The recorder mechanism exists and is proven against the scripted
+client: `run_case(capture_state=True)` keeps each turn's final AgentState, and
+`evals/fixtures.py` writes it as `<case_id>.json` — schema_version 1, a models MAP, refusal
+of any recording whose own grades failed, total validation on load. **Nothing has been
+recorded and no money has been spent.** Suites 584/65 plain, 648/1 armed, offline evals
+12/12 keyless, `ruff` clean.
 
 Progress: [████████░░] 82% (14 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 15: [░░░░░░░░░░] 0 of 6 plans — planned
+Phase 15: [██░░░░░░░░] 1 of 6 plans — 15-01 complete
 
 **Carry into execution:**
+- **15-01 is done.** `evals/fixtures.py` provides `SCHEMA_VERSION`, `FixtureError`,
+  `build_fixture` / `write_fixture` / `load_fixture` / `fixture_paths` / `git_sha`, and
+  `FIXTURES_DIR` is read at call time so tests can point it elsewhere. `TurnResult.state`
+  exists and is excluded from `as_dict()`. Plan 02 builds graders over the recorded state;
+  plan 03 keys replay off `fixture_paths()` and compares `fixture["models"]["pipeline"]`
+  against `graph.MODEL`.
+- `REQ-offline-eval-quality` is deliberately still **Pending** — it spans all six plans.
 - Exit rule: any failing/errored replay CaseResult → non-zero exit; 0.9 governs only the
   behavioural denominator. The split test proves both halves in one test.
 - Fixtures record a models MAP ({pipeline, judge}, extensible); the mismatch gate compares
@@ -68,6 +76,7 @@ Phase 15: [░░░░░░░░░░] 0 of 6 plans — planned
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
 | 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
+| 15 | 1 of 6 (15-01) | 22min | 22min |
 
 **Recent Trend:**
 
@@ -85,6 +94,12 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 15-01]: **A guard whose failure mode the real dependency cannot produce is not a guard.** `state=dict(state)` in `run_case` was covered by a test asserting distinct `id()`s and distinct drafts per turn — which cannot fail, because `graph.app.invoke` returns a fresh dict per call, so an alias and a copy are indistinguishable through the real graph. The mutation `state=state` passed the entire capture suite. Fixed by faking a driver that reuses one dict; an aliasing capture then records the last turn's answer for every turn — a fixture that looks complete and is one answer repeated. Same family as 13-05's `FrozenQueryEmbedder` and 14-01's ratio assertion.
+- [Phase 15-01]: **Record a MAP of role → model, never a flat model string, when a later phase will make one role's model configurable independently of another's.** Phase 16 moves the critic's model without touching `graph.MODEL`, so a fixture stamped with one `"model"` string would keep matching the staleness gate afterwards and the recordings would go stale invisibly — a gate that cannot fire is worse than none, because it is believed. `models` requires `pipeline` and `judge` and accepts further roles without a schema bump; pinned by a test that round-trips a three-role map **and** asserts no top-level `"model"` key exists to be read by mistake.
+- [Phase 15-01]: **The recorder's refusal is what makes replay's recorded-verdict assertion a gate rather than a restatement.** `write_fixture` refuses on a run error or any failed grade — deterministic or judge, one code path — so a fixture in the repo could not have been recorded red. A red replay therefore means a hand-edit, a `force`d write (stamped `forced: true`), or a real regression. A refused write is also asserted to leave **no file**.
+- [Phase 15-01]: **Judge verdicts are recorded; deterministic grades are not.** Deterministic graders are pure functions of the recorded state and replay recomputes them, so storing them would create a second source of truth that can disagree with the state it came from. Judge verdicts cannot be recomputed without spending money — which is exactly why they are metadata.
+- [Phase 15-01]: **`True == 1`, so a bool must be excluded explicitly from an int field's validation.** A fixture carrying `schema_version: true` passes the `!= SCHEMA_VERSION` comparison and would otherwise load. `load_fixture` rejects bools out of `schema_version` and `pipeline_cost_usd`.
+- [Phase 15-01]: **The recorder is a seam in `run_case`, not a second driver** — budget scoping, per-case memory isolation, follow-up chaining and error isolation are already correct there, and a parallel recording loop would drift from the shipped graph in exactly the way the harness exists to prevent. `capture_state` defaults off, so every existing caller is unchanged; the whole diff to the default path is one conditional expression evaluating to `None`.
 - [Ingest]: Zero ADRs existed at ingest — all 23 architectural decisions are soft/revisable. Nothing is LOCKED.
 - [Phase 10, approved 2026-08-04]: Promote five load-bearing decisions (DEC-01, DEC-02, DEC-04, DEC-14, DEC-22) to numbered ADRs before any reversal lands.
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
