@@ -1344,6 +1344,40 @@ def test_pricing_501_when_the_embedding_model_is_unpriced(make_client, monkeypat
     assert "voyage-4" in response.json()["detail"]
 
 
+def test_payload_additive_for_deployed_consumers(make_client):
+    """Phase 12's rollout constraint, as a test rather than as a promise.
+
+    The demo page and anything else reading these payloads is deployed
+    separately from the service, so for a window of time an old consumer
+    talks to a new service. New keys are free; a renamed or removed one is a
+    broken client that cannot be fixed at the same instant.
+
+    Written as explicit name sets rather than a snapshot: the point is that
+    *these particular* names survive, and a snapshot that gets regenerated
+    when it fails proves nothing.
+    """
+    client, _ = make_client()
+
+    cost = client.get("/metrics").json()["cost"]
+    pre_phase_cost_keys = {
+        "total_usd", "avg_usd_per_run", "model_calls", "input_tokens",
+        "output_tokens", "cache_read_tokens", "cache_creation_tokens", "web_searches",
+    }
+    assert pre_phase_cost_keys <= set(cost)
+    assert {"embedding_tokens", "embedding_requests", "embedding_usd"} <= set(cost)
+
+    body = client.post("/research", json={"question": "why?"}).json()
+    pre_phase_run_fields = {
+        "session_id", "mode", "task", "topic_type", "answer", "approved",
+        "forced_stop_reason", "revision_count", "max_revisions", "iterations",
+        "max_iterations", "retries", "usage", "cost_usd", "trace",
+    }
+    assert pre_phase_run_fields <= set(body)
+    # The usage dict is where this phase added keys; it may grow, and the
+    # fields around it may not.
+    assert {"calls", "cost_usd", "pricing_unknown"} <= set(body["usage"])
+
+
 def test_metrics_start_empty(make_client):
     client, _ = make_client()
     summary = client.get("/metrics").json()

@@ -241,6 +241,20 @@ def _summarise(totals: dict, stops: list, errors: list, durations: list) -> dict
             "cache_read_tokens": totals["cache_read_tokens"] or 0,
             "cache_creation_tokens": totals["cache_creation_tokens"] or 0,
             "web_searches": totals["web_searches"] or 0,
+            # Appended, never interleaved: the demo badge and anything else
+            # reading this payload was deployed before these existed, and a
+            # renamed or reordered key is a consumer that cannot be
+            # redeployed at the same moment the service is.
+            #
+            # `total_usd` already contains these dollars -- they ride
+            # `cost_usd`, which is where every consumer picks up embedding
+            # spend without knowing it did. These three are the breakdown,
+            # not an addition to the total. The tokens are reported beside
+            # the Claude ones and summed with neither: a Voyage token is a
+            # different unit at roughly a thirtieth of the price.
+            "embedding_tokens": totals["embedding_tokens"] or 0,
+            "embedding_requests": totals["embedding_requests"] or 0,
+            "embedding_usd": round(totals["embedding_cost_usd"] or 0.0, 6),
         },
         "latency_ms": {
             "p50": round(_percentile(durations, 0.50), 1),
@@ -264,7 +278,10 @@ _SUM_COLUMNS = """
     COALESCE(SUM(cache_read_tokens), 0)     AS cache_read_tokens,
     COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
     COALESCE(SUM(web_searches), 0)          AS web_searches,
-    COALESCE(SUM(cost_usd), 0.0)            AS cost_usd
+    COALESCE(SUM(cost_usd), 0.0)            AS cost_usd,
+    COALESCE(SUM(embedding_tokens), 0)      AS embedding_tokens,
+    COALESCE(SUM(embedding_requests), 0)    AS embedding_requests,
+    COALESCE(SUM(embedding_cost_usd), 0.0)  AS embedding_cost_usd
 """
 
 _STOPS_SQL = (
@@ -425,9 +442,11 @@ class PostgresMetricsStore(MetricsStore):
         # Postgres returns SUM(BIGINT) as Decimal; the JSON response and the
         # tests both expect plain numbers.
         for key in ("revisions", "retries", "calls", "input_tokens", "output_tokens",
-                    "cache_read_tokens", "cache_creation_tokens", "web_searches"):
+                    "cache_read_tokens", "cache_creation_tokens", "web_searches",
+                    "embedding_tokens", "embedding_requests"):
             totals[key] = int(totals[key] or 0)
-        totals["cost_usd"] = float(totals["cost_usd"] or 0.0)
+        for key in ("cost_usd", "embedding_cost_usd"):
+            totals[key] = float(totals[key] or 0.0)
         return _summarise(totals, stops, errors, durations)
 
     def count(self) -> int:
