@@ -393,10 +393,26 @@ def grade_recorded_grounding(case: Case, state: dict) -> Grade:
     of grounded nouns, bare counts of ten or less, and factual wrongness of
     the notes themselves -- containment is not truth.
 
+    Nor a figure REUSED IN ANOTHER ROLE, which is the sharpest of these and
+    the one only a real recording could show. Containment is a set test: a
+    number anywhere in the notes grounds the same number anywhere in the
+    answer, whatever either place meant by it -- and normalisation widens the
+    target, because it deliberately erases the form that carried the role.
+    Measured on the first real recording (`technical-figures`, 2026-08-10):
+    one aside in the notes mentions "the earlier 3.x/4.0 model generations",
+    `4.0` normalises to `4`, and that is enough to ground a draft that quietly
+    restates Sonnet 5's introductory input price as "$4" instead of "$2".
+    GREEN, on a fabricated price, because a version number three paragraphs
+    away happened to be the same digit. A document mixing versions, prices,
+    percentages and years has a dense number space, and every collision in it
+    is a fabrication this grader will pass. The gap is role, not magnitude:
+    the same recording reds immediately on 73.3% -> 81.9% and 1M -> 3M, both
+    figures the notes do not carry in any role.
+
     Known false positive: a figure the notes spell out in words ("one
     million") does not ground the same figure in digits, because the extractor
-    only ever sees digits. Calibrated against real recordings before the full
-    record run.
+    only ever sees digits. Not observed on the first real recording, whose
+    draft and notes used the same forms (1M, 128K) throughout.
     """
     name = "recorded_grounding"
     draft = state["draft"]

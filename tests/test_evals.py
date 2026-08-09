@@ -1210,6 +1210,44 @@ def test_quality_grader_grounding_catches_a_quietly_changed_price():
     assert "3" in grade.detail and "9" in grade.detail
 
 
+def test_quality_grader_grounding_cannot_see_a_figure_reused_in_another_role():
+    """The blind spot the first real recording found, pinned so the claim
+    boundary is checkable rather than merely written down.
+
+    Containment is a SET test, and normalisation widens the target by erasing
+    the form that carried the role. Reproduced from `technical-figures`
+    (recorded 2026-08-10), whose notes carry one passing mention of "the
+    earlier 3.x/4.0 model generations": `4.0` normalises to `4`, and that
+    grounds a draft restating Sonnet 5's $2 introductory input price as $4 --
+    a fabricated price, green, on the strength of a version number in an
+    unrelated aside.
+
+    Both halves are asserted together on purpose. A green on its own would pass
+    just as well against a grounding grader that had stopped working, and this
+    test would then be documenting a blind spot that no longer describes the
+    code. The second half is the same edit to a figure the notes do not carry;
+    it must still be red, so the green above is a gap in reach and not a gap in
+    function. Making grounding role-aware would red the first assertion, which
+    is the point: ADR-0009 states this limit, and a change that closes it must
+    come here to say so.
+    """
+    notes = PRICED_NOTES + " This supersedes the earlier 3.x/4.0 generations."
+    collision = priced(
+        research_notes=notes, draft=PRICED_DRAFT.replace("$2/$10", "$4/$10")
+    )
+    grade = G.grade_recorded_grounding(PRICED_CASE, collision)
+    assert grade.passed, (
+        "the documented blind spot has closed -- grounding now distinguishes a "
+        f"price from a version number. Update ADR-0009. ({grade.detail})"
+    )
+
+    no_collision = priced(
+        research_notes=notes, draft=PRICED_DRAFT.replace("$2/$10", "$7/$10")
+    )
+    still_bites = G.grade_recorded_grounding(PRICED_CASE, no_collision)
+    assert not still_bites.passed and "7" in still_bites.detail
+
+
 def test_quality_grader_grounding_counts_the_question_as_a_source():
     """A figure the asker supplied is not one the answer invented."""
     case = Case(id="q", task="Is the 1M context window real?", why="y" * 40)
