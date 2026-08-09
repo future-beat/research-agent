@@ -138,6 +138,11 @@ class TurnResult:
     grades: list[G.Grade] = field(default_factory=list)
     cost_usd: float = 0.0
     duration_ms: float = 0.0
+    # The turn's final AgentState, kept only when recording (see
+    # `run_case(capture_state=True)`). Deliberately absent from `as_dict`:
+    # states are tens of KB each and the report is read by humans and CI, so
+    # a recorded state's home is its fixture file, not the report.
+    state: dict | None = None
 
     @property
     def passed(self) -> bool:

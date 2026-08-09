@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from evals import fixtures as F
 from evals import graders as G
 from evals.__main__ import main
 from evals.dataset import GOLDEN, Case, Followup, by_id, select
@@ -483,3 +484,214 @@ def test_cli_says_offline_mode_does_not_measure_the_model(capsys):
     """The one thing a reader must not conclude from a green offline run."""
     main(["--quiet"])
     assert "not the model" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# Fixtures
+# --------------------------------------------------------------------------
+
+MODELS = {"pipeline": graph.MODEL, "judge": G.JUDGE_MODEL}
+
+
+def recorded(*turns: TurnResult) -> CaseResult:
+    """A CaseResult shaped like one `run_case(capture_state=True)` returns."""
+    return CaseResult("t", "why", list(turns))
+
+
+def captured(label="research", grades=(), **state_overrides) -> TurnResult:
+    return TurnResult(label, list(grades), state=finished(**state_overrides))
+
+
+def test_fixture_roundtrip(tmp_path):
+    """Serialise, deserialise, and get the same state back.
+
+    AgentState is JSON-safe by construction -- it is already persisted as
+    JSON between a run and its follow-ups -- and this pins that, because a
+    lossy round-trip would grade something subtly different from what ran."""
+    state = finished(task="why is the sky blue?")
+    result = recorded(TurnResult("research", [G.Grade("terminates", True)], state=state))
+
+    fixture = F.build_fixture("t", result, models=MODELS)
+    path = F.write_fixture(fixture, result, directory=tmp_path)
+    loaded = F.load_fixture(path)
+
+    assert path.name == "t.json"
+    assert loaded["turns"][0]["state"] == state
+    assert loaded["schema_version"] == F.SCHEMA_VERSION
+    assert loaded["case_id"] == "t"
+    assert loaded["git_sha"]
+
+
+def test_a_fixture_records_a_models_map_not_a_flat_model_string(tmp_path):
+    """Phase 16 makes the critic's model configurable independently of
+    `graph.MODEL`. A flat `"model"` string would keep matching after that
+    change and let the recordings go stale invisibly; a map takes new roles
+    without a schema bump."""
+    result = recorded(captured())
+    models = {**MODELS, "critic": "claude-haiku-5"}
+
+    loaded = F.load_fixture(
+        F.write_fixture(F.build_fixture("t", result, models=models), result, directory=tmp_path)
+    )
+
+    assert loaded["models"] == models
+    assert "model" not in loaded
+
+
+def test_recorder_refuses_failed_judge(tmp_path):
+    """A committed fixture is by construction one the judge approved -- which
+    is the only reason replay asserting those verdicts is a real gate."""
+    result = recorded(
+        TurnResult(
+            "research",
+            [
+                G.Grade("terminates", True),
+                G.Grade("judge_grounding", passed=False, detail="ungrounded", judged=True),
+            ],
+            state=finished(),
+        )
+    )
+    fixture = F.build_fixture("t", result, models=MODELS)
+
+    with pytest.raises(F.FixtureError, match="judge_grounding"):
+        F.write_fixture(fixture, result, directory=tmp_path)
+    assert list(tmp_path.glob("*.json")) == [], "a refused recording must leave no file"
+
+    path = F.write_fixture(fixture, result, directory=tmp_path, force=True)
+    assert json.loads(path.read_text())["forced"] is True
+
+
+def test_recorder_refuses_failed_deterministic_grade(tmp_path):
+    result = recorded(
+        TurnResult("research", [G.Grade("approval", False, "expected approved")], state=finished())
+    )
+    fixture = F.build_fixture("t", result, models=MODELS)
+
+    with pytest.raises(F.FixtureError, match="approval"):
+        F.write_fixture(fixture, result, directory=tmp_path)
+
+
+def test_recorder_refuses_a_run_that_errored(tmp_path):
+    result = CaseResult("t", "why", [captured()], error="RuntimeError: client is on fire")
+    fixture = F.build_fixture("t", result, models=MODELS)
+
+    with pytest.raises(F.FixtureError, match="errored"):
+        F.write_fixture(fixture, result, directory=tmp_path)
+
+
+def test_a_malformed_fixture_fails_loudly(tmp_path):
+    """The dangerous fixture is not a hostile one, it is a plausible one: a
+    truncated write or a botched edit that loads as a half-empty dict and
+    grades vacuously green."""
+    result = recorded(captured())
+    good = F.build_fixture("t", result, models=MODELS)
+
+    variants = {
+        "missing-models": {k: v for k, v in good.items() if k != "models"},
+        "future-schema": {**good, "schema_version": 2},
+        "no-pipeline-role": {**good, "models": {"judge": G.JUDGE_MODEL}},
+        "empty-turns": {**good, "turns": []},
+        "state-is-a-string": {**good, "turns": [{"label": "research", "state": "", "judge": []}]},
+    }
+
+    for name, payload in variants.items():
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(payload))
+        with pytest.raises(F.FixtureError) as caught:
+            F.load_fixture(path)
+        assert name in str(caught.value), f"{name}: the error should name the file"
+
+
+def test_a_truncated_fixture_fails_loudly(tmp_path):
+    path = tmp_path / "t.json"
+    path.write_text('{"schema_version": 1, "case_id": "t", "turns": [')
+    with pytest.raises(F.FixtureError, match="not valid JSON"):
+        F.load_fixture(path)
+
+
+def test_fixture_size_guard_rejects_a_runaway_draft(tmp_path):
+    """A megabyte-scale draft is a bug in the pipeline worth seeing, not a
+    recording worth committing."""
+    result = recorded(captured(draft="x" * 300_000))
+    fixture = F.build_fixture("t", result, models=MODELS)
+
+    with pytest.raises(F.FixtureError, match="bytes"):
+        F.write_fixture(fixture, result, directory=tmp_path)
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_a_large_fixture_warns_but_still_writes(tmp_path, capsys):
+    result = recorded(captured(draft="x" * 150_000))
+    fixture = F.build_fixture("t", result, models=MODELS)
+
+    path = F.write_fixture(fixture, result, directory=tmp_path)
+
+    assert path.exists()
+    assert "warning" in capsys.readouterr().err
+
+
+def test_build_fixture_refuses_a_recording_that_captured_nothing():
+    """Recording without `capture_state=True` would write an empty file that
+    replay would then grade against nothing."""
+    with pytest.raises(F.FixtureError, match="captured no state"):
+        F.build_fixture("t", recorded(TurnResult("research", [])), models=MODELS)
+
+
+def test_build_fixture_requires_the_pipeline_and_judge_models():
+    result = recorded(captured())
+    with pytest.raises(F.FixtureError, match="pipeline"):
+        F.build_fixture("t", result, models={"judge": G.JUDGE_MODEL})
+
+
+def test_a_fixture_records_the_judge_verdicts_and_not_the_deterministic_ones():
+    """Judge verdicts cost money once and replay free forever; deterministic
+    grades are recomputed from the recorded state, so storing them would only
+    create a second source of truth."""
+    result = recorded(
+        TurnResult(
+            "research",
+            [
+                G.Grade("terminates", True),
+                G.Grade("judge_grounding", True, "grounded", judged=True),
+            ],
+            state=finished(),
+        )
+    )
+
+    fixture = F.build_fixture("t", result, models=MODELS)
+
+    assert [g["grader"] for g in fixture["turns"][0]["judge"]] == ["judge_grounding"]
+
+
+def test_fixture_paths_is_empty_before_any_recording(tmp_path):
+    """The pre-recording state of the repo is not an error -- replay simply
+    has nothing to grade yet."""
+    assert F.fixture_paths(tmp_path / "never-recorded") == []
+
+
+def test_fixture_paths_reads_the_module_directory_at_call_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(F, "FIXTURES_DIR", tmp_path)
+    (tmp_path / "b.json").write_text("{}")
+    (tmp_path / "a.json").write_text("{}")
+    (tmp_path / "notes.txt").write_text("not a fixture")
+
+    assert [p.name for p in F.fixture_paths()] == ["a.json", "b.json"]
+
+
+def test_git_sha_falls_back_to_unknown(monkeypatch):
+    """Metadata, never a gate: a recording made without git still records,
+    and says plainly that it does not know its commit."""
+
+    def explode(*args, **kwargs):
+        raise OSError("no git on this machine")
+
+    monkeypatch.setattr(F.subprocess, "run", explode)
+    assert F.git_sha() == "unknown"
+
+
+def test_git_sha_falls_back_when_git_says_nothing(monkeypatch):
+    class Empty:
+        stdout = "\n"
+
+    monkeypatch.setattr(F.subprocess, "run", lambda *a, **k: Empty())
+    assert F.git_sha() == "unknown"
