@@ -695,3 +695,127 @@ def test_git_sha_falls_back_when_git_says_nothing(monkeypatch):
 
     monkeypatch.setattr(F.subprocess, "run", lambda *a, **k: Empty())
     assert F.git_sha() == "unknown"
+
+
+# --------------------------------------------------------------------------
+# The recorder seam
+# --------------------------------------------------------------------------
+
+# The fields the graders read off a recorded state. If a future state shape
+# drops one of these, replay would grade against a hole rather than fail.
+GRADED_STATE_KEYS = (
+    "task", "mode", "topic_type", "research_notes", "draft", "approved",
+    "forced_stop_reason", "revision_count", "usage", "trace",
+)
+
+
+def test_recorder_captures_schema(tmp_path):
+    """The seam and the fixture layer, proven together against the FAKE
+    client -- no network, no key, no spend. This is the whole recorder
+    mechanism minus the money."""
+    case = by_id("followup-uses-prior-notes")
+
+    result = run_case(
+        case,
+        client_factory=offline_client_factory,
+        memory_factory=offline_memory_factory,
+        capture_state=True,
+    )
+
+    assert result.passed, result.failures
+    assert len(result.turns) == 2  # research + one follow-up
+    for turn in result.turns:
+        assert turn.state is not None, turn.label
+        missing = [k for k in GRADED_STATE_KEYS if k not in turn.state]
+        assert not missing, f"{turn.label}: recorded state is missing {missing}"
+
+    fixture = F.build_fixture(case.id, result, models=MODELS)
+    loaded = F.load_fixture(F.write_fixture(fixture, result, directory=tmp_path))
+
+    assert [t["label"] for t in loaded["turns"]] == ["research", case.followups[0].question]
+    assert loaded["turns"][0]["state"]["draft"] == result.turns[0].state["draft"]
+    assert loaded["turns"][1]["state"]["mode"] == "followup"
+    assert loaded["models"]["pipeline"] == graph.MODEL
+
+
+def test_each_captured_turn_is_its_own_state():
+    result = run_case(
+        by_id("followups-chain"),
+        client_factory=offline_client_factory,
+        memory_factory=offline_memory_factory,
+        capture_state=True,
+    )
+
+    states = [t.state for t in result.turns]
+    assert len({id(s) for s in states}) == len(states)
+    assert len({s["draft"] for s in states}) == len(states)
+
+
+def test_a_captured_state_survives_a_driver_that_reuses_one_dict(monkeypatch):
+    """The capture is a copy taken at append time.
+
+    `graph.app.invoke` returns a fresh dict per turn today, so no test
+    against the real graph can tell a copy from an alias -- which is exactly
+    why this one fakes a driver that reuses one. An aliasing capture would
+    record the last turn's answer for every turn: a fixture that looks
+    complete and is silently one answer repeated."""
+    drafts = iter(["# Turn one", "# Turn two"])
+    shared = finished()
+
+    class ReusesOneDict:
+        def invoke(self, state):
+            shared["draft"] = next(drafts)
+            return shared
+
+    monkeypatch.setattr(graph, "app", ReusesOneDict())
+
+    result = run_case(
+        by_id("followup-uses-prior-notes"),
+        client_factory=offline_client_factory,
+        memory_factory=offline_memory_factory,
+        capture_state=True,
+    )
+
+    assert not result.error
+    assert [t.state["draft"] for t in result.turns] == ["# Turn one", "# Turn two"]
+
+
+def _without_durations(result: CaseResult) -> dict:
+    """Wall-clock timings differ between any two runs; everything else in the
+    report must not."""
+    payload = result.as_dict()
+    for turn in payload["turns"]:
+        turn.pop("duration_ms")
+    return payload
+
+
+def test_capture_state_default_leaves_results_unchanged():
+    """Every existing caller passes nothing. The report shape, the grades and
+    the costs must be exactly what they were before the seam existed."""
+    case = by_id("followup-uses-prior-notes")
+    kwargs = {
+        "client_factory": offline_client_factory,
+        "memory_factory": offline_memory_factory,
+    }
+
+    plain = run_case(case, **kwargs)
+    capturing = run_case(case, capture_state=True, **kwargs)
+
+    assert _without_durations(plain) == _without_durations(capturing)
+    assert all(t.state is None for t in plain.turns)
+    assert "state" not in plain.as_dict()["turns"][0]
+
+
+def test_a_captured_state_is_not_written_into_the_report():
+    """States are tens of KB each; the report is read by humans and CI, and
+    the fixture file is a recorded state's home."""
+    result = run_case(
+        by_id("general-summary"),
+        client_factory=offline_client_factory,
+        memory_factory=offline_memory_factory,
+        capture_state=True,
+    )
+
+    assert result.turns[0].state is not None
+    assert "state" not in result.turns[0].as_dict()
+    assert "research_notes" not in json.dumps(result.as_dict())

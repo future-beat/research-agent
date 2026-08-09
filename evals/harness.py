@@ -237,12 +237,21 @@ def run_case(
     client_factory,
     memory_factory,
     judge: G.Judge | None = None,
+    capture_state: bool = False,
 ) -> CaseResult:
     """Run one golden case end to end and grade every turn.
 
     Each case gets its own memory store: recall across cases would make
     results depend on dataset ordering, which is the kind of flakiness that
     trains people to ignore a failing suite.
+
+    `capture_state` keeps each turn's final state instead of discarding it,
+    which is all a recorder needs. It is a seam here rather than a separate
+    recording pipeline because everything else a recorder wants -- budget
+    scoping, per-case memory, follow-up chaining, error isolation -- is
+    already correct in this function, and a parallel driver would drift from
+    the shipped graph in exactly the way this harness exists to prevent.
+    Off, which is every caller but the recorder, nothing changes.
     """
     result = CaseResult(case_id=case.id, why=case.why)
     previous_client = graph._client
@@ -263,6 +272,9 @@ def run_case(
                     grades=_grade_research(case, state, judge),
                     cost_usd=state["usage"]["cost_usd"],
                     duration_ms=elapsed,
+                    # Copied at append time so a later turn cannot alias an
+                    # earlier one's record.
+                    state=dict(state) if capture_state else None,
                 )
             )
 
@@ -276,6 +288,7 @@ def run_case(
                         grades=_grade_followup(case, fu, state, judge),
                         cost_usd=state["usage"]["cost_usd"],
                         duration_ms=elapsed,
+                        state=dict(state) if capture_state else None,
                     )
                 )
 

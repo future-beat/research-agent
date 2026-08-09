@@ -10,7 +10,7 @@ until every claim is grounded. Watch the critic push back — that's the part
 worth seeing.
 
 A production service, not a notebook: bounded loops, per-run cost accounting,
-a spend cap, swappable Postgres/pgvector backends, an eval harness, and 563
+a spend cap, swappable Postgres/pgvector backends, an eval harness, and 584
 tests that run with no API keys.
 
 **Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
@@ -158,7 +158,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 563 tests, ~25s, no API keys, no network
+pytest                    # 584 tests, ~25s, no API keys, no network
 python -m evals           # 12 golden cases, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 ```
