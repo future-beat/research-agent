@@ -64,6 +64,15 @@ class Case:
     expect_notes_stored: bool = True
     max_cost_usd: float | None = None
 
+    # -- per-case quality pins --------------------------------------------
+    # Lowercase substrings authored against a *recording*: what this answer
+    # must say, and what it must never say. This is how "presents disagreement
+    # as disagreement" gets a deterministic hook at all -- no rubric can
+    # mechanically check it, but "mentions both camps" can be pinned by hand.
+    # Empty by default, so every existing case is unaffected.
+    must_mention: tuple[str, ...] = ()
+    must_not_claim: tuple[str, ...] = ()
+
     # -- offline script ---------------------------------------------------
     topic_label: str = "general"  # what the classifier returns offline
     notes: str = ""

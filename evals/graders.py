@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal
 
 from evals.dataset import Case, Followup
 
@@ -209,6 +211,170 @@ FOLLOWUP_GRADERS: tuple[Callable[[Case, Followup, dict], Grade], ...] = (
     grade_followup_was_checked,
     grade_followup_approval,
 )
+
+
+# --------------------------------------------------------------------------
+# Quality graders (recorded answers)
+#
+# The contract, and the whole reason these can run in CI: every grader below
+# is a pure function of a *recorded* final state -- (case, state) or
+# (case, fu, state) -> Grade. No model, no API key, no network and no wall
+# clock takes part in any pass/fail decision, so the same fixture grades the
+# same way on every push, forever.
+#
+# The price of that determinism is reach. These check mechanics -- tokens,
+# shape, phrases -- and never meaning. So every docstring below carries an
+# explicit "Cannot catch:" line naming its blind spot, and ADR-0009's claim
+# boundary is assembled from those lines. They are load-bearing documentation,
+# not decoration: the suite may claim exactly what they check and nothing more.
+# --------------------------------------------------------------------------
+
+
+# -- risky-token extraction: the shared core of grounding and refusal --------
+
+# Scale words, normalised into what they multiply. Deliberately a small
+# explicit table and not a number-parsing library: these entries cover every
+# form research notes actually use, and a dependency taken on for
+# "1M" == "1 million" is supply-chain risk bought for nothing.
+_SCALES: dict[str, int] = {
+    "k": 1_000,
+    "thousand": 1_000,
+    "m": 1_000_000,
+    "million": 1_000_000,
+    "b": 1_000_000_000,
+    "bn": 1_000_000_000,
+    "billion": 1_000_000_000,
+    "t": 1_000_000_000_000,
+    "trillion": 1_000_000_000_000,
+}
+# Words that mark a number as a measurement rather than prose, without scaling
+# it -- so "5 percent" and "5%" reach the same conclusion.
+_MARKER_WORDS = frozenset({"percent"})
+
+# Longest first: alternation is first-match, so "million" must be tried before
+# "m" and "billion" before "b" or the scale silently truncates.
+_UNIT_WORDS = "|".join(sorted(_SCALES.keys() | _MARKER_WORDS, key=len, reverse=True))
+_ISO_DATE = r"\d{4}-\d{2}-\d{2}"
+_NUMBER = rf"\$?\d[\d,]*(?:\.\d+)?(?:\s*(?:{_UNIT_WORDS})\b)?%?"
+
+NUM = re.compile(rf"{_ISO_DATE}|{_NUMBER}", re.IGNORECASE)
+
+_ISO = re.compile(_ISO_DATE)
+# `1.` / `2)` at the start of a line is a list marker, not a claim about the
+# world. Stripped before extraction so a twelve-item list doesn't read as a
+# fabricated "12".
+_LIST_ORDINAL = re.compile(r"^[ \t]*\d+[.)]\s", re.MULTILINE)
+_PLAIN = re.compile(r"^(\d+(?:\.\d+)?)\s*([a-z]+)?$")
+
+# Bare integers this small are prose counts ("two camps", "3 things"), not
+# figures anyone researched. Below the cutoff they are dropped; a number
+# carrying a unit -- currency, percent, a scale word, or a decimal point --
+# is kept whatever its size, because "$2 per MTok" is a price and prices are
+# exactly the claim this grader exists to hold to the notes.
+PROSE_COUNT_CUTOFF = 10
+
+
+def _normalise(tok: str) -> tuple[str, bool]:
+    """Canonical text for one extracted token, and whether it carried a unit.
+
+    "$2,000", "2000" and "2 thousand" all normalise to "2000"; "1M" and
+    "1 million" both to "1000000". ISO dates pass through verbatim.
+    """
+    text = tok.strip().lower().replace(",", "")
+    marked = text.startswith("$") or text.endswith("%")
+    text = text.lstrip("$").rstrip("%").strip()
+
+    match = _PLAIN.match(text)
+    if not match:
+        return text, marked  # ISO dates and anything unforeseen, verbatim
+
+    digits, word = match.group(1), match.group(2)
+    value = Decimal(digits)
+    marked = marked or "." in digits
+    if word in _SCALES:
+        value *= _SCALES[word]
+        marked = True
+    elif word in _MARKER_WORDS:
+        marked = True
+    elif word:
+        return text, marked  # an unknown suffix: keep it verbatim, don't guess
+
+    if value == value.to_integral_value():
+        return str(int(value)), marked
+    return str(value.normalize()), marked
+
+
+def risky_tokens(text: str) -> set[str]:
+    """The figures in a piece of text: money, percentages, decimals, large
+    counts, years and dates -- normalised so paraphrase of *form* doesn't read
+    as fabrication of *fact*.
+
+    An ISO date also yields its year, so notes dated "2026-08-31" ground a
+    draft that says "2026" while a draft claiming the full date the notes
+    never gave stays ungrounded.
+    """
+    if not text:
+        return set()
+
+    found: set[str] = set()
+    for raw in NUM.findall(_LIST_ORDINAL.sub("", text)):
+        token, marked = _normalise(raw)
+        if not token:
+            continue
+        if _ISO.fullmatch(token):
+            found.add(token)
+            found.add(token[:4])
+            continue
+        if not marked and token.isdigit() and int(token) <= PROSE_COUNT_CUTOFF:
+            continue
+        found.add(token)
+    return found
+
+
+def ungrounded(draft: str, notes: str, task: str = "") -> set[str]:
+    """Figures the answer asserts that neither the notes nor the question gave
+    it. The question counts as a source: repeating a figure back to the person
+    who supplied it is not an invention."""
+    return risky_tokens(draft) - (risky_tokens(notes) | risky_tokens(task))
+
+
+# -- the graders ------------------------------------------------------------
+
+
+def grade_recorded_grounding(case: Case, state: dict) -> Grade:
+    """Every figure in the answer must appear in the notes or the question.
+
+    The deterministic analogue of the technical critic's rubric ("numbers,
+    dates, or figures not explicitly present in the research notes") and of
+    `judge_grounding`. It is the cheap half of grounding, and it is the half
+    that catches the expensive failure: an invented number reads exactly like
+    a researched one, and nobody can tell them apart by eye.
+
+    Cannot catch: paraphrased fabrications, negation flips ("X does not
+    support Y" when the notes say it does), misattribution between two
+    entities that both appear in the notes, wrong causal claims assembled out
+    of grounded nouns, bare counts of ten or less, and factual wrongness of
+    the notes themselves -- containment is not truth.
+
+    Known false positive: a figure the notes spell out in words ("one
+    million") does not ground the same figure in digits, because the extractor
+    only ever sees digits. Calibrated against real recordings before the full
+    record run.
+    """
+    name = "recorded_grounding"
+    draft = state["draft"]
+    if not draft.strip():
+        # An empty draft is `grade_answer_present`'s business, not this one.
+        return _ok(name, "no draft to grade")
+
+    invented = ungrounded(draft, state["research_notes"], case.task)
+    if invented:
+        return _fail(
+            name,
+            "figures in the answer that are in neither the notes nor the question: "
+            + ", ".join(sorted(invented)),
+        )
+    return _ok(name, "every figure traces to the notes or the question")
 
 
 # --------------------------------------------------------------------------

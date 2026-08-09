@@ -7,6 +7,7 @@ that reports success on zero cases would all make CI green through a bug.
 """
 
 import json
+import pathlib
 
 import pytest
 
@@ -819,3 +820,119 @@ def test_a_captured_state_is_not_written_into_the_report():
     assert result.turns[0].state is not None
     assert "state" not in result.turns[0].as_dict()
     assert "research_notes" not in json.dumps(result.as_dict())
+
+
+# --------------------------------------------------------------------------
+# Quality graders: risky-token extraction
+#
+# Each grader below is proven twice -- a synthetic state it passes and a
+# mutated one it fails -- because a grader that cannot fail is a gate that
+# reports green through a bug.
+# --------------------------------------------------------------------------
+
+
+def test_risky_tokens_reads_a_scale_word_as_the_number_it_means():
+    """Notes saying "1 million" and a draft saying "1M" agree. Without this
+    the grounding grader fails honest answers for paraphrasing the form of a
+    figure it got right -- the fastest way to have the suite ignored."""
+    assert G.risky_tokens("a 1M token context") == G.risky_tokens("a 1 million token context")
+    assert G.risky_tokens("1M") == {"1000000"}
+
+
+def test_risky_tokens_strips_commas_and_currency():
+    assert G.risky_tokens("a $2,000 budget") == G.risky_tokens("a 2000 budget") == {"2000"}
+
+
+def test_risky_tokens_ignores_list_ordinals():
+    """A twelve-item list is not a claim that anything equals twelve."""
+    assert G.risky_tokens("1. first\n2. second\n12. twelfth") == set()
+
+
+def test_risky_tokens_keeps_a_date_and_its_year():
+    """Notes dated 2026-08-31 ground a draft that says "in 2026"; a draft that
+    invents the exact date does not become grounded by a bare year."""
+    assert G.risky_tokens("through 2026-08-31") == {"2026-08-31", "2026"}
+    assert G.ungrounded("in 2026", "priced through 2026-08-31", "") == set()
+    assert G.ungrounded("through 2026-08-31", "priced in 2026", "") == {"2026-08-31"}
+
+
+def test_risky_tokens_drops_prose_counts_but_never_prices():
+    """"3 things" is prose; "$3" is a price. Stripping the currency symbol and
+    then dropping everything under ten would make the grounding grader blind
+    to exactly the figures the flagship case is about ($2/$10 per MTok)."""
+    assert G.risky_tokens("two camps and 3 things about GPT-4") == set()
+    assert G.risky_tokens("it costs $2/$10 per MTok") == {"2", "10"}
+    assert G.risky_tokens("5% of the time") == G.risky_tokens("5 percent of the time") == {"5"}
+
+
+PRICED_NOTES = (
+    "FACTS: Claude Sonnet 5 has a 1M token context window. Introductory "
+    "pricing is $2/$10 per MTok through 2026-08-31."
+)
+PRICED_DRAFT = (
+    "# Claude model family\n\nSonnet 5 offers a 1M token context window at "
+    "introductory pricing of $2/$10 per MTok through 2026-08-31."
+)
+PRICED_CASE = Case(
+    id="priced",
+    task="What are the context window sizes and prices of the Claude model family?",
+    why="the flagship grounding case: a fabricated price reads like a researched one",
+)
+
+
+def priced(**overrides) -> dict:
+    """A recorded state whose draft's every figure comes from its notes."""
+    base = {"task": PRICED_CASE.task, "research_notes": PRICED_NOTES, "draft": PRICED_DRAFT}
+    return finished(**{**base, **overrides})
+
+
+def test_quality_grader_grounding_passes_a_draft_whose_figures_are_all_in_the_notes():
+    grade = G.grade_recorded_grounding(PRICED_CASE, priced())
+    assert grade.passed, grade.detail
+
+
+def test_quality_grader_grounding_catches_an_invented_figure():
+    """The whole point: a number that appears in the answer and nowhere in the
+    research is a fabrication, however plausible it reads."""
+    state = priced(draft=PRICED_DRAFT + " Enterprise seats cost $999 a year.")
+
+    grade = G.grade_recorded_grounding(PRICED_CASE, state)
+
+    assert not grade.passed
+    assert "999" in grade.detail
+
+
+def test_quality_grader_grounding_catches_a_quietly_changed_price():
+    """$2/$10 becoming $3/$9 is the subtlest possible ungrounded claim -- the
+    shape is right, the source is wrong. It is also the case a grounding rule
+    that strips currency and then ignores small numbers cannot see at all."""
+    state = priced(draft=PRICED_DRAFT.replace("$2/$10", "$3/$9"))
+
+    grade = G.grade_recorded_grounding(PRICED_CASE, state)
+
+    assert not grade.passed
+    assert "3" in grade.detail and "9" in grade.detail
+
+
+def test_quality_grader_grounding_counts_the_question_as_a_source():
+    """A figure the asker supplied is not one the answer invented."""
+    case = Case(id="q", task="Is the 1M context window real?", why="y" * 40)
+    state = finished(draft="# Yes\n\nThe 1M window is real.")
+    assert G.grade_recorded_grounding(case, state).passed
+
+
+def test_quality_grader_grounding_has_nothing_to_say_about_an_empty_draft():
+    """A guardrail-stopped run is `answer_present`'s business; grading it here
+    twice would double-count one failure."""
+    grade = G.grade_recorded_grounding(PRICED_CASE, priced(draft=""))
+    assert grade.passed
+    assert "no draft" in grade.detail
+
+
+def test_no_quality_grader_reads_the_clock():
+    """A grader that consults the calendar makes the same commit pass in
+    August and fail in October -- a red nobody can act on, which trains people
+    to ignore the suite."""
+    source = (pathlib.Path(G.__file__)).read_text()
+    assert "datetime.now" not in source
+    assert "date.today" not in source
