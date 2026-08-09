@@ -52,12 +52,27 @@ CREATE TABLE IF NOT EXISTS runs (
     cache_creation_tokens   INTEGER NOT NULL DEFAULT 0,
     web_searches            INTEGER NOT NULL DEFAULT 0,
     cost_usd                REAL    NOT NULL DEFAULT 0.0,
+    embedding_tokens        INTEGER NOT NULL DEFAULT 0,
+    embedding_requests      INTEGER NOT NULL DEFAULT 0,
+    embedding_cost_usd      REAL    NOT NULL DEFAULT 0.0,
     duration_ms             REAL    NOT NULL DEFAULT 0.0,
     created_at              REAL    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS runs_created_at ON runs (created_at DESC);
 CREATE INDEX IF NOT EXISTS runs_status ON runs (status);
 """
+
+# Phase 14. `CREATE TABLE IF NOT EXISTS` is a no-op against a table that
+# already exists, so the three columns above reach a fresh database and nothing
+# else -- while `record()` builds its INSERT column list from `asdict(run)` and
+# would name them on every write. On a live table that is a 500 at the metrics
+# step of the first post-deploy request, on every request, for every run. Hence
+# a migration per backend, both idempotent, both run on construction.
+EMBEDDING_COLUMNS = (
+    ("embedding_tokens", "INTEGER NOT NULL DEFAULT 0"),
+    ("embedding_requests", "INTEGER NOT NULL DEFAULT 0"),
+    ("embedding_cost_usd", "REAL NOT NULL DEFAULT 0.0"),
+)
 
 POSTGRES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -80,11 +95,23 @@ CREATE TABLE IF NOT EXISTS runs (
     cache_creation_tokens   BIGINT  NOT NULL DEFAULT 0,
     web_searches            BIGINT  NOT NULL DEFAULT 0,
     cost_usd                DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    embedding_tokens        BIGINT  NOT NULL DEFAULT 0,
+    embedding_requests      BIGINT  NOT NULL DEFAULT 0,
+    embedding_cost_usd      DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     duration_ms             DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     created_at              DOUBLE PRECISION NOT NULL
 );
 CREATE INDEX IF NOT EXISTS runs_created_at ON runs (created_at DESC);
 CREATE INDEX IF NOT EXISTS runs_status ON runs (status);
+-- The Phase 14 embedding migration, in the shape sessions.py:92 and
+-- memory.py:498 already established. These run inside `ensure_schema`, which
+-- holds an advisory lock and retries on first use, so both Fly machines can
+-- reach this block on the same first post-deploy request and only one of them
+-- does the DDL. Existing rows land on 0 -- correct, because those runs really
+-- did have no embedding spend recorded.
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS embedding_tokens BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS embedding_requests BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS embedding_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0.0;
 """
 
 COMPLETED = "completed"
@@ -111,6 +138,13 @@ class RunRecord:
     cache_creation_tokens: int = 0
     web_searches: int = 0
     cost_usd: float = 0.0
+    # Voyage, not Anthropic. The tokens are kept apart because they are a
+    # different provider's unit at a different rate; the dollars are already
+    # inside cost_usd above, folded there by usage.record_embedding, so this
+    # column says how much of that total was embedding rather than adding to it.
+    embedding_tokens: int = 0
+    embedding_requests: int = 0
+    embedding_cost_usd: float = 0.0
     duration_ms: float = 0.0
     created_at: float = field(default_factory=time.time)
 
@@ -138,6 +172,12 @@ class RunRecord:
             cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
             web_searches=usage.get("web_search_requests", 0),
             cost_usd=usage.get("cost_usd", 0.0),
+            # Read with the same defaulting as every field above, and for a
+            # sharper reason: a follow-up arrives carrying a usage dict that
+            # was persisted into a session before these keys existed.
+            embedding_tokens=usage.get("embedding_tokens", 0),
+            embedding_requests=usage.get("embedding_requests", 0),
+            embedding_cost_usd=usage.get("embedding_cost_usd", 0.0),
             duration_ms=duration_ms,
         )
 
@@ -278,9 +318,26 @@ class SQLiteMetricsStore(MetricsStore):
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SQLITE_SCHEMA)
+            self._add_embedding_columns()
             if path != ":memory:":
                 self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.commit()
+
+    def _add_embedding_columns(self) -> None:
+        """The SQLite half of the Phase 14 embedding migration.
+
+        SQLite has no `ADD COLUMN IF NOT EXISTS`, so the column list is probed
+        first -- the same shape the session store's ownership migration uses.
+        Idempotent, and cheap enough to run on every construction: a local
+        checkout's `sessions.db` carries a runs table that predates these
+        columns, and the container mounts one volume whose file does too.
+
+        Caller holds the lock.
+        """
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(runs)")}
+        for name, ddl in EMBEDDING_COLUMNS:
+            if name not in columns:
+                self._conn.execute(f"ALTER TABLE runs ADD COLUMN {name} {ddl}")
 
     def record(self, run: RunRecord) -> None:
         data = asdict(run)
