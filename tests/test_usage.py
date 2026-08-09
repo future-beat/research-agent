@@ -354,3 +354,54 @@ def test_the_web_search_fee_is_discounted_but_not_geo_multiplied(monkeypatch):
 
     call = CallUsage(web_search_requests=1000, inference_geo="us")
     assert call.cost_usd("claude-sonnet-5", FIXED_AUGUST) == pytest.approx(10.0 * 0.9)
+
+
+def test_boundary_with_multipliers(monkeypatch):
+    """Multipliers compose with effective-dating; they do not replace it.
+
+    The same call across the Sonnet 5 introductory boundary still costs
+    exactly 1.5x more on the far side, and each side is still halved by the
+    discount. A multiplier applied to a stale rate, or a rate resolved after
+    the multiplier had already flattened it, would break one of these two
+    assertions and not the other.
+    """
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.5")
+
+    call = CallUsage(input_tokens=1_000_000, output_tokens=1_000_000)
+    before = call.cost_usd("claude-sonnet-5", date(2026, 8, 31))  # $2/$10
+    after = call.cost_usd("claude-sonnet-5", date(2026, 9, 1))  # $3/$15
+
+    assert before == pytest.approx(12.0 * 0.5)
+    assert after == pytest.approx(before * 1.5)
+
+
+def test_a_zero_discount_factor_falls_back_to_neutral(monkeypatch):
+    """`COST_DISCOUNT_FACTOR=0` is the fail-open door this clamp closes.
+
+    It is the obvious way to type "no discount", and honouring it would report
+    every run at $0.00 -- which the per-run cap and the daily cap would read as
+    a service that never spends anything.
+    """
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0")
+    assert usage_accounting.cost_discount_factor() == 1.0
+    # And the guardrails still see a real number, not a free run.
+    call = CallUsage(input_tokens=1_000_000)
+    assert call.cost_usd("claude-sonnet-5", FIXED_AUGUST) == pytest.approx(2.0)
+
+
+def test_an_unparseable_discount_factor_falls_back_to_neutral(monkeypatch):
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "ten percent")
+    assert usage_accounting.cost_discount_factor() == 1.0
+
+
+def test_a_nonpositive_geo_multiplier_falls_back_to_the_published_rate(monkeypatch):
+    """Unset and nonsense both mean the published 1.1x.
+
+    The default is the *rate*, not blanket applicability -- it costs nothing
+    until a response reports a call actually ran in a billed geo.
+    """
+    monkeypatch.setenv("INFERENCE_GEO_MULTIPLIER", "-1")
+    assert usage_accounting.inference_geo_multiplier() == 1.1
+
+    monkeypatch.delenv("INFERENCE_GEO_MULTIPLIER", raising=False)
+    assert usage_accounting.inference_geo_multiplier() == 1.1
