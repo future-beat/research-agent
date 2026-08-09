@@ -295,7 +295,26 @@ the database, so discovering that a model is unpriced costs nothing.
 Voyage's client fetches it once and caches it, so the first preview on a fresh
 machine or a fresh container needs outbound network and takes a few seconds
 longer than you expect. Subsequent calls are offline. If the box has no egress to
-`huggingface.co`, the preview is where it will fail.
+`huggingface.co`, the preview is where it will fail. Measured 2026-08-09 on a
+cold cache: first call 2.4s, second 0.4s, and each *model* fetches its own
+tokenizer — switching from `voyage-3.5` to `voyage-3.5-lite` pays the download
+again.
+
+**Raise the pool timeouts if you are running this from a laptop.** The connection
+defaults (`PG_POOL_TIMEOUT=2.0`, `PG_CONNECT_TIMEOUT=3`) are tuned for the Fly
+machines, which sit in the same region as the database. From a developer machine
+the handshake to the Supabase session pooler was measured on 2026-08-09 at
+0.43s–5.63s — straddling the default — and the commands then fail intermittently
+with `psycopg_pool.PoolTimeout` before they touch any data. This is a distance
+problem, not a fault:
+
+```
+PG_POOL_TIMEOUT=30 PG_CONNECT_TIMEOUT=15 \
+  python -m research_agent.migrate embeddings copy --from ... --to ...
+```
+
+A `PoolTimeout` is always safe to retry: it is raised acquiring the connection,
+before any statement is sent.
 
 ### 3. Verify
 
@@ -307,16 +326,34 @@ read them rather than trusting the exit code alone.
 differ byte-for-byte. All four should read as a clean move; a nonzero
 byte-difference, or a matched count below the source count, means stop.
 
-`re-embed` prints predicted versus billed tokens and the billed cost. A large gap
-between the two means the preview's token count is drifting from Voyage's own,
-which is worth knowing before the next run rather than after.
+`re-embed` prints the predicted token count, the count Voyage's response
+reported, and what the second one comes to at list price.
+
+**Neither number is an invoice, and they are expected to disagree.** Measured
+2026-08-09: a 12-note corpus the local tokenizer counted at **40** tokens came
+back from the API reported as **25**, and a single one-word document came back
+as **0** — which nothing that returns an embedding can actually have cost. Read
+the predicted figure as an honest upper bound, the reported figure as what the
+response said, and **Voyage's usage dashboard as the only authority on what you
+were billed**. Embedding spend is still absent from `/metrics` entirely.
 
 Then check recall yourself if the model changed. There is a frozen golden query
 set in `src/research_agent/recall_golden.py` and a `recall_delta` over it; a copy
 must show **zero** delta, which is what makes any delta a re-embed shows
-attributable to the model rather than to the move. Note that a new model re-scores
-everything, so `assert_tie_free` has to be re-run against the re-embedded table
-before an ordered comparison over it means anything.
+attributable to the model rather than to the move.
+
+Two things will quietly make that comparison lie, and both have been measured:
+
+- **A new model re-scores everything**, so `assert_tie_free` has to be re-run
+  against the re-embedded table before an ordered comparison over it means
+  anything. If it fails, the delta is unmeasurable — report that rather than a
+  number.
+- **The query vector is a variable too.** `recall_delta` runs each golden query
+  once per table, and the real API does not guarantee a bit-identical vector for
+  the same text on two calls. On 2026-08-09 the live source table compared with
+  *itself* deltaed on 2 of 8 queries for that reason alone. Wrap the embedder in
+  `recall_golden.FrozenQueryEmbedder` so each query text is embedded once and
+  reused; across a model change, use one wrapper per model.
 
 ### 4. Flip
 
