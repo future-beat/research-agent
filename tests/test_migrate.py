@@ -456,6 +456,88 @@ def test_copy_recall_identical(handle, seeded):
     assert golden.recall_delta(old, new) == []
 
 
+class DriftingEmbedder:
+    """A fake whose answer to the same query text moves a little every call.
+
+    Standing in for a real embedding API. Every local gate in this phase used a
+    bit-deterministic fake, so nothing had ever asked what happens when the
+    query side is not stable -- and on 2026-08-09 the live run found out: the
+    Supabase source table compared with ITSELF deltaed on 2 of the 8 golden
+    queries, same notes, same order, similarities differing in the fourth
+    decimal, because `run_golden` embeds each query once per table.
+
+    Documents are delegated unperturbed: a corpus is written once, and it is
+    the repeated question, not the stored answer, that drifts. The nudge is
+    uniform across components so it moves similarities without reordering
+    anything -- which is precisely how the live artefact presented, and is what
+    makes it so easy to mistake for a migration having done something.
+    """
+
+    def __init__(self, inner=None):
+        self.inner = inner if inner is not None else FakeEmbedder()
+        self.query_calls = 0
+
+    def embed_documents(self, texts):
+        return self.inner.embed_documents(texts)
+
+    def embed_query(self, text):
+        self.query_calls += 1
+        nudge = 1e-4 * self.query_calls
+        return [value + nudge for value in self.inner.embed_query(text)]
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_frozen_query_embedder_isolates_the_table(handle, seeded):
+    """The query vector is a variable too, and `FrozenQueryEmbedder` pins it.
+
+    `recall_delta(run_golden(old), run_golden(new))` is sold as a comparison of
+    two tables. It embeds each golden query twice -- once per run -- so with an
+    embedder that is not bit-reproducible it is a comparison of two tables AND
+    two query vectors. The control below is a table against ITSELF: any delta
+    there is definitionally not the migration.
+    """
+    source, target, _embedder = seeded
+    assert main(["embeddings", "copy", "--from", source, "--to", target]) == 0
+
+    drifting = DriftingEmbedder()
+    first = golden.run_golden(handle, source, drifting)
+    second = golden.run_golden(handle, source, drifting)
+
+    # Anti-vacuity before anything is concluded: two empty result sets differ
+    # from nothing and agree with nothing.
+    answered = [key for key, rows in first.items() if rows]
+    assert len(answered) >= len(golden.GOLDEN_QUERIES) - 1
+    assert sum(len(rows) for rows in first.values()) >= 12
+
+    self_delta = golden.recall_delta(first, second)
+    assert self_delta != [], "the control must be dirty, or it is not a control"
+    # And it is the scores that moved, not the notes -- measurement noise
+    # wearing a migration's clothes, which is why it is worth a named guard.
+    for entry in self_delta:
+        assert [text for text, _ in entry["old"]] == [text for text, _ in entry["new"]]
+
+    # Frozen, the same embedder answers the same question the same way, so a
+    # table compares equal to itself...
+    frozen = golden.FrozenQueryEmbedder(DriftingEmbedder())
+    assert (
+        golden.recall_delta(
+            golden.run_golden(handle, source, frozen),
+            golden.run_golden(handle, source, frozen),
+        )
+        == []
+    )
+    # ...and the copy's zero-delta claim is about the copy, not about luck.
+    assert (
+        golden.recall_delta(
+            golden.run_golden(handle, source, frozen),
+            golden.run_golden(handle, target, frozen),
+        )
+        == []
+    )
+    # One embed per distinct query text -- not one per query, per table, per run.
+    assert frozen.calls == len({spec["query"] for spec in golden.GOLDEN_QUERIES})
+
+
 @pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
 def test_index_sanity(handle, seeded):
     """The indexed path agrees with the exact scan -- as a SET, at this size.
@@ -745,6 +827,34 @@ def test_preview_prints_before_spend_with_yes(handle, reembed_seeded, capsys):
     # Ordering is the claim: a cost shown after the money is spent is a
     # receipt, not a preview.
     assert out.index("cost preview") < out.index("embedded ")
+
+
+class ZeroTokenEmbedder(RecordingEmbedder):
+    """An embedder that DID report its token count, and the count was zero.
+
+    Not a hypothetical. Measured against the live API on 2026-08-09, Voyage's
+    `response.total_tokens` came back as 0 for a one-word document it had just
+    embedded successfully -- which is also the evidence that the field is not
+    an invoice. A truthiness test on that number reads "0" as "this embedder
+    does not report tokens" and prints the sentence for the wrong case.
+    """
+
+    total_tokens = 0
+
+
+@pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
+def test_zero_reported_tokens_is_a_receipt_not_a_silence(handle, reembed_seeded, capsys):
+    """0 reported tokens is a report of zero, not an absence of a report."""
+    source, target = reembed_seeded
+    recorder = ZeroTokenEmbedder()
+
+    assert _reembed(source, target, recorder) == 0
+    out = capsys.readouterr().out
+
+    # Anti-vacuity: the run has to have got as far as the reconciliation block.
+    assert recorder.texts_embedded == len(golden.GOLDEN_NOTES)
+    assert "reported     0 token(s)" in out
+    assert "not reported by this embedder" not in out
 
 
 @pytest.mark.skipif(not HAS_POSTGRES, reason="DATABASE_URL is not set")
