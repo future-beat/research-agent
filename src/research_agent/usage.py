@@ -12,6 +12,13 @@ Prices are effective-dated. Claude Sonnet 5 is on introductory pricing
 single hardcoded rate would silently under-report by a third the moment that
 window closes. `price_for()` resolves the rate for a date, defaulting to today.
 
+List price is not the invoice, so two multipliers scale the computed number
+without ever touching the table: `COST_DISCOUNT_FACTOR` (a negotiated discount,
+invisible to the API) and `INFERENCE_GEO_MULTIPLIER` (the data-residency rate,
+applied only to calls whose response reports they ran in a billed geo). Both
+apply inside `CallUsage.cost_usd` and nowhere else -- every other consumer in
+the service reads that one number.
+
 Rates: https://platform.claude.com/docs/en/about-claude/pricing
 """
 
@@ -150,6 +157,64 @@ def preview_cost_usd(total_tokens: int, model: str, on: date | None = None) -> f
 
 
 # --------------------------------------------------------------------------
+# Multipliers: what the list price is not
+# --------------------------------------------------------------------------
+#
+# List prices above are the rate card. Two things move a real invoice away from
+# it: a negotiated discount, which the API cannot report because it is applied
+# at billing time, and the data-residency multiplier, which the API *can*
+# report per call. Both are applied to computed cost and neither mutates the
+# table -- effective-dating resolves exactly as it did before.
+#
+# Both readers read the environment on every call rather than caching at import
+# time, the same way `max_run_cost_usd` does, so a process that has its
+# configuration changed under it reports the new number.
+
+DEFAULT_COST_DISCOUNT_FACTOR = 1.0
+# The published data-residency rate: `inference_geo: "us"` bills 1.1x across
+# all token pricing categories for Claude 4.6 and later.
+# https://platform.claude.com/docs/en/about-claude/pricing
+DEFAULT_INFERENCE_GEO_MULTIPLIER = 1.1
+
+
+def cost_discount_factor() -> float:
+    """Negotiated discount applied to computed cost. Default 1.0 (list price).
+
+    Zero or negative falls back to neutral instead of being honoured. This is
+    not tidiness: the budget guardrails read the number this factor scales, so
+    `COST_DISCOUNT_FACTOR=0` -- a plausible typo, and a plausible reading of
+    "disable the discount" -- would cost every run at $0.00, and a per-run cap
+    compared against $0.00 never fires. That is DEC-12's fail-open scenario
+    arriving through a new door, so a misconfiguration fails toward reporting
+    *more* cost, never less.
+    """
+    try:
+        factor = float(os.environ.get("COST_DISCOUNT_FACTOR", "1.0"))
+    except ValueError:
+        return DEFAULT_COST_DISCOUNT_FACTOR
+    return factor if factor > 0 else DEFAULT_COST_DISCOUNT_FACTOR
+
+
+def inference_geo_multiplier() -> float:
+    """The rate charged when a response reports it ran in a billed geo.
+
+    This configures the *rate* only. Whether it applies to a given call is
+    decided by that call's reported `inference_geo` (see
+    `CallUsage._geo_factor`), because a workspace default can put a request in
+    a billed geo without the code ever asking for it.
+
+    Same clamp as the discount, for the same reason: a non-positive or
+    unparseable value would silently under-report a cost already incurred, so
+    it falls back to the published rate.
+    """
+    try:
+        factor = float(os.environ.get("INFERENCE_GEO_MULTIPLIER", "1.1"))
+    except ValueError:
+        return DEFAULT_INFERENCE_GEO_MULTIPLIER
+    return factor if factor > 0 else DEFAULT_INFERENCE_GEO_MULTIPLIER
+
+
+# --------------------------------------------------------------------------
 # Per-call extraction
 # --------------------------------------------------------------------------
 
@@ -169,6 +234,10 @@ class CallUsage:
     cache_creation_input_tokens: int = 0
     web_search_requests: int = 0
     web_fetch_requests: int = 0
+    # Where inference actually ran, as *the response reported it* -- not as
+    # configuration claims. See `_geo_factor` for why that distinction is the
+    # whole point of the field.
+    inference_geo: str = ""
 
     @classmethod
     def from_response(cls, response) -> CallUsage:
@@ -188,16 +257,57 @@ class CallUsage:
             cache_creation_input_tokens=field(usage, "cache_creation_input_tokens"),
             web_search_requests=field(server_tools, "web_search_requests"),
             web_fetch_requests=field(server_tools, "web_fetch_requests"),
+            # Same defensive read as every field above: absent on older SDKs
+            # and on test fakes, which must mean "not geo-billed", not a crash.
+            inference_geo=str(getattr(usage, "inference_geo", None) or ""),
+        )
+
+    def _geo_factor(self) -> float:
+        """The data-residency multiplier this particular call earned.
+
+        Applicability is observed, not configured. A workspace can set
+        `default_inference_geo: "us"` in the Console, so a request that never
+        sends the parameter can still be billed at the US rate -- an operator
+        env flag would then disagree with the invoice in either direction.
+        The response says where inference ran; only the *rate* is configuration.
+
+        An unrecognised value (a future `"eu"`) raises rather than being billed
+        at 1.0. `record()` turns that into `pricing_unknown`, which is DEC-12's
+        fail-loud shape applied to a pricing dimension instead of a model name.
+        """
+        if self.inference_geo in ("", "global"):
+            return 1.0
+        if self.inference_geo == "us":
+            return inference_geo_multiplier()
+        raise UnknownModelPricing(
+            f"No price adjustment on file for inference_geo "
+            f"{self.inference_geo!r}. Priced geos: '', 'global', 'us'."
         )
 
     def cost_usd(self, model: str, on: date | None = None) -> float:
+        """What this call cost, in USD -- the one place tokens become dollars.
+
+        Both multipliers apply *here* and nowhere else in the service. Every
+        consumer of the number (the per-run cap, the run record, `/metrics`,
+        `spend_since` and the daily-cap reserve math, the API payload, the
+        evals harness, the demo badge) reads it downstream, so a second
+        multiplication site anywhere would double-count silently.
+        """
         p = price_for(model, on)
-        return (
+        # The published data-residency multiplier is scoped to "token pricing
+        # categories", so it multiplies the four token classes only and leaves
+        # the per-search fee alone.
+        tokens_usd = (
             self.input_tokens * p.input
             + self.output_tokens * p.output
             + self.cache_read_input_tokens * p.cache_read
             + self.cache_creation_input_tokens * p.cache_write_5m
-        ) / _PER_MTOK + self.web_search_requests * WEB_SEARCH_USD_PER_REQUEST
+        ) / _PER_MTOK * self._geo_factor()
+        # A negotiated discount is applied at invoice time, to the whole
+        # Anthropic bill -- so it takes the web-search fee with it.
+        return (
+            tokens_usd + self.web_search_requests * WEB_SEARCH_USD_PER_REQUEST
+        ) * cost_discount_factor()
 
 
 # --------------------------------------------------------------------------

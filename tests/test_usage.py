@@ -24,6 +24,11 @@ class FakeUsage:
         self.cache_read_input_tokens = fields.get("cache_read_input_tokens")
         self.cache_creation_input_tokens = fields.get("cache_creation_input_tokens")
         self.server_tool_use = fields.get("server_tool_use")
+        # Deliberately *not* defaulted: this fake stands in for both a current
+        # SDK response, which carries `inference_geo`, and an older one that
+        # does not. Only the callers that pass it get the attribute at all.
+        if "inference_geo" in fields:
+            self.inference_geo = fields["inference_geo"]
 
 
 class FakeResponse:
@@ -217,3 +222,135 @@ def test_an_unparseable_budget_falls_back_to_the_default(monkeypatch):
     """A typo in an env var should not silently remove the spend cap."""
     monkeypatch.setenv("AGENT_MAX_RUN_COST_USD", "twenty pence")
     assert usage_accounting.max_run_cost_usd() == 1.00
+
+
+# --------------------------------------------------------------------------
+# Multipliers: list price is not the invoice
+# --------------------------------------------------------------------------
+#
+# Two things move a real bill away from the rate card: a negotiated discount,
+# which the API never reports, and the data-residency multiplier, which it
+# does. Both are applied in `CallUsage.cost_usd` and nowhere else, so these
+# tests are the whole contract -- everything downstream (the per-run cap, the
+# run record, /metrics, the daily-cap reserve math, the API payload) reads the
+# number this one function returns.
+#
+# Every date below is written out. Nothing here may consult today's date: the
+# Sonnet 5 boundary is 2026-08-31, and a suite that goes red on 2026-09-01
+# because it assumed a window would still be current is a suite that has to be
+# edited to stay honest.
+
+FIXED_AUGUST = date(2026, 8, 1)
+A_MILLION_INPUT_TOKENS_AT_LIST = 2.0  # claude-sonnet-5, introductory window
+
+
+def test_multiplier_choke_point_composes_discount_and_geo(monkeypatch):
+    """Discount and geo compose multiplicatively at the single site.
+
+    Read as arithmetic: a million input tokens at the introductory $2/MTok,
+    billed 1.1x because the response said inference ran in the US, then 0.9x
+    because this deployment negotiated ten percent off.
+    """
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.9")
+    monkeypatch.setenv("INFERENCE_GEO_MULTIPLIER", "1.1")
+
+    call = CallUsage(input_tokens=1_000_000, inference_geo="us")
+    assert call.cost_usd("claude-sonnet-5", FIXED_AUGUST) == pytest.approx(2.0 * 1.1 * 0.9)
+
+
+def test_unset_multipliers_change_nothing_for_the_deployed_service(monkeypatch):
+    """The neutral half of the same contract.
+
+    With no env set and a response that reports no geo -- which is every call
+    this service makes today -- cost is exactly what it was before this phase
+    existed. The feature is opt-in or it is a silent repricing of a live
+    service.
+    """
+    monkeypatch.delenv("COST_DISCOUNT_FACTOR", raising=False)
+    monkeypatch.delenv("INFERENCE_GEO_MULTIPLIER", raising=False)
+
+    call = CallUsage(input_tokens=1_000_000)
+    assert call.cost_usd("claude-sonnet-5", FIXED_AUGUST) == A_MILLION_INPUT_TOKENS_AT_LIST
+
+
+def test_geo_applies_by_response_not_by_env(monkeypatch):
+    """The env sets the rate; the response decides whether it applies.
+
+    A workspace can carry `default_inference_geo: "us"`, so a request that
+    never asked for a geo can still be billed at the US rate -- and equally, an
+    operator who sets the multiplier on a globally-routed deployment would
+    otherwise inflate every number. Configuration cannot know; the response
+    does, so the response is what is believed.
+    """
+    monkeypatch.setenv("INFERENCE_GEO_MULTIPLIER", "1.1")
+    monkeypatch.delenv("COST_DISCOUNT_FACTOR", raising=False)
+
+    def cost(geo):
+        return CallUsage(input_tokens=1_000_000, inference_geo=geo).cost_usd(
+            "claude-sonnet-5", FIXED_AUGUST
+        )
+
+    # Configured at 1.1x, but these calls did not run in a billed geo.
+    assert cost("") == pytest.approx(2.0)
+    assert cost("global") == pytest.approx(2.0)
+    # This one did.
+    assert cost("us") == pytest.approx(2.0 * 1.1)
+
+    # And applicability is read off the response, with the file's defensive
+    # idiom: a usage object that never heard of the field means "not billed",
+    # not an AttributeError halfway through a run.
+    reported = CallUsage.from_response(
+        FakeResponse(FakeUsage(input_tokens=10, inference_geo="us"))
+    )
+    assert reported.inference_geo == "us"
+    silent = CallUsage.from_response(FakeResponse(FakeUsage(input_tokens=10)))
+    assert silent.inference_geo == ""
+
+
+def test_pricing_unknown_survives_multipliers(monkeypatch):
+    """Configured multipliers do not turn a missing price into a number.
+
+    Two ways to be unpriced now: an unlisted model, and a listed model that
+    reports a geo nobody has a rate for. Both take the same route -- tokens
+    counted, cost left a floor, the gap flagged -- because a guessed 1.0x is
+    exactly the confident zero DEC-12 exists to forbid.
+    """
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.9")
+    monkeypatch.setenv("INFERENCE_GEO_MULTIPLIER", "1.1")
+
+    totals = new_usage()
+    cost = record(
+        totals, CallUsage(input_tokens=5000, output_tokens=100), "some-new-model", FIXED_AUGUST
+    )
+    assert cost == 0.0
+    assert totals["cost_usd"] == 0.0
+    assert totals["input_tokens"] == 5000
+    assert totals["pricing_unknown"] is True
+
+    # A priced model, but the response says it ran somewhere with no published
+    # adjustment. Guessing 1.0 here would under-report a real bill.
+    totals = new_usage()
+    cost = record(
+        totals,
+        CallUsage(input_tokens=5000, output_tokens=100, inference_geo="eu"),
+        "claude-sonnet-5",
+        FIXED_AUGUST,
+    )
+    assert cost == 0.0
+    assert totals["cost_usd"] == 0.0
+    assert totals["input_tokens"] == 5000
+    assert totals["pricing_unknown"] is True
+
+
+def test_the_web_search_fee_is_discounted_but_not_geo_multiplied(monkeypatch):
+    """The two multipliers have different bases, and it is not an oversight.
+
+    The published 1.1x is scoped to token pricing categories, and a per-search
+    fee is not one. A negotiated discount is applied to the invoice, which
+    includes the fee. So the fee takes the discount and skips the geo.
+    """
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.9")
+    monkeypatch.setenv("INFERENCE_GEO_MULTIPLIER", "1.1")
+
+    call = CallUsage(web_search_requests=1000, inference_geo="us")
+    assert call.cost_usd("claude-sonnet-5", FIXED_AUGUST) == pytest.approx(10.0 * 0.9)
