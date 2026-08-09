@@ -127,12 +127,44 @@ class UnknownModelPricing(LookupError):
     """No price on file for this model on this date."""
 
 
-def price_for(model: str, on: date | None = None) -> Price:
+def window_for(model: str, on: date | None = None) -> PriceWindow:
+    """The price window in force for `model` on `on` (default: today, UTC).
+
+    `price_for` answers "what does a token cost"; this answers "and until
+    when". `/pricing` needs the dates, not just the rate, because the whole
+    reason the window exists is that it ends: Sonnet 5's introductory rate
+    stops on 2026-08-31 and the same run costs 50% more the next morning.
+
+    Date logic lives here rather than in the endpoint so it can be tested at
+    fixed dates. A test that had to know what today is would be a test that
+    starts failing on a date nobody chose.
+    """
     day = on or datetime.now(timezone.utc).date()
     for window in PRICES.get(model, ()):
         if window.covers(day):
-            return window.price
+            return window
     raise UnknownModelPricing(f"No price for {model!r} on {day.isoformat()}.")
+
+
+def next_window(model: str, on: date | None = None) -> PriceWindow | None:
+    """The window that opens after `on`, or None when none does.
+
+    None is the ordinary case, not an error: `claude-opus-5` and
+    `claude-haiku-4-5` have a single undated window and never will have a
+    "next", and Sonnet 5 stops having one the moment its September window is
+    the current one. Callers must treat it as nullable from the first day
+    this ships -- a payload field that is only ever a dict until 2026-09-01
+    is a time bomb with a date on it.
+    """
+    day = on or datetime.now(timezone.utc).date()
+    upcoming = [w for w in PRICES.get(model, ()) if w.since is not None and w.since > day]
+    return min(upcoming, key=lambda w: w.since) if upcoming else None
+
+
+def price_for(model: str, on: date | None = None) -> Price:
+    # One resolution loop, in `window_for`. Same exception, same message: this
+    # is the same question asked for less of the answer.
+    return window_for(model, on).price
 
 
 def voyage_price_for(model: str, on: date | None = None) -> float:

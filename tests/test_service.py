@@ -23,6 +23,7 @@ from test_graph_smoke import FakeClient
 from test_memory_stores import FakeEmbedder
 
 from research_agent import db, graph, identity, limits, service
+from research_agent import memory as memory_module
 from research_agent import usage as usage_accounting
 from research_agent.memory import InMemoryStore, PgVectorMemoryStore
 from research_agent.metrics import PostgresMetricsStore, SQLiteMetricsStore
@@ -1291,6 +1292,56 @@ def test_pricing_endpoint_reports_todays_rates(make_client):
     assert body["usd_per_mtok"]["input"] in (2.0, 3.0)
     assert body["web_search_usd_per_request"] == 0.01
     assert body["max_run_cost_usd"] > 0
+
+
+def test_pricing_payload_carries_multipliers_windows_and_embedding(make_client, monkeypatch):
+    """The three additive sections, asserted by shape and never by which
+    window happens to be current today.
+
+    Values that depend on the calendar are checked the way this file already
+    checks the input rate -- membership in the set of rates on file -- so the
+    suite reads the same on 2026-08-31 and on 2026-09-01.
+    """
+    monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.9")
+    client, _ = make_client()
+    body = client.get("/pricing").json()
+
+    # Nothing a deployed consumer already reads has moved.
+    assert body["model"] == graph.MODEL
+    assert set(body["usd_per_mtok"]) == {"input", "output", "cache_write_5m", "cache_read"}
+    assert body["web_search_usd_per_request"] == 0.01
+    assert body["max_run_cost_usd"] > 0
+
+    # /pricing reports what is in effect, not what the defaults are.
+    assert body["multipliers"]["cost_discount_factor"] == 0.9
+    assert body["multipliers"]["inference_geo_multiplier"] > 0
+    assert "usage.inference_geo" in body["multipliers"]["inference_geo_note"]
+
+    current = body["windows"]["current"]
+    assert set(current["usd_per_mtok"]) == {"input", "output", "cache_write_5m", "cache_read"}
+    assert current["usd_per_mtok"]["input"] in (2.0, 3.0)
+    # Present and nullable. Which of the two it is depends on today's date,
+    # and asserting either would be an assertion about the calendar.
+    assert "next" in body["windows"]
+    upcoming = body["windows"]["next"]
+    assert upcoming is None or set(upcoming) == {"since", "until", "usd_per_mtok"}
+
+    assert body["embedding"]["model"] == memory_module.EMBEDDING_MODEL
+    assert body["embedding"]["usd_per_mtok"] > 0
+    assert "approximation" in body["embedding"]["note"]
+
+
+def test_pricing_501_when_the_embedding_model_is_unpriced(make_client, monkeypatch):
+    """The embedding provider fails as loud as the LLM one. A service that
+    cannot say what its embeddings cost is misconfigured, and DEC-12's rule
+    is that a misconfiguration is never reported as $0.00."""
+    monkeypatch.setattr(memory_module, "EMBEDDING_MODEL", "voyage-4")
+    client, _ = make_client()
+
+    response = client.get("/pricing")
+
+    assert response.status_code == 501
+    assert "voyage-4" in response.json()["detail"]
 
 
 def test_metrics_start_empty(make_client):

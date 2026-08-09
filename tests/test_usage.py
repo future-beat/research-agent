@@ -81,6 +81,56 @@ def test_price_defaults_to_today():
 
 
 # --------------------------------------------------------------------------
+# Which window, and what comes after it
+# --------------------------------------------------------------------------
+#
+# `/pricing` reports dates, not just rates, so the resolution has to be
+# askable for the window itself. Every date below is written out: a helper
+# whose tests consulted today's date would be a helper whose tests change
+# meaning on 2026-09-01, which is the exact day this code exists for.
+
+
+def test_window_for_resolves_the_same_boundary_price_for_does():
+    assert usage_accounting.window_for("claude-sonnet-5", date(2026, 8, 31)).price.input == 2.0
+    assert usage_accounting.window_for("claude-sonnet-5", date(2026, 9, 1)).price.input == 3.0
+
+
+def test_window_for_carries_the_dates_the_rate_alone_cannot():
+    august = usage_accounting.window_for("claude-sonnet-5", date(2026, 8, 31))
+    september = usage_accounting.window_for("claude-sonnet-5", date(2026, 9, 1))
+
+    assert (august.since, august.until) == (None, date(2026, 8, 31))
+    assert (september.since, september.until) == (date(2026, 9, 1), None)
+
+
+def test_window_for_raises_on_an_unpriced_model():
+    with pytest.raises(usage_accounting.UnknownModelPricing):
+        usage_accounting.window_for("gpt-nonexistent", date(2026, 8, 9))
+
+
+def test_next_window_is_the_september_window_before_the_boundary():
+    """The operator-facing half: the step is visible before it is charged."""
+    upcoming = usage_accounting.next_window("claude-sonnet-5", date(2026, 8, 9))
+
+    assert upcoming is not None
+    assert upcoming.since == date(2026, 9, 1)
+    assert upcoming.price.input == 3.0
+
+
+def test_next_window_is_none_once_the_boundary_has_passed():
+    """The time bomb, defused by a test. From 2026-09-01 there is no next
+    window, so any consumer that assumed a dict would start crashing on a
+    date nobody chose -- `next` is nullable from the day it ships."""
+    assert usage_accounting.next_window("claude-sonnet-5", date(2026, 9, 1)) is None
+    assert usage_accounting.next_window("claude-sonnet-5", date(2030, 1, 1)) is None
+
+
+def test_next_window_is_none_for_models_with_one_undated_window():
+    for model in ("claude-opus-5", "claude-haiku-4-5"):
+        assert usage_accounting.next_window(model, date(2026, 8, 9)) is None, model
+
+
+# --------------------------------------------------------------------------
 # Reading the usage object
 # --------------------------------------------------------------------------
 
