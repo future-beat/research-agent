@@ -605,8 +605,10 @@ def reembed_notes(
         )
         print(f"  estimated    ${estimated:.6f}")
         print(
-            "\n  List price. Voyage bills its own token count, not this one, and the\n"
-            "  voyage-4 family's free-token allowance is not modelled here.\n"
+            "\n  List price, and an UPPER BOUND. Voyage bills its own token count, not\n"
+            "  this one: measured 2026-08-09, the local tokenizer counted 40 tokens for\n"
+            "  a corpus the API's own response reported as 25. The voyage-4 family's\n"
+            "  free-token allowance is not modelled here either.\n"
         )
 
         if dry_run:
@@ -672,13 +674,28 @@ def reembed_notes(
 
         actual_tokens = getattr(embedder, "total_tokens", None)
         print(f"\nre-embedded {written} note(s) into {to_table} at vector({dimensions}).")
-        print(f"  predicted    {predicted_tokens} token(s)")
-        if actual_tokens:
-            print(f"  billed       {actual_tokens} token(s)")
-            print(f"  actual cost  ${usage.preview_cost_usd(actual_tokens, model, on):.6f}")
+        print(f"  predicted    {predicted_tokens} token(s) (local tokenizer)")
+        # `is not None`, not truthiness: the response's count can legitimately
+        # be 0 (see below), and a 0 that fell through to "not reported" would
+        # be a missing receipt reported as a missing feature.
+        if actual_tokens is not None:
+            print(f"  reported     {actual_tokens} token(s) (Voyage's response.total_tokens)")
+            print(f"  at that rate ${usage.preview_cost_usd(actual_tokens, model, on):.6f}")
+            if actual_tokens != predicted_tokens:
+                # Measured 2026-08-09 against the live API: 12 notes the local
+                # tokenizer counted at 40 tokens came back reported as 25, and
+                # a single one-word document came back as 0 -- which no
+                # request that returns an embedding can actually have cost.
+                # So neither number is an invoice: the local count is the
+                # honest upper bound and this one is what the response said.
+                # Voyage's dashboard is the only authority on what was billed.
+                print(
+                    f"  the two disagree by {predicted_tokens - actual_tokens:+d} token(s). "
+                    f"Neither is an invoice -- check Voyage's usage dashboard for that."
+                )
         else:
             # The fake-embedder path, and any client that stopped reporting it.
-            print("  billed       not reported by this embedder")
+            print("  reported     not reported by this embedder")
         print(
             f"\n{from_table} is untouched. Cut over with PGVECTOR_TABLE={to_table} "
             f"and VECTOR_DIMENSIONS={dimensions}; roll back by pointing them back."
