@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: executing
-stopped_at: "Executed 12-06-PLAN.md IN FULL, including Task 4 — the live cutover. IDENTITY_SIGNING_SECRET deployed app-wide; releases v8 then v9; both machines (846975f2604548, d8d0320f751618) healthy on v9. Verified live with recorded output: identity_signing true on both machines, a cookieless caller reaching a working page and a completed research stream with the identity minted on that same response, a cookie minted on A verifying on B with zero re-mints and surviving a fleet restart, and ownership refusing a second identity with a 404 indistinguishable from missing. Both requirements marked Complete. Nothing pushed. Next: /gsd:verify-work on Phase 12, then the phase PR."
-last_updated: "2026-08-05T16:35:00.000Z"
-last_activity: "2026-08-05 — Executed 12-06 IN FULL. Task 4 cut over live (releases v8, v9): both machines report identity_signing true; a genuinely cookieless curl gets 200 + text/html + Set-Cookie on the same response, with a first-paint tag census of 1 form / 1 input / 1 button and zero wall words, and the served bytes sha-identical to the statically gated file; a cookieless POST /research/stream completed and minted on its SSE response; that cookie verified on the machine that did not mint it with zero re-mints, carried POST /sessions/{id}/ask to 200, and survived a full fleet restart; a second identity got an empty listing and a 404 byte-identical to never-existed on both read and write. One bug found by probing prod and fixed as v9: the root index claimed X-Demo-Token was required for three endpoints that answer 200 without it. Gaps recorded not waived: no real-browser session (all curl), rollback untested. Earlier, Tasks 1-3: ADR-0007 (supersedes 0006, carrying forward SESSIONS_TOKEN-as-operator-credential with its fail-closed meaning inverted, the read/cap decomposition, the router grouping and DEMO_TOKEN-never-in-prod); README/OPERATIONS/.env.example corrected including the two items deferred here by waves 2-3; /health reports identity_signing; the demo page gained a footer identity sentence, a two-scope limits line, an owned-session list that is absent from the DOM until populated, a side-effect-free renderTurnCard() and a resume flow; nine criterion-6 gates, 24 of 25 mutations red. Suite 526/47 plain, 572/1 armed, no new skips."
+status: in-progress
+stopped_at: "Completed 13-05-PLAN.md — the live demonstration ran against production Supabase and the phase gate battery is closed. Branch gsd/phase-13-embedding-migration, 5 of 5 plans executed, nothing pushed. Next: /gsd:verify-work, then ONE PR for the whole phase."
+last_updated: "2026-08-09T08:45:00.000Z"
+last_activity: "2026-08-09 — Phase 13 wave 5 executed: the migration path ran once end to end against the production Supabase with real Voyage spend (~$0.000015). Copy leg ZERO recall delta; re-embed to voyage-3.5-lite moved 8 of 8 golden queries, one changing which notes came back; three migration_demo_* scratch tables dropped with pg_tables proving zero residue, confirmed twice. The two never-executed functions executed and both worked. FOUR findings the local gates could not reach: recall_delta was comparing two query vectors as well as two tables (the source table deltaed against ITSELF), Voyage's total_tokens is not an invoice (0 for a one-word document), the preview over-counts 40 vs 25, and PG_POOL_TIMEOUT=2.0 does not fit an operator laptop."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 19
-  percent: 58
+  completed_plans: 24
+  percent: 63
 ---
 
 # Project State
@@ -25,42 +25,107 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 12 of 17 (Caller identity, session ownership, bounded stores) — **EXECUTED, awaiting verify + PR**
-Plan: 6 of 6 executed (12-06 all 4 tasks) · branch `gsd/phase-12-caller-identity` (off the PR #5 merge; main untouched, nothing pushed)
-Status: Wave 5 code and docs complete (12-06 Tasks 1–3). **ADR-0007 supersedes ADR-0006** with an explicit `### Carried forward` section — the convention forbids editing a superseded record's body, so the new record is the only honest place to say that `SESSIONS_TOKEN` survives as the *operator* credential with its fail-closed meaning **inverted**, and that 0006's parts 3 (guard stays off the reads) and 4 (structural router grouping) are reaffirmed rather than discarded. README's "rate-limited, not authenticated" bullet — deferred by four consecutive waves — is rewritten honestly, including the free-to-mint fairness ceiling. The demo page shows identity in exactly two muted text deltas and nothing else: an owned-session list that is **not in the document at all** until it has a row, a side-effect-free `renderTurnCard()` that omits absent badges instead of inventing `$0.0000`, and a resume flow. Criterion 6 is now nine machine-checked static gates including a frozen first-paint text baseline (the whole phase's markup delta is one run) and a frozen tag census.
-**Task 4 — the live cutover — is DONE.** `IDENTITY_SIGNING_SECRET` went from `Staged` to `Deployed`; releases **v8** then **v9**; both machines `846975f2604548` and `d8d0320f751618` on v9, checks passing. The three claims the suite structurally cannot reach are now evidenced with recorded command output rather than judgements about it: `/health` reports `identity_signing: true` on **both** machines; a genuinely cookieless caller (no jar, no `-b`) gets **200 + `text/html` + `Set-Cookie` on that same response**, a first-paint tag census of `1 form / 1 input / 1 button`, zero wall words, and served bytes **sha-identical** to the statically gated file; a cookieless `POST /research/stream` completed with the cookie minted on its SSE response; **that cookie verified on the machine that did not mint it with zero re-mints**, carried `POST /sessions/{id}/ask` to a 200, and survived a full fleet restart — which a per-process ephemeral secret cannot do by construction. Ownership bites: a second identity gets `{"sessions":[]}` and a 404 byte-identical to never-existed, on read and write alike. `/demo` still reports `token_required: false`; `DEMO_TOKEN` remains unset.
-**Two gaps recorded rather than waived:** every live check was `curl`, so there was no real-browser dev-tools session (cookie invisibility to `document.cookie` and the reload revealing "Your recent research" rest on mechanism + static/DOM-shim coverage), and the rollback (`fly secrets unset` + redeploy) was **not** exercised.
-Last activity: 2026-08-05 — Executed 12-06 in full (commits ab54fb5, 1c79677, d7d06e2, fc6c56a).
+Phase: 13 of 17 (Embedding model migration) — **ALL PLANS EXECUTED, AWAITING VERIFY + PR**
+Plan: 5 of 5 executed · branch `gsd/phase-13-embedding-migration`, rebased onto `main`
+(PR #6 merged). Not pushed.
+Status: All five ROADMAP success criteria hold, with SC-5 measured **live** on both legs.
+13-VALIDATION.md is signed off (`status: complete`, `nyquist_compliant: true`). The phase is
+NOT closed until `/gsd:verify-work` runs and the single phase PR is raised.
 
-**Phase 11 shipped** (PR #5 merged): two machines on Supabase Postgres, release v7. **Phase 12 is now live on v9** but not yet merged — the branch is unpushed.
+**Phase 12 shipped** (PR #6 merged, v9 live). Phases 10, 10.5, 11 merged.
 
-Progress: [██████░░░░] 65% (11 of 17 phases complete + hotfix 10.5; v1.0 shipped)
-Phase 12: [██████████] 6 of 6 plans — executed and live on release v9 (awaiting /gsd:verify-work, then the phase PR)
+Progress: [███████░░░] 71% (12 of 17 phases complete + hotfix; v1.0 shipped)
+Phase 13: [██████████] 5 of 5 plans — 13-01 … 13-05 done
 
-**Carry into execution — what breaks the demo if wrong:**
-
-- **Minting is pure-ASGI middleware, mint-on-response, NEVER 401.** `/research/stream`,
-  `/ask/stream`, `GET /` return Response objects where a dependency's set_cookie is dropped.
-  A first-time COOKIELESS caller's stream must not break — this is criterion 6's hinge.
-- **The global daily cap SURVIVES.** Identities are free to mint (clear storage → fresh
-  limits), so per-identity limits alone cannot bound the bill. Removing the global cap because
-  "limits are per-identity now" is the failure mode.
-- **The cap reservation is race-free only inside `pg_advisory_xact_lock`** (transaction-scoped;
-  a new `Database.transaction()` helper — the pool is autocommit). Settlement on BOTH success
-  and SSE-error arms; 900s staleness reclaim or a crashed run throttles the demo forever.
-- **`reserve_or_429` now has a structural walker gate** (like `guard`) so it can't be silently
-  forgotten on a route — the exact failure ADR-0006 exists to prevent.
-- **Secure cookie + TestClient:** tests need `base_url="https://testserver"` or the cookie
-  never sets and auth tests pass vacuously.
-- **chromadb joins the `dev` extra**; the contract suite runs 4 arms that must PASS in CI (not
-  skip). SC-5 depends on it.
-
-Wave 5 (12-06) is `autonomous: false` — sets the `IDENTITY_SIGNING_SECRET` Fly secret, deploys,
-and needs a real browser + two machines to verify criterion 6 and identity continuity.
-
-**Sequencing note:** Phase 10.5 (live endpoint exposure) is a hotfix inserted ahead of
-Phase 11 and depends on nothing. It may be planned and shipped before, after, or alongside
-Phase 10 — but it must not wait for Phase 11.
+**Carry into execution:**
+- ~~`migrate.py` has a LIVE data-loss bug today~~ **FIXED in 13-01.** Notes and sessions
+  carry `owner` and `created_at`; dedup keys on `(text, owner, created_at)`; the
+  expired-session skip is printed. `tests/test_migrate.py` gates all three.
+- `migrate_notes` now takes `table=`/`dimensions=` keyword parameters — waves 2–3 should
+  extend that idiom rather than reading module constants inside new functions.
+- ~~"Recall byte-identical" is NEVER asserted through the HNSW index~~ **IMPLEMENTED in 13-02.**
+  `recall_golden.exact_scan_results` is the only runner an equality-of-recall assertion may
+  use; `indexed_results` exists for `test_index_sanity`'s set-equality check alone. Wave 3
+  measures the re-embed delta with the same two runners — do not reach for the indexed one.
+- `recall_golden.assert_tie_free` checks rows **at or above each query's floor**, not every
+  row: with 5-dim binary vectors any two notes sharing no word with the query both sit at
+  similarity 0, so global tie-freedom is impossible, and rows a query cannot return cannot
+  affect its order. **Wave 5 must re-run it against the re-embedded table** — a new model
+  re-scores everything and tie-freedom does not travel. Carried through waves 3 and 4; the
+  OPERATIONS runbook now states it to operators too.
+- ~~`embeddings copy` is the CLI idiom to extend~~ **EXTENDED in 13-03.** `re-embed` is a
+  sibling `sub.add_parser(...)` in `_main_embeddings`; both table names go through
+  `memory.validate_table_name()`.
+- ~~voyage-3.5 `output_dimension=2048` exceeds pgvector's HNSW limit~~ **ENFORCED in 13-03.**
+  Refused before any DDL, naming 2000 and `halfvec`.
+- ~~Preview always prints; `--yes` required to spend~~ **IMPLEMENTED in 13-03**, and proven by
+  counting calls on an injected fake rather than by reading the code. `main()` takes
+  keyword-only `token_counter=`/`embedder_factory=`; use them rather than monkeypatching.
+- ~~**Two functions in migrate.py have never executed**~~ **BOTH EXECUTED in 13-05, and both
+  worked.** `_default_token_counter`: cold HF cache, first call 2.378s, second 0.439s, and the
+  fetch is **per model** (voyage-3.5-lite paid its own). `_ReembedEmbedder.embed_documents`:
+  returned real vectors and a real `total_tokens` — whose reconciliation line then turned out
+  to be wrong in two ways only a real response could have shown (see the token note below).
+- ~~**The re-embed recall delta is still unmeasured**~~ **MEASURED LIVE in 13-05.**
+  `assert_tie_free` was re-run against the re-embedded table under voyage-3.5-lite and
+  **passed**, so the delta is a number rather than an "unmeasurable": **8 of 8 golden queries
+  moved**, seven with the same notes in the same order at different similarities and one
+  (`'chroma retry'@'alice'`) returning a different note at rank 2. The copy leg was zero, so
+  that delta is the model's by construction.
+- **`recall_delta` has a THIRD variable nobody counted, and it is the query embedder.**
+  `run_golden(old)` and `run_golden(new)` each call `embed_query` on the same text, and the
+  real Voyage API is not bit-reproducible across separate calls — the live source table
+  compared with **itself** deltaed on 2 of 8 queries. Every local gate used a deterministic
+  fake, which is why three waves never saw it. **Wrap the embedder in
+  `recall_golden.FrozenQueryEmbedder`** for any cross-table comparison whose embedder is not
+  provably deterministic; across a model change use one wrapper per model. The intermittency
+  is uncharacterised: three back-to-back calls WERE identical, so a clean run without the
+  wrapper is not evidence the wrapper is unnecessary.
+- **Neither token number is an invoice.** `count_tokens` said 40 for the 12-note corpus;
+  `response.total_tokens` said 25; a one-word document reported **0** while returning a
+  perfectly good embedding. Read the predicted figure as an honest **upper bound**, the
+  reported figure as telemetry, and Voyage's usage dashboard as the only authority. Phase 14
+  inherits this: real spend accounting cannot be built on either number.
+- **`PG_POOL_TIMEOUT=2.0` is tuned for the Fly machines, not an operator laptop.** The
+  Supabase pooler handshake from a developer machine measured 0.43–5.63s, so the documented
+  migration commands fail intermittently with `PoolTimeout` before touching any data. Raise
+  `PG_POOL_TIMEOUT`/`PG_CONNECT_TIMEOUT`; a `PoolTimeout` is always safe to retry because it
+  is raised acquiring the connection, before any statement is sent. Now in the runbook.
+- **VOYAGE_PRICES lives in `usage.py`** with `voyage_price_for()`/`preview_cost_usd()`;
+  `PriceWindow.price` is now `Price | float`. Voyage spend is still absent from `/metrics`
+  (Phase 14) and the README says so.
+- ~~Wave 5 is a checkpoint~~ **DONE 2026-08-09.** Three `migration_demo_*` tables created,
+  used and dropped; `pg_tables LIKE 'migration_demo_%'` returned **0 rows**, confirmed through
+  both the app's client and `psql`. `research_notes` was never queried; no `fly secrets`, no
+  `fly deploy`, no production model flip. Total real Voyage spend ≈ **$0.000015**.
+- ~~`PGVECTOR_TABLE` cutover is untested~~ **PROVEN in 13-04.** `test_cutover_reversible`
+  flips a store forward and back through the constructor's `table=` parameter — the same
+  seam `PGVECTOR_TABLE` feeds at import — and re-fingerprints the old table after every
+  step. Never set the env var and reimport `memory`: that leaves a second module object
+  live for every later test in the process (Pitfall 5).
+- **`query()` returns `list[str]`, the exact-scan runner returns `(text, similarity)`.**
+  Compare texts-only, and remember `query()` is the *indexed* path — an equality against
+  exact-scan expectations is scale-bounded on `test_index_sanity`'s argument, not general.
+- ~~13-04.3's README/OPERATIONS gate~~ **CLOSED in 13-04.** The runbook lives at
+  `docs/OPERATIONS.md § Changing the embedding model or dimension`; the README bullet gained
+  the honest-scale caveat and the index-exclusion sentence wave 3 had left out.
+- **ADR-0008 exists** (`Accepted`, `Source:` line, supersedes nothing — DEC-10 was never
+  promoted). `docs/adr/README.md` counts eight records; DEC-10 links forward to it.
+- **TWO of 13-04's own verify clauses were vacuous and are recorded as such**:
+  `grep -q "0008" docs/adr/README.md` cannot see the difference between an index row and a
+  prose mention, and `grep -qi "rollback" docs/OPERATIONS.md` was green at baseline from an
+  unrelated Phase-11 sentence. A third acceptance criterion ("the 'deliberately not
+  exercised' claim is gone") had no clause at all. Stronger gates and their red mutations
+  are in 13-04-SUMMARY for 13-05.2 to reconcile.
+- Local PG17+pgvector on :54329 (scratchpad instance `pg12`; start with LC_ALL set).
+  Baselines after 13-05: plain **529/63**, armed **591/1** (`DATABASE_URL` only) or
+  **592/0** (with `REQUIRE_POSTGRES=1`). Quote which armed form you mean when comparing —
+  13-01's `575/1`, 13-02's `579/1`, 13-03's `588/1` and 13-04's `589/1` were all the
+  `DATABASE_URL`-only form. `pytest tests/test_migrate.py` armed = **18 passed**.
+- **The Supabase DSN is not in `.env`** (which holds only `ANTHROPIC_API_KEY` and
+  `VOYAGE_API_KEY`). It is a Fly secret, and secrets are write-only — read it from a running
+  machine with `fly ssh console -a research-agent -C "printenv DATABASE_URL"`, capture it to a
+  file, and never echo it.
 
 ## Performance Metrics
 
@@ -78,6 +143,7 @@ Phase 10 — but it must not wait for Phase 11.
 | 10 | 5 (10-01, 10-02, 10-03, 10-04, 10-05) | 55min | 11min |
 | 11 | 4 of 5 (11-01, 11-02, 11-03, 11-04) | 230min | 58min |
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
+| 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
 
 **Recent Trend:**
 
@@ -100,6 +166,16 @@ Recent decisions affecting current work:
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.
 - [Ordering]: REQ-followup-live-search is last (deepest change); REQ-offline-eval-quality precedes both quality-affecting reversals so their effect is observable.
 - [Phase 10.5-01]: Session endpoints reuse the `x-demo-token` header rather than a new `x-sessions-token` — one client-side auth story. CONTEXT left the header name to discretion.
+- [Phase 13-05]: **A comparison harness has as many variables as it has non-deterministic inputs.** `recall_golden` guarded the two on the stored side (the approximate HNSW index, and ties) and missed the one on the query side: `recall_delta(run_golden(old), run_golden(new))` embeds each query twice. Against the real API that made a two-table comparison a four-way one, and the live source table deltaed against itself on 2 of 8 queries. `FrozenQueryEmbedder` pins it. The general rule: **the control for "did X change recall?" is the source measured against ITSELF**, and if that is not clean nothing measured against the target means anything.
+- [Phase 13-05]: **A deterministic fake hides exactly the class of defect that only appears against the real thing.** Three waves of green gates could not have found the query-vector variable, because every one of them used a bit-reproducible `FakeEmbedder` for which re-embedding a query is free. This is the same shape as 11-02's "a local Postgres found three bugs no fake could catch", and it is the argument for the one live demonstration this phase insisted on.
+- [Phase 13-05]: **A provider's `total_tokens` is telemetry, not an invoice** — demonstrated by it returning 0 for a one-word document that was successfully embedded. The reconciliation line was relabelled `billed` → `reported`, the truthiness test that read a reported 0 as "this embedder reports nothing" was fixed to `is not None`, and Voyage's usage dashboard is now named in the output as the only authority. Phase 14's spend accounting cannot be built on either this number or the local tokenizer's.
+- [Phase 13-05]: **The local `count_tokens` is an upper bound, not an exact count.** 40 predicted against 25 reported for the same 12 texts — the HF tokenizer splits words (`voyage`, `supervisor`) that Voyage's own tokenisation keeps whole. Over-estimating is the safe direction and the preview now says so explicitly; 13-VALIDATION's criterion calling it "exact" is annotated rather than rewritten.
+- [Phase 13-05]: **A mutation may need to target the CONTROL rather than the code.** `test_frozen_query_embedder_isolates_the_table` asserts that the source-against-itself comparison is *dirty*; a stand-in embedder that never drifted would satisfy that silently and leave the frozen half proving nothing. Mutation F2 nudges the drift to zero and goes red on the control's own assertion. Same lesson as 13-02's M2′ and 13-03's M4′, applied before the fact.
+- [Phase 13-05]: **Connection defaults are tuned for where the service runs, not for where the operator sits.** `PG_POOL_TIMEOUT=2.0` fits the in-region Fly machines and straddles the 0.43–5.63s pooler handshake measured from a laptop, so a runbook aimed at an operator at a keyboard has to say which knobs to raise. A `PoolTimeout` is always safe to retry — it is raised acquiring the connection, before any statement is sent.
+- [Phase 13-03]: `PriceWindow`'s payload is annotated `Price | float` rather than Voyage's flat rate being padded into the four-field `Price`. `covers()` is a date comparison that never inspects the payload; a `Price(input=0.06, output=0.0, …)` would have left a fake output price for someone to read as real.
+- [Phase 13-03]: The re-embed price is resolved before the tokenizer is touched and before the database is opened, so an unlisted model costs nothing to discover — no HF download, no connection, no embed call (DEC-12).
+- [Phase 13-03]: `--dry-run` wins over `--yes`. The flags contradict each other and the safe reading of a contradiction is the one that spends nothing.
+- [Phase 13-03]: The dimension ceiling's *message* needed its own mutation. Relaxing the comparison goes red via an unrelated later failure, leaving `assert "halfvec" in err` unfalsified — a refusal's wording is a separate gate from its condition.
 - [Phase 12-05]: Notes are bounded by a 7-day TTL and nothing else. Dedup-on-write was evaluated and rejected — it has no semantics that json, memory, chroma and pgvector can implement identically, and identical behaviour is the claim SC-5's shared suite exists to make.
 - [Phase 12-05]: `owner=""` is an exact value on every store, never a wildcard. The orphaned notes and sessions therefore belong to nobody the moment the code ships, and are collected by the TTL rather than by a migration script.
 - [Phase 12-05]: The service reads the caller through `limits.caller_identity(request)`, not `request.state.identity` directly — 12-03 made it the single reader, and it carries the never-fall-back-to-client_ip reasoning that the raw attribute does not.
@@ -149,6 +225,23 @@ Recent decisions affecting current work:
 - [Phase 11-04]: **The HTTP round trip and the database round trip are separable, and worth separating when one is blocked.** Every HTTP write path runs the model first, so a dead model key blocks the session round trip through `/research`. Proving it at the store layer over `fly ssh console` — same classes, same pool, same DSN, same `::vector` cast — discharged the database claim honestly, with the gap (FastAPI's dependency wiring, already covered by `/health`) named rather than papered over.
 - [Phase 11-04]: **`fly ssh console -C` takes no shell**, so RESEARCH's `python - <<'PY'` heredoc never reaches Python, and the container has no `curl`. base64-encode the script locally and run `python -c "import base64;exec(base64.b64decode('...'))"`. This also keeps credentials inside the machine — the script reads `os.environ['DATABASE_URL']` and never prints it.
 - [Phase 10.5-01]: `REQ-live-endpoint-exposure` stays **Pending** until plan 05. Its text says "not reachable without credentials **on the deployed service**" — it cannot be honestly checked off by a plan that wires nothing and deploys nothing. Mark it at the cutover, not before.
+- [Phase 13-01]: **A dedup or idempotency gate that only runs once proves nothing about the key.** The plan's own acceptance criterion — "the same text under two owners produced two rows" — is green under a text-only dedup key, because a first pass into an empty table inserts everything whatever the key is. The gate now deletes one owner's row and re-migrates, which is where the key actually applies. **Fourteenth vacuous gate, second consecutive phase** where a structurally sensible assertion was blind to the exact mutation it existed to catch.
+- [Phase 13-01]: **Timestamp identity across the SQLite/JSON→Postgres boundary is compared as a `datetime`, never as an epoch float.** `extract(epoch FROM …)` returns a psycopg `Decimal` (never equal to a float), and a ~1.8e9 epoch carrying microseconds needs 16 significant digits where float64 has ~15.95 — so a rounded-epoch dedup key could fail to recognise the row it had just written, turning every re-run into a duplicate insert.
+- [Phase 13-01]: **Belt-and-braces writes are honest redundancy, not a caught bug, and the mutation table must say so.** `owner` is written twice in `migrate_sessions` (the `create()` kwarg and the restoring UPDATE), so removing either alone is unobservable and stays green. Only removing both goes red. Recorded as such rather than claiming a red that did not happen.
+- [Phase 13-02]: **A tie-freedom check must be scoped to the rows a query can return.** The plan asked for it unfiltered; over 5-dimensional binary bag-of-words vectors that is unsatisfiable, because any two notes sharing no word with the query both sit at similarity 0. The check examines rows at or above each query's `min_similarity` — which is also the property that matters, since a row the query cannot return cannot affect its order. **Distinct vocabulary sets do NOT buy tie-freedom**: similarity depends only on (overlap, size), so `{chroma,retry}` and `{chroma,voyage}` are the same distance from `"chroma"`. Two candidate golden queries were discarded at design time for exactly this.
+- [Phase 13-04]: **Env-var-at-import config is testable at the constructor it feeds.** `PGVECTOR_TABLE` is read once at import into a module constant that becomes `PgVectorMemoryStore.__init__`'s default for `table=`, so the constructor parameter is the same seam entered at the testable end. Setting the variable and reimporting `memory` would leave a second module object alive for every later test in the process. What the test therefore does *not* prove — the process restart itself — is stated in the test.
+- [Phase 13-04]: **A grep gate over a document is vacuous whenever its word already appears elsewhere in that document.** `grep -qi "rollback" docs/OPERATIONS.md` was green at baseline from an unrelated Phase-11 sentence and stayed green with the entire new rollback paragraph deleted; `grep -q "0008" docs/adr/README.md` cannot tell an index row from a prose mention. Sentence- and row-shaped greps replace both, each observed red on the mutation the original clause slept through.
+- [Phase 13-04]: **An acceptance criterion with no clause in the verify command is a note, not a gate.** "the 'deliberately not exercised' claim is gone" had none; restoring the claim left the gate green. `grep -c "not exercised" docs/OPERATIONS.md`, 1 → 0, is the missing clause.
+- [Phase 13-04]: **ADR-0008 supersedes nothing, deliberately, and the index says so.** DEC-10 was never promoted to a numbered record, so the README's supersession convention does not apply and no existing status line was touched. The reversal lives in prose — what survives (copy-only IS DEC-10's operation verbatim; its rationale survives as a design rule now *measured* rather than *enforced by prohibition*) and what is new.
+- [Phase 13-04]: **A grep-satisfied doc requirement is not a satisfied doc requirement.** 13-03's README rewrite passed 13-04.3's grep, but the honest-scale caveat and the statement that recall equality is never asserted through the HNSW index — both required by the plan's own action — were absent. Added rather than declared done.
+- [Phase 13-02]: **A self-checking command can hide the gate downstream of it.** Dropping `owner` from the copy column list turns the *command's own* fidelity gate red first (the join key includes `owner`), so the test fails on `assert main(...) == 0` and the golden comparison never runs. The mutation table records a second variant with the return code relaxed, which is what actually demonstrates the golden set can see tenancy loss — all eight queries delta, with alice's and bob's rows surfacing in the unowned bucket. Without it the recorded evidence would have looked stronger than it was.
+- [Phase 13-02]: **The plan's `INSERT..SELECT` grep gate was vacuous as written** — `grep -c "INSERT INTO .* SELECT"` returns 1 on the tree *before* the change, matching prose in a docstring, and the real SQL is a multi-line template no single-line grep can see. Replaced with a whitespace-flattened regex requiring the full column and select lists, and recorded as a presence check; the real gate is the byte-diff assertion, falsified by perturbing one copied vector.
+- [Phase 13-02]: **A recall-equality assertion needs an anti-vacuity floor.** `recall_delta` over two sets of eight empty results is also `[]`, so a seeding failure or a wrong owner would make the gate green. The test asserts seven of eight queries answered, and at least 12 rows total, before comparing.
+- [Phase 13-02]: **A non-destructive gate compares contents, not counts.** A row count is green against `TRUNCATE`+re-`INSERT` and against an `UPDATE` that rewrote every embedding — which is the exact corruption the byte-fidelity mutation simulates. The source is compared as a full `(text, owner, created_at, embedding::text)` set before and after the copy and after a `--dry-run`.
+- [Phase 13-02]: `--dry-run` creates **nothing**, not even the target table: it asks `to_regclass` whether the target exists and treats every source row as pending when it does not, rather than running DDL to make its own counting query legal. A dry run that writes is not one.
+- [Phase 13-02]: The copy **refuses an empty source**. A copy of nothing satisfies every fidelity check there is.
+- [Phase 13-02]: `main()` dispatches on the literal token `embeddings` rather than using a top-level required subparser, which would have turned the bare invocation `docs/OPERATIONS.md` documents into an error about a missing subcommand.
+- [Phase 13-01]: A missing or zero `created_at` migrates as **epoch 0** — already expired under the note TTL — rather than as `now()`. That mirrors what the store does with pre-Phase-12 entries; stamping them fresh would resurrect data the service had stopped serving.
 - [Phase 12-01]: **The dev extra composes `research-agent[chroma]` rather than repeating the pin.** chromadb==1.4.1 stays pinned once, in the chroma extra; a SQLite/JSON deploy installing `[service]` alone still never pulls it. The contract fixture's chroma arm skips ONLY on a genuinely missing chromadb import — never on HAS_POSTGRES — so CI (which installs dev) collects and runs it.
 - [Phase 12-01]: **`CAP_LOCK_KEY` (11165997) is a different advisory-lock key from `SCHEMA_LOCK_KEY` (3895545195)**, and the inequality test is deliberately not Postgres-gated so a keyless local run still catches a collapsed-constants edit. A shared key would serialise cap accounting against schema DDL.
 - [Phase 12-01]: **The xact-lock test's held-half is what makes it falsifiable.** `pg_advisory_xact_lock` on an autocommit connection degenerates to a one-statement lock, so a `transaction()` that silently stopped opening a transaction would still pass an after-the-block acquisition check. The test therefore also asserts a rival connection is REFUSED the lock while the block is open. `transaction()` mirrors `cursor()`'s PoolTimeout/PoolClosed-before-OperationalError ordering.
@@ -286,8 +379,43 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-05
-Stopped at: **Executed 12-06-PLAN.md Tasks 1–3 — Wave 5's code and docs are in; Task 4 is deferred.**
+Last session: 2026-08-06
+Stopped at: **Completed 13-02-PLAN.md — Wave 2 of Phase 13 is in.** Three commits on
+`gsd/phase-13-embedding-migration`: `e7e2c06` (`src/research_agent/recall_golden.py` — 12 notes
+over three owners with per-owner-distinct vocabulary sets and `"chroma retry"` under both alice and
+bob as the tenancy probe; 8 queries including one that must return `[]`; `exact_scan_results`
+running the production SELECT inside `Database.transaction()` under `SET LOCAL enable_indexscan =
+off`; `indexed_results` for the sanity check alone; a store-agnostic `recall_delta`; and
+`assert_tie_free`, which is the module's real guarantee), `5ab6a6e` (`embeddings copy --from --to
+[--dry-run]` — one server-side `INSERT..SELECT` carrying text/embedding/owner/created_at, idempotent
+on `(text, owner, created_at)`, four printed fidelity numbers with a nonzero exit on any of them,
+zero statements against `--from`, no DDL at all in `--dry-run`, and `memory.validate_table_name()`
+extracted so the store and the CLI share one rule), and `9262aeb` (the four gates).
+Suite: **527 passed / 53 skipped plain, 579 passed / 1 skipped armed** (580/0 with
+`REQUIRE_POSTGRES=1`) against 527/49 and 575/1. Collected 576 → 580; the four extra plain skips are
+exactly the four new Postgres-gated tests, each `DATABASE_URL is not set` — **the plain run is not
+evidence for this plan**. `ruff check` clean. Nothing deployed; no push.
+**Falsified, not assumed — six mutations, all red**, tree clean after each. Perturbing one copied
+vector, dropping `owner`, dropping `created_at`, deleting a row from the new table, adding two
+same-vocabulary notes under one owner, and removing the `NOT EXISTS` skip clause. Two are recorded
+with caveats rather than as clean wins: the `owner` mutation trips the *command's own* gate before
+the golden comparison is reached (a second variant with the return code relaxed shows all eight
+queries deltaing, alice's and bob's rows both surfacing in the unowned bucket), and the idempotency
+mutation is red only on the **second** pass — 13-01's lesson applied rather than re-learnt.
+**Three gates the plan specified were weaker than they looked and were strengthened before commit:**
+the `INSERT..SELECT` grep matches a docstring on the unmodified tree, the recall-equality assertion
+is green over two sets of empty results, and a row-count non-destructive check is green against a
+table whose contents were replaced.
+**README reviewed, deliberately unchanged.** Line 209's "changing embedding model … can't migrate
+for you" is still true: this wave copies vectors, it does not re-embed. Wave 3 owns that sentence.
+Resume file: None
+
+Superseded — previous session: **Completed 13-01-PLAN.md — migrate.py repaired and proven** (owner
+and created_at carried, owner-aware dedup keyed on a datetime, the expired-session skip printed, and
+the module's first tests; commits `6516c23`, `33bc377`, `91b59d1`, `7b8b312`; suite 527/49 plain,
+575/1 armed; the fourteenth vacuous gate found and repaired).
+
+Superseded — earlier session: **Executed 12-06-PLAN.md Tasks 1–3 — Wave 5's code and docs are in; Task 4 is deferred.**
 Three commits on `gsd/phase-12-caller-identity`: `ab54fb5` (**ADR-0007**, `Accepted — supersedes
 ADR-0006`, `**Source:** Phase 12` — the reversal, the fairness ceiling, the cookie transport with its
 CSRF reasoning, 404-not-403, `TRUST_FORWARDED_FOR` demoted; and a `### Carried forward from ADR-0006`

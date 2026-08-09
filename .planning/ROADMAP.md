@@ -239,7 +239,14 @@ Plans:
   3. Cutover is explicit and reversible — the old table survives until the new one is confirmed.
   4. The loud dimension check still fires; it has not become a silent coercion.
   5. A recall change caused by a new embedding model is distinguishable from an infrastructure change — the two variables are isolated, not confounded.
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [x] 13-01-PLAN.md — Repair migrate.py's live owner/TTL data-loss bug, then prove the legacy SQLite→Postgres path with its first tests
+- [x] 13-02-PLAN.md — Golden recall harness + `embeddings copy` subcommand; byte-fidelity and exact-scan zero-delta gates (SC-5 infrastructure half)
+- [x] 13-03-PLAN.md — `embeddings re-embed` + VOYAGE_PRICES cost preview + `--yes` spend gate + dimension ceiling and loud-check gates (SC-1/2/4)
+- [x] 13-04-PLAN.md — Cutover-reversible test + ADR-0008 (DEC-10 disposition) + OPERATIONS/README rewrites (SC-3)
+- [x] 13-05-PLAN.md — Live demonstration against Supabase scratch tables (checkpoint) + phase gate battery
 
 **Notes for discuss-phase:**
 - **Reversal (in tension with DEC-10).** DEC-10 copies embeddings during migration *specifically* so recall behaviour does not change at the same moment infrastructure does — "two suspects and no way to separate them." A re-embedding path re-opens exactly that ambiguity unless criterion 5 is designed for, not hoped for. DEC-10 is not among the promoted five; this phase should record its own ADR stating what supersedes it.
@@ -336,7 +343,7 @@ capacity exists, they can overlap. Phases 15 → 16 → 17 are strictly sequenti
 | 10.5 Close the live endpoint exposure (hotfix) | v1.1 | 5/5 | Complete | Shipped as Fly release v4 on 2026-08-04; re-verified live 2026-08-05 (v4 healthy, `/`, `/health`, `/demo`, `/metrics` all 200) |
 | 11. Multi-machine state and pooled Postgres | v1.1 | 5/5 | Blocked | All 5 plans executed, but 11-05 Tasks 2–3 are blocked: `fly deploy` cannot answer its own volume-detach prompt non-interactively on flyctl v0.4.78. `fly.toml` is stateless and the guards pass, but production is still ONE machine on release v6 with the volume attached, so **SC-2's live half and SC-3 are unproven**. Needs an operator-run interactive deploy, then `fly scale count 2`. |
 | 12. Caller identity, session ownership, bounded stores | v1.1 | 6/6 | Executed — awaiting verify + PR | All 6 plans executed, suites green (527/47 plain, 572/1 armed, `ruff` clean), and **the live cutover is done**: `IDENTITY_SIGNING_SECRET` deployed app-wide, releases **v8** then **v9**, both machines (`846975f2604548`, `d8d0320f751618`) healthy. Verified live with recorded output: `identity_signing: true` on both machines; a cookieless caller gets a working page + a completed research stream with a signed `HttpOnly; Secure; SameSite=Lax` identity minted on that same response; a cookie minted on A verifies on B with **zero** re-mints and survives a fleet restart; a second identity gets an empty listing and a 404 indistinguishable from missing. Both requirements now **Complete**. Two gaps recorded rather than waived: no real-browser dev-tools session (all live checks were `curl`) and the rollback was not exercised. Not yet pushed; branch `gsd/phase-12-caller-identity`. |
-| 13. Embedding model migration | v1.1 | 0/TBD | Not started | - |
+| 13. Embedding model migration | v1.1 | 5/5 | Executed — awaiting verify + PR | All 5 plans executed; suites green (529/63 plain, 591/1 armed, 592/0 with `REQUIRE_POSTGRES=1`, `ruff` clean); 13-VALIDATION signed off. **The path was demonstrated live once** (2026-08-09) against production Supabase on `migration_demo_*` scratch tables: copy leg **zero** recall delta, re-embed to voyage-3.5-lite moved **8 of 8** golden queries (one changing which notes returned), tenancy and the 7-day clock carried, all three tables dropped with `pg_tables` proving zero residue (confirmed via the app client and `psql`). Real spend ≈ $0.000015. `research_notes` untouched; no `fly secrets`, no deploy, no production model flip. The run found four things the local gates could not: `recall_delta` was also comparing two query vectors (the source deltaed against **itself**), Voyage's `total_tokens` is not an invoice (0 for a one-word document), the preview over-counts (40 vs 25), and `PG_POOL_TIMEOUT=2.0` does not fit an operator laptop — all four carried into code, tests and the runbook. Not yet pushed; branch `gsd/phase-13-embedding-migration`. |
 | 14. Real cost accounting | v1.1 | 0/TBD | Not started | - |
 | 15. Answer-quality evals | v1.1 | 0/TBD | Not started | - |
 | 16. Independent critic model | v1.1 | 0/TBD | Not started | - |

@@ -42,9 +42,16 @@ class Price:
 
 @dataclass(frozen=True)
 class PriceWindow:
-    """A price and the date range it applies to. `until` is inclusive."""
+    """A price and the date range it applies to. `until` is inclusive.
 
-    price: Price
+    The payload is deliberately not pinned to `Price`: `covers()` is a date
+    comparison and never inspects it, so Voyage's flat USD/MTok float reuses
+    this window rather than being padded into a four-field dataclass whose
+    other three fields would be meaningless. One effective-dating idiom, two
+    shapes of price.
+    """
+
+    price: Price | float
     since: date | None = None
     until: date | None = None
 
@@ -76,6 +83,29 @@ PRICES: dict[str, list[PriceWindow]] = {
 }
 
 
+# Voyage embedding models, priced flat in USD per million tokens -- the
+# embedding endpoint has no output tokens, no cache classes, and no per-request
+# charge, so the four-field Price above has nothing to say about it. The window
+# type is shared anyway; see PriceWindow's docstring.
+#
+# Rates verified 2026-08-06 against https://docs.voyageai.com/docs/pricing.
+# Voyage publishes no dated windows, so each rate opens an unbounded one from
+# verification; a future change closes it with `until=`, exactly the way the
+# Sonnet 5 introductory boundary is recorded above. Adding a model means adding
+# a row: an absent one raises rather than costing a run at zero.
+#
+# The voyage-4 family is deliberately absent until something here can target
+# it. It also carries a 200M-token free allowance that this table does not
+# model, which is why the cost preview says out loud that it quotes list price.
+VOYAGE_PRICES_VERIFIED = date(2026, 8, 6)
+
+VOYAGE_PRICES: dict[str, list[PriceWindow]] = {
+    "voyage-3.5": [PriceWindow(0.06)],
+    "voyage-3.5-lite": [PriceWindow(0.02)],
+    "voyage-3-large": [PriceWindow(0.18)],
+}
+
+
 class UnknownModelPricing(LookupError):
     """No price on file for this model on this date."""
 
@@ -86,6 +116,37 @@ def price_for(model: str, on: date | None = None) -> Price:
         if window.covers(day):
             return window.price
     raise UnknownModelPricing(f"No price for {model!r} on {day.isoformat()}.")
+
+
+def voyage_price_for(model: str, on: date | None = None) -> float:
+    """USD per million tokens for a Voyage embedding model.
+
+    Same resolution loop as `price_for`, same exception, and for the same
+    reason: an unlisted model must be an error and never a zero. A re-embedding
+    run is the one place in this service where a wrong price is not a reporting
+    inaccuracy but a spending decision made on a false number, so the caller is
+    made to handle the absence rather than shown $0.00.
+    """
+    day = on or datetime.now(timezone.utc).date()
+    for window in VOYAGE_PRICES.get(model, ()):
+        if window.covers(day):
+            return float(window.price)
+    raise UnknownModelPricing(
+        f"No Voyage embedding price for {model!r} on {day.isoformat()}. "
+        f"Priced models: {', '.join(sorted(VOYAGE_PRICES))}."
+    )
+
+
+def preview_cost_usd(total_tokens: int, model: str, on: date | None = None) -> float:
+    """What embedding `total_tokens` tokens with `model` will cost, at list price.
+
+    Pure arithmetic and nothing else. Counting the tokens is the caller's job
+    precisely so this stays unit-testable: Voyage's `count_tokens` fetches a
+    tokenizer from the Hugging Face hub on its first call, and a cost function
+    that needed the network to compute a multiplication would be untestable
+    offline for no reason.
+    """
+    return total_tokens * voyage_price_for(model, on) / _PER_MTOK
 
 
 # --------------------------------------------------------------------------
