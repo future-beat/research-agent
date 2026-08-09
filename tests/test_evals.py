@@ -483,11 +483,6 @@ def test_cli_writes_the_report(tmp_path, capsys):
     assert len(report["cases"]) == 1
 
 
-def test_cli_says_offline_mode_does_not_measure_the_model(capsys):
-    """The one thing a reader must not conclude from a green offline run."""
-    main(["--quiet"])
-    assert "not the model" in capsys.readouterr().out
-
 
 # --------------------------------------------------------------------------
 # Fixtures
@@ -1199,6 +1194,7 @@ def replayable(
     judge_passed: bool = True,
     models: dict | None = None,
     draft: str = REPLAYABLE_DRAFT,
+    record_as: str | None = None,
 ):
     """A fixture built the way plan 05's recorder will build one: a real
     `run_case(capture_state=True)` plus a judge verdict, through
@@ -1214,7 +1210,7 @@ def replayable(
     result.turns[0].grades.append(
         G.Grade("judge_grounding", judge_passed, "synthetic verdict", judged=True)
     )
-    return case, F.build_fixture(case.id, result, models=models or MODELS)
+    return case, F.build_fixture(record_as or case.id, result, models=models or MODELS), result
 
 
 def graded(result: CaseResult) -> list[tuple[str, bool, str]]:
@@ -1224,7 +1220,7 @@ def graded(result: CaseResult) -> list[tuple[str, bool, str]]:
 def test_replay_grades_a_recorded_case_green():
     """The whole replay vocabulary over one recording: behavioural graders,
     quality graders, the staleness gate, and the recorded judge verdict."""
-    case, fixture = replayable()
+    case, fixture, _ = replayable()
 
     result = replay_case(case, fixture)
 
@@ -1244,7 +1240,7 @@ def test_replay_grades_a_recorded_case_green():
 def test_model_mismatch_gates_replay():
     """The recordings describe a pipeline that no longer exists. Nothing else
     about the fixture changed, so this gate is the only thing that can notice."""
-    case, fixture = replayable()
+    case, fixture, _ = replayable()
     fixture["models"]["pipeline"] = "claude-sonnet-4"
 
     result = replay_case(case, fixture)
@@ -1259,7 +1255,7 @@ def test_a_recorded_failed_judge_verdict_gates_replay():
     """`write_fixture` refuses a recording whose judge said no, so a committed
     fixture carrying a failed verdict was hand-edited or `--force`d. Either
     way the verdict is data now, and data that says FAIL fails."""
-    case, fixture = replayable(judge_passed=False)
+    case, fixture, _ = replayable(judge_passed=False)
 
     result = replay_case(case, fixture)
 
@@ -1270,7 +1266,7 @@ def test_a_recorded_failed_judge_verdict_gates_replay():
 def test_replay_turn_count_mismatch_is_an_error():
     """The dataset moved under the recording. Grading the turns that happen to
     line up would report on a case that no longer exists."""
-    case, fixture = replayable()
+    case, fixture, _ = replayable()
     fixture["turns"].append(dict(fixture["turns"][-1]))
 
     result = replay_case(case, fixture)
@@ -1284,7 +1280,7 @@ def test_a_malformed_recorded_state_fails_the_replay_loudly():
     the bug that would otherwise grade vacuously green. It is isolated into
     `error` the way `run_case` isolates a crashing case -- never a traceback
     that ends the suite."""
-    case, fixture = replayable()
+    case, fixture, _ = replayable()
     del fixture["turns"][0]["state"]["trace"]
 
     result = replay_case(case, fixture)
@@ -1297,7 +1293,7 @@ def test_replay_never_reads_the_clock_for_a_verdict():
     """Age prints; age never grades. A five-year-old recording and a fresh one
     must produce byte-identical grades, or the same commit passes in August
     and fails in October."""
-    case, fixture = replayable()
+    case, fixture, _ = replayable()
     ancient = {**fixture, "recorded_at": "2019-01-01T00:00:00+0000"}
 
     fresh, old = replay_case(case, fixture), replay_case(case, ancient)
@@ -1317,3 +1313,187 @@ def test_the_replay_model_gate_states_its_claim_boundary():
     assert "Cannot catch:" in doc
     assert "graph.MODEL" in doc
     assert "CRITIC" in doc and "Phase 16" in doc
+
+
+# --------------------------------------------------------------------------
+# Replay through the CLI: the exit rule, the guards, and the caveat
+#
+# Every test here monkeypatches FIXTURES_DIR: the repo has no recordings yet,
+# and CI must pass on a checkout that has none.
+# --------------------------------------------------------------------------
+
+
+def committed(directory: pathlib.Path, *, mutate=None, **kwargs) -> pathlib.Path:
+    """One recording on disk, written by the writer that will write the real
+    ones -- refusal path and encoding included."""
+    _, fixture, result = replayable(**kwargs)
+    if mutate:
+        mutate(fixture)
+    return F.write_fixture(fixture, result, directory=directory)
+
+
+def test_caveat_wording_without_fixtures_is_the_original_line(tmp_path, monkeypatch, capsys):
+    """Nothing recorded, nothing claimed. The pre-recording line is kept
+    verbatim rather than reworded, because a run that grades no answers must
+    not hint that it graded some."""
+    monkeypatch.setattr(F, "FIXTURES_DIR", tmp_path / "fixtures")
+
+    assert main(["--quiet"]) == 0
+
+    assert (
+        "offline mode grades the pipeline, not the model — "
+        "run with --live to measure answer quality"
+    ) in capsys.readouterr().out
+
+
+def test_caveat_wording_with_fixtures_prints_date_model_sha_age(tmp_path, monkeypatch, capsys):
+    """SC-4. With recordings graded, the caveat has to say two things that are
+    easy to conflate: these answers are real, and they are old."""
+    fixtures_dir = tmp_path / "fixtures"
+    monkeypatch.setattr(F, "FIXTURES_DIR", fixtures_dir)
+    fixture = json.loads(committed(fixtures_dir).read_text())
+
+    assert main(["--quiet"]) == 0
+
+    out = capsys.readouterr().out
+    assert "not what the current model would say" in out
+    assert fixture["recorded_at"][:10] in out  # the date
+    assert fixture["models"]["pipeline"] in out  # the model that wrote it
+    assert fixture["git_sha"] in out  # the commit it came from
+    assert "days ago" in out  # the age, computed at print time
+    assert "not the model —" not in out  # the old, now-false phrasing is gone
+
+
+def test_replay_is_automatic_and_keyless(tmp_path, monkeypatch, capsys):
+    """SC-3, and the reason the CI step does not change: the same command,
+    the same empty keys, and the recordings graded anyway."""
+    for key in ("ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "DATABASE_URL"):
+        monkeypatch.setenv(key, "")
+    fixtures_dir = tmp_path / "fixtures"
+    monkeypatch.setattr(F, "FIXTURES_DIR", fixtures_dir)
+    committed(fixtures_dir)
+    report_path = tmp_path / "report.json"
+
+    assert main(["--quiet", "--report", str(report_path)]) == 0
+
+    report = json.loads(report_path.read_text())
+    assert report["fixtures"]["count"] == 1
+    assert report["fixtures"]["models"] == [graph.MODEL]
+    assert report["fixtures"]["recorded_at_oldest"]
+    assert "followup-uses-prior-notes@recorded" in [c["case_id"] for c in report["cases"]]
+    assert report["summary"]["cases"] == len(GOLDEN) + 1  # one shared denominator
+
+
+def test_replay_honours_the_case_selection(tmp_path, monkeypatch, capsys):
+    """`--case` narrows both legs or neither. A selection that quietly replays
+    everything makes "run just this case" a lie, and the unselected fixtures
+    would gate a run nobody asked them to."""
+    fixtures_dir = tmp_path / "fixtures"
+    monkeypatch.setattr(F, "FIXTURES_DIR", fixtures_dir)
+    committed(fixtures_dir)
+    committed(fixtures_dir, case_id="followups-chain")
+    report_path = tmp_path / "report.json"
+
+    assert main(["--case", "followups-chain", "--quiet", "--report", str(report_path)]) == 0
+
+    ids = [c["case_id"] for c in json.loads(report_path.read_text())["cases"]]
+    assert ids == ["followups-chain", "followups-chain@recorded"]
+
+
+def test_replay_red_exits_nonzero_while_behavioural_stays_rate_gated(
+    tmp_path, monkeypatch, capsys
+):
+    """THE split, in one test.
+
+    Twelve green behavioural cases and one red replay case is 92.3% -- over
+    the 90% floor, so `summarise`'s `ok` is True and a rate-only verdict exits
+    0. That is the measured baseline this test exists against: without the
+    all-must-pass overlay, a model mismatch prints FAIL and passes the build,
+    and every hard gate in this phase is decorative."""
+    fixtures_dir = tmp_path / "fixtures"
+    monkeypatch.setattr(F, "FIXTURES_DIR", fixtures_dir)
+    committed(fixtures_dir, mutate=lambda f: f["models"].update(pipeline="claude-sonnet-4"))
+    report_path = tmp_path / "report.json"
+
+    code = main(["--report", str(report_path), "--min-pass-rate", "0.9"])
+
+    report = json.loads(report_path.read_text())
+    assert report["summary"]["pass_rate"] >= 0.9  # the rate gate alone says pass
+    assert report["summary"]["ok"] is True  # ... explicitly
+    assert code == 1  # and the run fails regardless
+
+    out = capsys.readouterr().out
+    assert "followup-uses-prior-notes@recorded" in out
+    assert "fixture_current" in out
+    assert "replay is all-must-pass" in out
+
+
+def test_a_broken_fixture_file_is_a_loud_replay_red(tmp_path, monkeypatch, capsys):
+    """An unreadable fixture grades nothing while looking like it graded
+    something. Same baseline as the split above: twelve greens plus one
+    errored case is 92.3%, and `errored` never moves `ok` at all."""
+    fixtures_dir = tmp_path / "fixtures"
+    fixtures_dir.mkdir()
+    (fixtures_dir / "technical-figures.json").write_text("{ this is not json")
+    monkeypatch.setattr(F, "FIXTURES_DIR", fixtures_dir)
+    report_path = tmp_path / "report.json"
+
+    code = main(["--report", str(report_path)])
+
+    report = json.loads(report_path.read_text())
+    assert report["summary"]["pass_rate"] >= 0.9
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "technical-figures@recorded" in out
+    assert "not valid JSON" in out
+
+
+def test_an_orphaned_fixture_is_a_loud_red_not_a_traceback(tmp_path, monkeypatch, capsys):
+    """`by_id` raises for a case_id the dataset no longer has, and Phase 17
+    keeps fixtures as before-evidence for cases it retires. Unwrapped, that is
+    a traceback instead of a verdict -- the run ends with no report at all."""
+    fixtures_dir = tmp_path / "fixtures"
+    monkeypatch.setattr(F, "FIXTURES_DIR", fixtures_dir)
+    path = committed(fixtures_dir, record_as="no-such-case")
+
+    code = main([])  # no KeyError escapes; the run finishes and votes
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "no-such-case" in out
+    assert str(path) in out
+    assert "replay is all-must-pass" in out
+
+
+def test_zero_fixtures_is_still_green_prerecording(tmp_path, monkeypatch, capsys):
+    """The honest-green complement of the exit rule: with no replay results
+    there are no replay failures, so the rule never fires vacuously red. CI
+    has to pass on a checkout where nothing has been recorded."""
+    monkeypatch.setattr(F, "FIXTURES_DIR", tmp_path / "never-created")
+
+    assert main([]) == 0
+
+    out = capsys.readouterr().out
+    assert f"{len(GOLDEN)}/{len(GOLDEN)} cases" in out
+    assert "@recorded" not in out
+    assert "not the model —" in out  # the original caveat, verbatim
+
+
+def test_a_fixture_the_replay_leg_never_graded_is_not_a_green_build(
+    tmp_path, monkeypatch, capsys
+):
+    """The all-must-pass rule cannot see a fixture that produced no CaseResult
+    at all -- there is no red to look at. Hence a separate count check, and
+    hence the stub: a replayer that silently skips its input is exactly what
+    the future edit this guards against would look like, and nothing short of
+    faking one can distinguish the guard from its absence."""
+    fixtures_dir = tmp_path / "fixtures"
+    monkeypatch.setattr(F, "FIXTURES_DIR", fixtures_dir)
+    committed(fixtures_dir)
+    committed(fixtures_dir, case_id="followups-chain")
+    monkeypatch.setattr("evals.__main__._replay_fixtures", lambda paths, on_result: ([], []))
+
+    code = main(["--quiet"])
+
+    assert code == 1
+    assert "2 of 2" in capsys.readouterr().err
