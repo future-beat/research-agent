@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "case_id": "technical-figures",
+  "recorded_at": "2026-08-10T01:30:28+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-5"
+  },
+  "git_sha": "225b06b",
+  "pipeline_cost_usd": 0.242717,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "034d17fb5b5f494fa40d358da0f69d68",
+        "owner": "",
+        "task": "What are the current context window sizes and prices of the Claude model family?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Based on my search, here's a summary of concrete, recent facts about Claude model context windows and pricing (note: figures below reflect the current 2026 Anthropic lineup, which has moved past the earlier 3.x/4.0 models):\n\n**1. Claude Sonnet 5 \u2014 new flagship mid-tier model with 1M context and introductory pricing**\nAnthropic's own site states Sonnet 5 is available today at an introductory price of $2 per million input tokens and $10 per million output tokens through August 31, 2026, then moves to standard pricing at $3 per million input tokens and $15 per million output tokens. It features a 1M context window as a hybrid reasoning model for real-time agents and high-volume work. Third-party trackers confirm it supports a 1M-token context window, up to 128K output tokens, and adaptive thinking turned on by default.\n\n**2. Sonnet 5 uses a new, less token-efficient tokenizer**\nA caveat worth flagging: Sonnet 5 uses an updated tokenizer that changes how the model processes text, and the same input can map to more tokens \u2014 roughly 1.0\u20131.35\u00d7 depending on content type, similar to a change made with an earlier Opus release.\n\n**3. Claude Haiku 4.5 \u2014 cheapest current-generation model**\nPer Anthropic's official announcement, Haiku 4.5 pricing is $1 per million input tokens and $5 per million output tokens, and it matches Sonnet 4's performance on coding, computer use, and agent tasks while scoring 73.3% on SWE-bench Verified. Anthropic also notes Haiku 4.5 pricing starts at $1/$5 per million tokens, with up to 90% cost savings via prompt caching and 50% savings with batch processing.\n\n**4. Claude Opus (latest: Opus 4.8) \u2014 top-tier pricing with 1M context now standard**\nIndustry trackers report that Claude Opus 4.8 (API ID claude-opus-4-8), priced at $5.00/$25.00 per million tokens with a 1M-token context window, was released May 28, 2026, and that this is the same rate as the prior Opus 4.7, with a new \"Fast Mode\" priced at $10/$50 per million tokens \u2014 down from $30/$150 on Opus 4.7.\n\n**5. Legacy models being phased out; overall Opus pricing has dropped significantly**\nOne tracker notes Haiku 3 is the cheapest Claude model ever but is being retired, with a suggested migration to Haiku 4.5 before April 19, 2026, while another highlights that Opus 4.5 and Opus 4.6 at $5/$25 are 66.7% cheaper than Opus 4 and Opus 4.1, which were priced at $15/$75, for the same token volumes.\n\n**Flagged/unverifiable items:**\n- Details about an \"export controls\" episode affecting other model families and specific product names like \"Fable 5\"/\"Mythos 5\" appeared in one source but could not be corroborated elsewhere \u2014 I excluded these as unreliable.\n- The claim that Opus 4.7's new tokenizer \"can produce up to 35% more tokens for the same text\" appeared in a single third-party blog (finout.io) without an official Anthropic citation, so treat this figure with some caution.\n- Multiple SEO-style pricing aggregator sites reproduced very similar numbers, which increases confidence, but the *only* fully official first-party sources I could confirm were the anthropic.com pages for Sonnet and Haiku 4.5 \u2014 I was not able to independently verify the Opus 4.8 figures directly on anthropic.com in this search pass.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# Claude Model Family: Context Windows & Pricing (2026)\n\n*Note: This report reflects the current 2026 Anthropic lineup, which supersedes the earlier 3.x/4.0 model generations.*\n\n## Summary Table\n\n| Model | Context Window | Input Price (per M tokens) | Output Price (per M tokens) | Notes |\n|---|---|---|---|---|\n| **Haiku 4.5** | Not specified in notes | $1 | $5 | Cheapest current-gen model; matches Sonnet 4 on coding/computer use/agent tasks; 73.3% on SWE-bench Verified |\n| **Sonnet 5** | 1M tokens | $2 (intro, through Aug 31, 2026) \u2192 $3 (standard) | $10 (intro) \u2192 $15 (standard) | Up to 128K output tokens; hybrid reasoning with adaptive thinking on by default; new tokenizer (see caveat below) |\n| **Opus 4.8** | 1M tokens (now standard) | $5.00 | $25.00 | Released May 28, 2026; same rate as Opus 4.7; new \"Fast Mode\" available |\n| Opus 4.8 (Fast Mode) | 1M tokens | $10 | $50 | Down from $30/$150 on Opus 4.7 Fast Mode |\n\n## Key Details by Model\n\n**Haiku 4.5**\n- Pricing confirmed directly on Anthropic's official site.\n- Additional savings: up to 90% via prompt caching, 50% via batch processing.\n- Haiku 3 (cheapest Claude model historically) is being retired; migration to Haiku 4.5 suggested before April 19, 2026.\n\n**Sonnet 5**\n- Pricing confirmed on Anthropic's official site.\n- Uses an updated tokenizer that may increase token counts for the same input by roughly 1.0\u20131.35\u00d7, depending on content type \u2014 a caveat affecting effective cost-per-content compared to older models.\n\n**Opus 4.8**\n- Pricing and release date reported by industry/third-party trackers, not independently confirmed on anthropic.com in this research pass.\n- Represents a major price drop from earlier Opus generations: Opus 4.5/4.6 ($5/$25) were already 66.7% cheaper than Opus 4/4.1 ($15/$75).\n- Opus 4.8 continues the $5/$25 standard rate, with the new Fast Mode substantially cheaper than the prior generation's Fast Mode.\n\n## Caveats & Unverified Claims\n\n- **Opus 4.8 figures** come from third-party trackers; Anthropic's own site did not independently confirm these numbers in this search.\n- **Opus 4.7 tokenizer claim** (up to 35% more tokens for same text) appeared in only one third-party source (finout.io) without official corroboration \u2014 treat with caution.\n- Items regarding \"export controls,\" \"Fable 5,\" and \"Mythos 5\" could not be corroborated and have been excluded as unreliable.\n- Multiple SEO/pricing-aggregator sites report consistent numbers, increasing confidence, but only the Sonnet 5 and Haiku 4.5 pricing pages on anthropic.com were confirmed as fully official first-party sources.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 71333,
+          "output_tokens": 5000,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 5,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.24271718,
+          "embedding_tokens": 853,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 5.118e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3225,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2594,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "All substantive claims trace to the notes: Sonnet 5's 1M context, $2/$10 introductory pricing through Aug 31, 2026 stepping to $3/$15, 128K output cap and adaptive thinking; the 1.0\\u20131.35\\u00d7 tokenizer caveat; Haiku 4.5's $1/$5 pricing, 73.3% SWE-bench Verified, Sonnet 4 parity, and 90%/50% caching/batch savings; Haiku 3 retirement with the April 19, 2026 migration date; Opus 4.8 at $5/$25 with 1M context, May 28, 2026 release, same rate as Opus 4.7, Fast Mode $10/$50 down from $30/$150; and the Opus 4.5/4.6 vs Opus 4/4.1 66.7% ($5/$25 vs $15/$75) comparison. The caveats section faithfully reproduces the notes' flagged items (finout.io 35% figure, unverified Opus 4.8 first-party confirmation, excluded 'export controls'/'Fable 5'/'Mythos 5'). Haiku 4.5's context window is correctly marked as not specified. The only minor extrapolation is listing 1M context for the Opus 4.8 Fast Mode row, which reasonably follows from Opus 4.8's stated 1M window; no unsupported numbers, dates, or entities were introduced.\n",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers the question, providing a summary table of Claude models (Haiku 4.5, Sonnet 5, Opus 4.8 including Fast Mode) with context window sizes and input/output token prices, plus per-model detail and sourcing caveats. The one gap (Haiku 4.5's context window listed as 'Not specified in notes') is transparently flagged rather than fabricated, and the rest of the requested information \u2014 pricing for all listed models and context windows for the Opus/Sonnet tiers \u2014 is supplied. It is on-topic and responsive.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}
