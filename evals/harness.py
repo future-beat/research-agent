@@ -329,38 +329,77 @@ def run_case(
 
 
 def grade_fixture_current(fixture: dict) -> G.Grade:
-    """The recording must have been made on the model this tree runs.
+    """The recording must have been made on the models this tree runs.
 
     This is the deterministic staleness gate, and the only one there is: age
     prints in the caveat but never grades, because a grader that fails on the
-    calendar makes the same commit pass in August and fail in October.
-    `models.pipeline` against `graph.MODEL` fires exactly when a code change
-    invalidates the recordings, and never otherwise.
+    calendar makes the same commit pass in August and fail in October. It
+    compares TWO roles: `models.pipeline` against `graph.MODEL`, and
+    `models.critic` against `graph.critic_model()`. Either moving fires it,
+    and nothing else does.
 
-    Cannot catch: a change to any model this map does not compare. It reads
-    `models["pipeline"]` against `graph.MODEL` -- the writer/researcher model --
-    and nothing else. Phase 16 makes the CRITIC's model configurable
-    INDEPENDENTLY of `graph.MODEL` (ROADMAP, Phase 16 SC-1), so a critic-model
-    change will NOT fire this gate: the recordings would stay green with only
-    the printed recording date hinting that they describe an older pipeline.
-    Closing that needs three things together -- a per-node entry in the
-    fixture's `models` map, this gate extended to compare it, and the fixtures
-    re-recorded. The map exists precisely so that extension is additive rather
-    than a schema bump.
+    The critic comparison BACKFILLS -- `models.get("critic") or pipeline`.
+    That is a fact about pre-Phase-16 recordings, not a guess: at record time
+    the code had no critic seam at all, so the critic ran on `graph.MODEL` by
+    construction, verifiable from this git history. A falsy value (key absent,
+    null, or the empty string) is read as absent for the same reason
+    `critic_model()` reads a blank `CRITIC_MODEL` as unset: a blank names no
+    model, so the pre-16 reading is the only honest one available. From this
+    phase on `record_case_to_fixture` always writes the key, so absence keeps
+    meaning pre-16 -- and the pre-16 population is exactly one file
+    (`technical-figures.json`), which the deferred full record run replaces.
+
+    Consequence of the deployed configuration, stated rather than discovered:
+    production sets `CRITIC_MODEL=claude-opus-5` (Phase 16's cutover), and the
+    committed fixture predates the Opus critic. A suite run in an environment
+    that sets `CRITIC_MODEL` therefore grades it STALE -- the designed
+    staleness, not a bug, and the verdict is the thing that tells the story
+    until the deferred record run re-records under the new critic. CI and
+    keyless contexts never set the variable, so `critic_model() == graph.MODEL`
+    there and the fixture stays green.
+
+    Cannot catch: a change to any model this map does not compare. The JUDGE's
+    is recorded and deliberately not checked -- its verdicts are fixed data in
+    the fixture, replayed as `recorded_*` grades, so pointing `JUDGE_MODEL`
+    somewhere new does not invalidate a word of what the old judge already
+    said; it changes only what a fresh recording would claim. Nor can it catch
+    a model this map never carried at all: the gate is only ever as wide as
+    the roles the recorder writes.
 
     It lives here rather than in graders.py so that graders.py never imports
     the graph: the quality rubrics are pure functions of a recorded state, and
     a gate that reads the running code is a different kind of check.
     """
     name = "fixture_current"
-    recorded = fixture.get("models", {}).get("pipeline")
-    if recorded == graph.MODEL:
-        return G.Grade(name, True, f"recorded on {recorded}, which is what this tree runs")
+    models = fixture.get("models", {})
+    recorded = models.get("pipeline")
+    # Falsy means absent means pre-16 -- see the docstring's backfill paragraph.
+    recorded_critic = models.get("critic") or recorded
+    current_critic = graph.critic_model()
+
+    if recorded != graph.MODEL:
+        return G.Grade(
+            name,
+            False,
+            f"recorded on {recorded!r} but this tree runs {graph.MODEL!r} -- "
+            "the recording describes a pipeline that no longer exists; re-record",
+        )
+    if recorded_critic != current_critic:
+        # Name the role and both models: the operator's first question about a
+        # stale recording is which model moved, and "pipeline" and "critic" now
+        # move independently.
+        return G.Grade(
+            name,
+            False,
+            f"the CRITIC was recorded on {recorded_critic!r} but this tree runs it on "
+            f"{current_critic!r} (CRITIC_MODEL) -- the recording describes a pipeline "
+            "that no longer exists; re-record",
+        )
     return G.Grade(
         name,
-        False,
-        f"recorded on {recorded!r} but this tree runs {graph.MODEL!r} -- "
-        "the recording describes a pipeline that no longer exists; re-record",
+        True,
+        f"recorded on {recorded} with the critic on {recorded_critic}, "
+        "which is what this tree runs",
     )
 
 
@@ -508,8 +547,17 @@ def record_case_to_fixture(
             result,
             # A map, never a flat string: Phase 16 moves one of these models
             # without moving the other, and a recording that cannot say which
-            # is which goes stale invisibly.
-            models={"pipeline": graph.MODEL, "judge": judge.model},
+            # is which goes stale invisibly. One entry per role, each naming
+            # the model that did that job in THIS recording -- the critic's is
+            # read from `critic_model()` at record time, so a recording made
+            # from an operator shell with CRITIC_MODEL set says so, and
+            # `grade_fixture_current` compares it directly instead of
+            # backfilling.
+            models={
+                "pipeline": graph.MODEL,
+                "judge": judge.model,
+                "critic": graph.critic_model(),
+            },
         )
         outcome.path = F.write_fixture(fixture, result, force=force, directory=directory)
     except F.FixtureError as exc:

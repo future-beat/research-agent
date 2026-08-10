@@ -1647,13 +1647,25 @@ def test_replay_never_reads_the_clock_for_a_verdict():
 
 def test_the_replay_model_gate_states_its_claim_boundary():
     """The one gate that lives outside graders.py still owes the reader the
-    same honesty the five rubrics do -- and its boundary is the sharpest of
-    them, because Phase 16 walks straight through it."""
+    same honesty the five rubrics do. Phase 16 walked through the old boundary
+    -- the gate now compares the critic too -- so this pins the NEW one, and
+    pins it against the old text coming back: a docstring that still says a
+    critic-model change will not fire this gate would be describing code that
+    no longer exists."""
     doc = grade_fixture_current.__doc__ or ""
 
     assert "Cannot catch:" in doc
     assert "graph.MODEL" in doc
-    assert "CRITIC" in doc and "Phase 16" in doc
+    # The critic comparison is claimed, and the backfill that makes it honest
+    # for pre-16 recordings is stated rather than left to be discovered.
+    assert "critic_model()" in doc
+    assert "BACKFILL" in doc
+    # The dead claim, negatively: the pre-16 docstring said a critic-model
+    # change "will NOT fire this gate". Reverting to it reds here as well as
+    # on the two positive pins above.
+    assert "will NOT fire this gate" not in doc
+    # The judge is the boundary now: recorded, deliberately uncompared.
+    assert "JUDGE" in doc
 
 
 # --------------------------------------------------------------------------
@@ -2059,7 +2071,16 @@ def test_record_writes_a_fixture_per_case_with_fakes(tmp_path):
         # recording, however good it looks in a diff.
         fixture = F.load_fixture(tmp_path / f"{case_id}.json")
         assert fixture["case_id"] == case_id
-        assert fixture["models"] == {"pipeline": graph.MODEL, "judge": "claude-opus-5"}
+        # Three roles since Phase 16, and exact-equality so a fourth cannot
+        # arrive unannounced. `critic_model()` rather than a literal: this test
+        # runs in whatever environment the suite runs in, and the claim is that
+        # the recorder writes what the graph would actually use, not that the
+        # critic is any particular model.
+        assert fixture["models"] == {
+            "pipeline": graph.MODEL,
+            "judge": "claude-opus-5",
+            "critic": graph.critic_model(),
+        }
         assert fixture["git_sha"] and fixture["pipeline_cost_usd"] > 0
         assert "forced" not in fixture
         # A judge verdict per turn, which is what makes replay a gate rather
