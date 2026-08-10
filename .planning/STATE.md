@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: planned
-stopped_at: "Phase 16 planned on gsd/phase-16-independent-critic. 4 plans, 4 waves; checker 3 blockers + 3 warnings, all fixed. Next: /gsd:execute-phase 16 (all waves in one go)."
+stopped_at: "Phase 16 planned and revised for the USER DECISION: critic runs on Opus, the production flip is in-phase, and wave 4 is the first deploy since v9 (carrying 13-16). Next: /gsd:execute-phase 16."
 last_updated: "2026-08-10T02:20:00.000Z"
 last_activity: "2026-08-10 — Phase 16 planned: CRITIC_MODEL with neutral default, four-site threading (attribution is a passed constant, NOT a response echo — the CONTEXT premise was false), fixture models map gains critic with backfill semantics, ADR-0010 supersedes 0005 with the judge rationale re-derived."
 progress:
@@ -36,6 +36,14 @@ Progress: [█████████░] 88% (15 of 17 phases complete + hotfi
 Phase 16: [░░░░░░░░░░] 0 of 4 plans — planned
 
 **Carry into execution:**
+- **USER DECISION (2026-08-10): `CRITIC_MODEL = 'claude-opus-5'`** — his rationale verbatim:
+  "it has to be more capable than the writer's model." Production pins it in fly.toml [env];
+  code default stays neutral (unset → writer). The wave-4 deploy is the FIRST since v9 and
+  carries phases 13–16 — merge the PR first, deploy from main, run Phase 14's booked smoke,
+  then the Opus-critic verification (~$0.18, ceiling $0.40).
+- ADR-0010 records judge==critic as an ACCEPTANCE: the judge is independent of the writer
+  and deliberately shares the critic's model. The collision warning fires on the chosen
+  config and is worded as a fact, not an error.
 - Attribution is a PASSED CONSTANT (graph.py:103), not a response echo. Thread the model
   through FOUR sites (:96 span, :99 API, :103 record, :111 log). The discriminator: an
   unpriced CRITIC_MODEL fires pricing_unknown ONLY if the name reached record().
