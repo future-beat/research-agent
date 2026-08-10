@@ -10,10 +10,13 @@ run in CI on every push and catch routing, guardrail, and honesty regressions.
 **Judge graders** ask a model whether the output is actually any good. They
 cost money and vary run to run, so they only run under `--live`.
 
-The judge deliberately uses a *stronger, different* model than the pipeline.
-The critic inside the graph shares the writer's model, which makes it a decent
-proofreader and a poor independent evaluator; a judge on the same model would
-inherit exactly the blind spots it is supposed to find.
+The judge deliberately runs on a different model than the pipeline's *writer*
+(`JUDGE_MODEL` against `graph.MODEL`): a judge on the writer's own model would
+inherit exactly the blind spots it exists to find. The in-graph critic has had
+its own model since Phase 16 (`CRITIC_MODEL` -- unset means the writer's,
+production sets `claude-opus-5`), so in production the judge and the critic run
+on the same model. That is accepted rather than accidental, and recorded with
+the judge's re-derived rationale in ADR-0010.
 """
 
 from __future__ import annotations
