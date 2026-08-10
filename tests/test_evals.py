@@ -328,11 +328,107 @@ def followup_state_dict(**overrides) -> dict:
 
 
 def test_a_followup_that_researched_again_is_caught():
+    """The surviving half of the old unconditional check: a follow-up whose
+    case says its notes suffice must still never search."""
     state = followup_state_dict()
     state["trace"] = [{"node": "researcher", "notes_length": 10}, {"node": "critic"}]
-    grade = G.grade_followup_did_not_research(CASE, FU, state)
+    grade = G.grade_followup_research_bounded(CASE, FU, state)
     assert not grade.passed
     assert "researcher" in grade.detail
+
+
+# -- the reach, bounded on both sides ---------------------------------------
+
+REACHING = Followup(question="and the 2027 figure?", expect_research=True)
+
+
+def reached(*extra: dict) -> dict:
+    """A follow-up turn that routed to the researcher once, with the trace
+    event that says why."""
+    state = followup_state_dict()
+    state["trace"] = [
+        {
+            "node": "supervisor",
+            "routed_to": "researcher",
+            "followup_research": "notes_insufficient",
+        },
+        {"node": "researcher", "notes_length": 10},
+        {"node": "responder", "answer_length": 10},
+        {"node": "critic", "approved": True},
+        *extra,
+    ]
+    return state
+
+
+def test_followup_research_bounded_passes_one_pass_when_the_case_expects_it():
+    grade = G.grade_followup_research_bounded(CASE, REACHING, reached())
+    assert grade.passed, grade.detail
+
+
+def test_followup_research_bounded_catches_a_reach_that_never_happened():
+    """Zero passes on a case that expects one is the quiet failure: the answer
+    came from somewhere nobody authorised, and every other grader is happy."""
+    state = followup_state_dict()
+    state["trace"] = [{"node": "responder", "answer_length": 10}, {"node": "critic"}]
+    grade = G.grade_followup_research_bounded(CASE, REACHING, state)
+    assert not grade.passed
+    assert "0" in grade.detail
+
+
+def test_followup_research_bounded_catches_a_second_research_pass():
+    """The one-pass bound: without it a follow-up can loop
+    research -> insufficient -> research at a research run's cost."""
+    grade = G.grade_followup_research_bounded(
+        CASE, REACHING, reached({"node": "researcher", "notes_length": 12})
+    )
+    assert not grade.passed
+    assert "2" in grade.detail
+
+
+def test_followup_research_bounded_still_forbids_classifying_when_reaching():
+    """A follow-up inherits its session's topic in both branches."""
+    grade = G.grade_followup_research_bounded(
+        CASE, REACHING, reached({"node": "classifier", "topic_type": "technical"})
+    )
+    assert not grade.passed
+    assert "classif" in grade.detail
+
+
+def test_followup_reach_traced_reads_the_reason_off_the_trace():
+    grade = G.grade_followup_reach_traced(CASE, REACHING, reached())
+    assert grade.passed
+    assert "notes_insufficient" in grade.detail
+
+
+def test_followup_reach_traced_catches_a_reach_the_trace_never_explains():
+    """`no_prior_research` became a trace event in Phase 17. A redefinition
+    nobody grades is a rename, and a reach with no recorded reason is
+    indistinguishable from a routing row that moved by accident."""
+    state = reached()
+    state["trace"] = [dict(e) for e in state["trace"]]
+    state["trace"][0].pop("followup_research")
+
+    grade = G.grade_followup_reach_traced(CASE, REACHING, state)
+    assert not grade.passed
+    assert "why" in grade.detail
+
+
+def test_followup_reach_traced_rejects_a_reason_the_design_does_not_know():
+    state = reached()
+    state["trace"] = [dict(e) for e in state["trace"]]
+    state["trace"][0]["followup_research"] = "felt_like_it"
+
+    grade = G.grade_followup_reach_traced(CASE, REACHING, state)
+    assert not grade.passed
+    assert "felt_like_it" in grade.detail
+
+
+def test_followup_reach_traced_is_silent_on_a_case_that_does_not_reach():
+    """It grades the reach it was told to expect and invents no expectation of
+    its own: a notes-sufficient follow-up has no event to carry."""
+    state = followup_state_dict()
+    state["trace"] = [{"node": "responder", "answer_length": 10}, {"node": "critic"}]
+    assert G.grade_followup_reach_traced(CASE, FU, state).passed
 
 
 def test_a_followup_that_skipped_the_critic_is_caught():
@@ -350,29 +446,33 @@ def test_a_clean_followup_passes_every_grader():
 
 # -- the follow-up forced stop ----------------------------------------------
 
+# The graders are generic over stop names, so these use a stop that is still
+# in the vocabulary. `no_prior_research` left it in Phase 17 -- it is a trace
+# event now -- and a synthetic state built on a retired name teaches the old
+# meaning to whoever reads the test next.
 STOPPED = Followup(
     question="and?", answerable=False, expect_approved=False,
-    expect_forced_stop="no_prior_research",
+    expect_forced_stop="budget_exceeded",
 )
 
 
 def test_an_unexpected_followup_forced_stop_is_caught():
     """A follow-up that quietly gave up produced no answer and said nothing
     about why. Without this grader the turn looks like any other pass."""
-    state = followup_state_dict(draft="", forced_stop_reason="no_prior_research")
+    state = followup_state_dict(draft="", forced_stop_reason="budget_exceeded")
     grade = G.grade_followup_forced_stop(CASE, FU, state)
     assert not grade.passed
-    assert "no_prior_research" in grade.detail
+    assert "budget_exceeded" in grade.detail
 
 
 def test_an_expected_followup_forced_stop_passes_and_a_different_one_does_not():
-    state = followup_state_dict(draft="", forced_stop_reason="no_prior_research")
+    state = followup_state_dict(draft="", forced_stop_reason="budget_exceeded")
     assert G.grade_followup_forced_stop(CASE, STOPPED, state).passed
 
-    other = followup_state_dict(draft="", forced_stop_reason="budget_exceeded")
+    other = followup_state_dict(draft="", forced_stop_reason="max_revisions_exceeded")
     grade = G.grade_followup_forced_stop(CASE, STOPPED, other)
     assert not grade.passed
-    assert "budget_exceeded" in grade.detail
+    assert "max_revisions_exceeded" in grade.detail
 
 
 def test_a_followup_expected_to_forced_stop_but_did_not_is_caught():
@@ -390,16 +490,16 @@ def test_followup_was_checked_still_fails_a_skipped_critic():
 
 def test_followup_was_checked_excuses_only_the_forced_stop_it_expected():
     """The accommodation reads the reason, not merely 'something stopped'. A
-    follow-up meant to stop for no_prior_research that blew the budget instead
+    follow-up meant to stop for the budget that hit the revision cap instead
     has not done what the case asserts, and its missing critic is still a
     failure."""
-    stopped = followup_state_dict(draft="", forced_stop_reason="no_prior_research")
+    stopped = followup_state_dict(draft="", forced_stop_reason="budget_exceeded")
     stopped["trace"] = [{"node": "supervisor", "routed_to": "done"}]
     passing = G.grade_followup_was_checked(CASE, STOPPED, stopped)
     assert passing.passed
-    assert "no_prior_research" in passing.detail
+    assert "budget_exceeded" in passing.detail
 
-    wrong = followup_state_dict(draft="", forced_stop_reason="budget_exceeded")
+    wrong = followup_state_dict(draft="", forced_stop_reason="max_revisions_exceeded")
     wrong["trace"] = [{"node": "supervisor", "routed_to": "done"}]
     assert not G.grade_followup_was_checked(CASE, STOPPED, wrong).passed
 
@@ -409,10 +509,10 @@ def test_the_refusal_grader_accepts_a_structural_forced_stop_only_when_expected(
     there is no prose to match. But only the expected stop earns that: any
     other stop leaves an unanswerable follow-up with no answer and no reason
     anyone asserted."""
-    stopped = followup_state_dict(draft="", forced_stop_reason="no_prior_research")
+    stopped = followup_state_dict(draft="", forced_stop_reason="budget_exceeded")
     assert G.grade_recorded_refusal(CASE, STOPPED, stopped).passed
 
-    wrong = followup_state_dict(draft="", forced_stop_reason="budget_exceeded")
+    wrong = followup_state_dict(draft="", forced_stop_reason="max_revisions_exceeded")
     assert not G.grade_recorded_refusal(CASE, STOPPED, wrong).passed
 
 
@@ -1561,9 +1661,13 @@ def test_quality_grading_is_additive_to_the_behavioural_graders():
     ]
     # FOLLOWUP_GRADERS grew by one in wave 4 -- `grade_followup_forced_stop`,
     # a *behavioural* grader for the no-prior-notes case, not a quality one.
-    # The exact-membership assertion stays, so nothing else can drift in.
+    # Phase 17 replaced `grade_followup_did_not_research` with the
+    # expectation-keyed `grade_followup_research_bounded` and added
+    # `grade_followup_reach_traced`; both are behavioural too. The
+    # exact-membership assertion stays, so nothing else can drift in.
     assert [g.__name__ for g in G.FOLLOWUP_GRADERS] == [
-        "grade_followup_did_not_research",
+        "grade_followup_research_bounded",
+        "grade_followup_reach_traced",
         "grade_followup_was_checked",
         "grade_followup_approval",
         "grade_followup_forced_stop",
@@ -1643,7 +1747,7 @@ def test_replay_grades_a_recorded_case_green():
     assert result.why == case.why
     names = [g[0] for g in graded(result)]
     assert "terminates" in names  # behavioural, research turn
-    assert "followup_reuses_notes" in names  # behavioural, follow-up turn
+    assert "followup_research_bounded" in names  # behavioural, follow-up turn
     assert "recorded_grounding" in names  # quality, research turn
     assert "recorded_refusal" in names  # quality, follow-up turn
     assert "fixture_current" in names  # the staleness gate

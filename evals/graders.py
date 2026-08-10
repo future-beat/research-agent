@@ -183,30 +183,94 @@ DETERMINISTIC_GRADERS: tuple[Callable[[Case, dict], Grade], ...] = (
 # -- follow-up graders: (case, followup, state) -> Grade --------------------
 
 
-def grade_followup_did_not_research(case: Case, fu: Followup, state: dict) -> Grade:
-    """A follow-up that re-searches costs a full research run. The whole
-    point is that the notes are already on disk."""
-    name = "followup_reuses_notes"
-    nodes = {e.get("node") for e in state["trace"]}
-    stray = nodes & {"classifier", "researcher"}
-    if stray:
-        return _fail(name, f"follow-up ran {sorted(stray)} instead of reusing the notes")
-    return _ok(name, "answered from stored notes")
+def grade_followup_research_bounded(case: Case, fu: Followup, state: dict) -> Grade:
+    """What this follow-up was allowed to reach for, keyed to what its case says.
+
+    Until Phase 17 this grader was unconditional: any classifier or researcher
+    visit on a follow-up turn was a red, because the whole point was that the
+    notes were already on disk. That form died BY DESIGN when follow-ups
+    gained a bounded reach -- but only the *unconditional* part died. A
+    follow-up whose notes do cover its question must still answer from them
+    and never search, and that is the `expect_research=False` branch below,
+    the old check verbatim. Scoping a property to the cases it is true of is
+    not softening it; deleting it would have been.
+
+    The reaching branch is bounded on both sides, because both failures are
+    silent. Zero researcher entries means the reach never happened and the
+    answer came from somewhere nobody authorised. Two means the one-pass bound
+    broke and a follow-up can loop research -> insufficient -> research, which
+    is a research run's cost with no research run's cap. Classification is
+    forbidden in both branches: a follow-up inherits its session's topic.
+    """
+    name = "followup_research_bounded"
+    nodes = [e.get("node") for e in state["trace"]]
+
+    if not fu.expect_research:
+        stray = set(nodes) & {"classifier", "researcher"}
+        if stray:
+            return _fail(name, f"follow-up ran {sorted(stray)} instead of reusing the notes")
+        return _ok(name, "answered from stored notes")
+
+    classified = nodes.count("classifier")
+    if classified:
+        return _fail(
+            name, f"a follow-up classified ({classified}x); it inherits its session's topic"
+        )
+    researched = nodes.count("researcher")
+    if researched != 1:
+        return _fail(name, f"expected exactly one research pass, the trace has {researched}")
+    return _ok(name, "reached for new information exactly once")
+
+
+# Why a follow-up reached, as the supervisor records it. `no_prior_research`
+# is the older of the two names and used to be a terminal stop reason; since
+# Phase 17 it is one of these, a trace event.
+FOLLOWUP_RESEARCH_REASONS = ("no_prior_research", "notes_insufficient")
+
+
+def grade_followup_reach_traced(case: Case, fu: Followup, state: dict) -> Grade:
+    """A reach that the trace cannot explain is indistinguishable from an accident.
+
+    Phase 17 redefined `no_prior_research` from a stop reason into a trace
+    event naming why a follow-up went looking. A redefinition nobody grades is
+    a rename, so this reads the event off the turn that reached: some
+    supervisor entry must carry a `followup_research` reason, and it must be
+    one the design knows about. Without it, "the follow-up searched because
+    its notes ran out" and "the follow-up searched because a routing row moved
+    by accident" produce identical, equally green runs.
+    """
+    name = "followup_reach_traced"
+    if not fu.expect_research:
+        return _ok(name, "not a reach case")
+
+    reasons = [
+        e["followup_research"]
+        for e in state["trace"]
+        if e.get("node") == "supervisor" and e.get("followup_research")
+    ]
+    if not reasons:
+        return _fail(name, "the turn reached for new information and the trace never says why")
+    unknown = sorted({r for r in reasons if r not in FOLLOWUP_RESEARCH_REASONS})
+    if unknown:
+        return _fail(name, f"unrecognised reach reason(s): {unknown}")
+    return _ok(name, ", ".join(reasons))
 
 
 def _expected_stop_fired(fu: Followup, state: dict) -> bool:
     """This turn stopped, by name, for the reason the case said it would.
 
     The comparison is against the expected reason and not merely "some stop
-    happened": a follow-up that was supposed to stop for `no_prior_research`
-    and instead blew the budget has not done what the case asserts, and the
+    happened": a follow-up that was supposed to stop for the budget and
+    instead hit the revision cap has not done what the case asserts, and the
     accommodations below must not absolve it.
     """
     return bool(fu.expect_forced_stop) and state["forced_stop_reason"] == fu.expect_forced_stop
 
 
 def grade_followup_was_checked(case: Case, fu: Followup, state: dict) -> Grade:
-    """A follow-up is cheaper than a research run, not less grounded."""
+    """A follow-up is cheaper than a research run, not less grounded -- and
+    since Phase 17 one that reaches is not even cheaper. The critic is the
+    hop that makes the answer grounded either way."""
     name = "followup_fact_checked"
     if _expected_stop_fired(fu, state):
         # There is no answer to check. A guardrail that fires before the
@@ -246,7 +310,8 @@ def grade_followup_forced_stop(case: Case, fu: Followup, state: dict) -> Grade:
 
 
 FOLLOWUP_GRADERS: tuple[Callable[[Case, Followup, dict], Grade], ...] = (
-    grade_followup_did_not_research,
+    grade_followup_research_bounded,
+    grade_followup_reach_traced,
     grade_followup_was_checked,
     grade_followup_approval,
     grade_followup_forced_stop,
