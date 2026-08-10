@@ -12,13 +12,13 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 663 tests
+backends, an eval harness that grades real recorded answers, and 690 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
 the demo link never signs up for anything.
 
-**Stack:** Python (3.14 in CI and the image) · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
+**Stack:** Python (3.14 in CI and the image) · LangGraph · Claude Sonnet 5 (Opus 5 critic) · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
 
 ---
 
@@ -44,6 +44,7 @@ README used to list as a known gap, or reverses a design decision on purpose.
 - [x] **13 — Embedding migration.** Two commands: copy a corpus (recall provably unchanged) or re-embed it at a new model and dimension (recall changes, and the change is measured). Cost quoted before spending.
 - [x] **14 — Real cost accounting.** A negotiated discount and the `inference_geo` multiplier feed cost, applied at one choke point; Voyage embedding spend is counted for the first time; `/pricing` shows which multipliers are in effect and what the next rate window is.
 - [x] **15 — Answer-quality evals.** Forty golden cases, and real recorded answers graded deterministically, keylessly, free on every push. What that can and cannot claim is written down rather than implied.
+- [x] **16 — Independent critic.** `CRITIC_MODEL` gives the critic its own model, priced per node at every place a model is named, and production pins it to Opus 5 — the gate now runs on a *more capable* model than the writer it checks. The eval judge's rationale is re-derived rather than inherited, including what the choice costs in independence ([ADR-0010](docs/adr/0010-judge-rederived-for-an-independent-critic.md)).
 
 ---
 
@@ -176,7 +177,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 663 tests, ~25s, no API keys, no network
+pytest                    # 690 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
@@ -237,7 +238,9 @@ old table is never touched.
 
 `COST_DISCOUNT_FACTOR` and `INFERENCE_GEO_MULTIPLIER` scale reported cost to
 what you actually pay; `SESSIONS_TOKEN` is the operator's cross-owner view of
-sessions. `/pricing` shows which are in effect.
+sessions. `/pricing` shows which are in effect. `CRITIC_MODEL` names the model
+the critic runs on — unset, it falls back to the writer's; production pins
+`claude-opus-5` in `fly.toml [env]`, as configuration rather than a secret.
 
 🚀 **[Operations →](docs/OPERATIONS.md)** — Fly.io setup, the Postgres
 migration, CI, the embedding-migration procedure, and the full configuration table.
@@ -249,7 +252,7 @@ migration, CI, the embedding-migration procedure, and the full configuration tab
 Known, and deliberate for the scope.
 
 - **Follow-ups can't reach for new information.** By design: a follow-up needing a fresh search gets "the research didn't cover that" rather than an answer.
-- **The critic shares the writer's model.** Independent enough to catch ungrounded claims, not a genuinely independent evaluator. The eval judge runs on a stronger model precisely because of this.
+- **The eval judge shares the critic's model.** Production runs the critic on Opus 5 — a more capable model than the Sonnet 5 writer it gates — and the judge on Opus 5 too, so a recorded verdict is independent of the writer's model and not of the critic's ([ADR-0010](docs/adr/0010-judge-rederived-for-an-independent-critic.md)).
 - **Only one of forty answers is recorded.** Offline runs grade real recorded answers, but recording costs real money and only the calibration case has been run. Until the rest are recorded, the suite claims one measured answer, not a benchmark — and even then it reports what the pipeline said on a stated date and model, never what the model would say today. `--live` is the only thing that answers that. [ADR-0009](docs/adr/0009-recorded-answer-quality-evals.md) states what each grader can and cannot see.
 - **Reported cost is an approximation, never the invoice.** Nothing here reads a bill. Provider token counts are telemetry — measured live, Voyage reported 25 tokens where the tokenizer counted 40, and 0 for a one-word document that embedded fine. `/pricing` shows the rate window and multipliers in effect; read it there, not from a number in a document.
 - **Identities are free to mint.** Clearing browser storage gets you a fresh one with fresh limits, so per-caller limits buy fairness, not a bound on the bill. The global rolling daily spend cap is the actual backstop. Recorded as [ADR-0007](docs/adr/0007-anonymous-identity-fairness-global-cap.md).
