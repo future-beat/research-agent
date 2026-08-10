@@ -105,6 +105,30 @@ with an independent critic, what is the judge *for*?
 - Stale-prose inventory to fix in-phase: README:252 (delete the limitation), graders.py:13-17,
   DESIGN.md:74, the harness docstring (which has a content-pinning test at test_evals.py:1655).
 
+### USER DECISION (2026-08-10) — the critic runs on Opus. This supersedes the deferral.
+
+- **Hesam's call, verbatim rationale: "Use Opus as the critic's model since it has to be
+  more capable than the writer's model."** `CRITIC_MODEL=claude-opus-5` in production.
+- **Code default stays neutral** (unset → writer's model) so tests, CI and keyless contexts
+  are unchanged; production sets `CRITIC_MODEL = 'claude-opus-5'` in `fly.toml [env]` — it
+  is configuration, not a secret, and committing it makes the stance visible.
+- **The production flip IS this phase's deliverable now.** It requires a deploy; that deploy
+  is the first since v9 and therefore carries phases 13–15's pending changes — one cutover,
+  planned as the wave-4 checkpoint, with the post-deploy smoke phases 14–15 booked.
+- **Consequences to record rather than discover:**
+  - `judge.model == critic_model()` — the collision warning fires on the CHOSEN config.
+    Keep the warning but word it as stating a fact, not implying a mistake; ADR-0010
+    records the acceptance: the judge is independent of the WRITER, and deliberately
+    shares the critic's model — its verdicts are not independent of the critic's family.
+  - The critic-stronger-than-writer stance is a NEW design position ADR-0010 must state
+    (it is Hesam's rationale, not an inference).
+  - Cost: Opus-critic typical run ≈ $0.18 (reservation $0.20 still honest; the documented
+    thresholds stand). The demo's per-run cost rises deliberately.
+  - The live demonstration uses **Opus** (the real config), not haiku; haiku remains in
+    unit tests for the undated-row arithmetic.
+  - Replay/evals stay green: CI runs keyless with CRITIC_MODEL unset; the recorded
+    fixture's backfilled critic matches. The caveat already prints the recording's models.
+
 ### Out of scope — explicitly
 
 - Follow-up live search (Phase 17).
@@ -156,7 +180,6 @@ with an independent critic, what is the judge *for*?
 <deferred>
 ## Deferred Ideas
 
-- Actually setting `CRITIC_MODEL` in production (operator flip).
 - The full 40-case record run (still deferred from Phase 15; re-recording the calibration
   case with the extended models map may happen here if the gate design requires it).
 
