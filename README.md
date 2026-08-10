@@ -12,7 +12,7 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 690 tests
+backends, an eval harness that grades real recorded answers, and 705 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
@@ -177,7 +177,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 690 tests, ~30s, no API keys, no network
+pytest                    # 705 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
