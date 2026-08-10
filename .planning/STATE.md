@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 17-02-PLAN.md — the reversal itself is in: a no-notes follow-up routes to the researcher, notes append instead of replacing, twelve precedence pairs pinned by side effect. Next: 17-03 (the INSUFFICIENT sentinel in the responder — the producer of the flag row 5 already consumes — plus the three refusal cases)."
-last_updated: "2026-08-10T19:55:00.000Z"
-last_activity: "2026-08-10 — 17-02 executed: routing row 4 flipped IN PLACE to the researcher, new flag-gated row 5, researcher APPENDS to research_notes, path-1 golden case flipped to route-then-guardrail with its three pins in the same commit. Both behaviour pins observed RED first (the REPLACE quoted in the summary); M1–M5 plus five extra probes red on the assertion that owns them; P15 drops the real 41-case run to 40/41, proving the trace event is graded. 721/65 plain, 785/1 armed, 41/41 keyless, routing 38→52, zero new skips."
+stopped_at: "Completed 17-03-PLAN.md — path 2 is live: the responder's INSUFFICIENT: sentinel sets the flag, the draft stays empty, and row 5 routes ONE research pass; the three path-2 golden cases flipped with their taxonomy pins in the same commit; no_prior_research is out of every shipped code surface's stop vocabulary. Next: 17-04 (ADR-0011 supersedes ADR-0003, README whole-file pass with the limitation DELETED, demo copy + its pin, live closing checkpoint record-or-defer)."
+last_updated: "2026-08-10T20:40:00.000Z"
+last_activity: "2026-08-10 — 17-03 executed: one boolean gates the responder's prompt branch AND its sentinel parse, the signal returns before any answer-shaped state is written, and the one-pass bound is proven on both halves (honest tail ships critic-reviewed with the attempt; a post-research sentinel is an ordinary draft). Four behaviour pins observed RED first — the shipped responder was handing the sentinel to the critic and to the caller. critic_node byte-identical to main (md5). Three path-2 cases flipped (A1 honoured), row 5 now fires end to end. Thirteen probes; Q1/Q2/Q4 drop the real run to 40/41. 735/65 plain, 799/1 armed, 41/41 keyless, routing 52→60, smoke 37→43, zero new skips."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 38
-  percent: 71
+  completed_plans: 39
+  percent: 72
 ---
 
 # Project State
@@ -26,18 +26,23 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 17 of 17 (Follow-ups that can reach for new information) — **IN PROGRESS**
-Plan: 2 of 4 complete · branch `gsd/phase-17-followup-live-search` off clean main (PR #13 merged), unpushed
-Status: **Waves 1–2 in (17-01 4 commits, 17-02 5 commits).** The reversal has landed: a
-follow-up with no notes behind it routes to the researcher (row 4 flipped IN PLACE, above
-the classifier row), the researcher APPENDS to the session's notes instead of replacing
-them, and the path-1 golden case pins the route AND the guardrail that outranks it end to
-end. 721/65 plain (+16, zero new skips), 785/1 armed, 41/41 keyless, routing suite 38→52,
-ruff clean. Both behaviour pins were observed RED against today's code before the fix —
-the REPLACE's failure output is quoted in the summary, because a green-from-the-start pin
-would have said nothing about a note set being swapped. Five row mutations plus five extra
-probes red on the discriminating assertion; P15 (supervisor stops recording WHY it reached)
-drops the real 41-case run to 40/41, which is the proof the trace event is graded rather
-than decorative. Every eval gate ran `env -u CRITIC_MODEL ANTHROPIC_API_KEY=""`.
+Plan: 3 of 4 complete · branch `gsd/phase-17-followup-live-search` off clean main (PR #13 merged), unpushed
+Status: **Waves 1–3 in (17-01 4 commits, 17-02 5 commits, 17-03 5 commits). Both paths of
+the reversal now work end to end.** Path 1 landed in wave 2; path 2 landed here: the
+responder signals with the critic's own `INSUFFICIENT:` idiom, **one boolean gates the
+prompt branch and the parse** so a sentinel can never be read out of a response the prompt
+never asked for, and the signal path returns before `draft`/`reviewed`/`revision_count`/the
+`answer_length` trace entry are touched — the insufficiency window ships NO answer, it
+routes. The one-pass bound holds on both halves: the honest refusal ships critic-reviewed
+WITH the attempt in trace, and a post-research sentinel is an ordinary draft that cannot
+re-route. `critic_node` is byte-identical to main by `md5` (SC-3 / ADR-0002 measured, not
+claimed). Three path-2 golden cases flipped with their taxonomy pins in one commit, so
+**row 5 now fires end to end** and the README row wave 2 shipped describes a path an input
+can take. 735/65 plain (+14, zero new skips), 799/1 armed, 41/41 keyless, routing 52→60,
+smoke 37→43, ruff clean, CI diff 0. Four behaviour pins observed RED first — the shipped
+responder was handing the sentinel to the critic and to the caller. Thirteen probes where
+the plan named three; Q1/Q2/Q4 drop the REAL 41-case run to 40/41. Every eval gate ran
+`env -u CRITIC_MODEL ANTHROPIC_API_KEY=""`.
 
 Progress: [█████████░] 94% (16 of 17 phases + hotfix; THE LAST PHASE)
 
@@ -50,30 +55,36 @@ Progress: [█████████░] 94% (16 of 17 phases + hotfix; THE LA
   flipped case without it, and it rejects any value outside
   `graders.FOLLOWUP_RESEARCH_REASONS`.
 - ~~The three before-pins wave 2 must rewrite same-commit with the dataset~~ — **DONE in
-  17-02** (`d436984`, dataset + tests in one commit). The flip-tag test kept its BEFORE
-  half: the three refusal cases still have to say `Phase 17` in their `why` until 17-03
-  flips them, and a test reds if one flips silently.
+  17-02** (`d436984`, dataset + tests in one commit). ~~The flip-tag test kept its BEFORE
+  half~~ — **RETIRED in 17-03**: with all three refusal cases flipped, no case satisfies
+  `not answerable and not expect_research`, so that half would loop over zero cases and
+  pass forever. Replaced by a counted after-pin (`len(reaching) == 4`) plus a `stranded`
+  clause that reds if a case ever goes back to refusing without looking.
 - ~~Preview arithmetic~~ — confirmed: `evals/__main__.py` was not touched and 41/41 held.
 - ~~graph.py:333 REPLACES research_notes~~ — **FIXED in 17-02**, red-first, quoted.
 - ~~The row flip is destination-invisible~~ — **PINNED in 17-02**: twelve pairs by side
   effect, M2 (row 4 below the generic row) leaves `next_step` unchanged and still reds.
-- 17-03 owns the flag's PRODUCER only: `INSUFFICIENT:` sentinel parsed like
-  APPROVED/REVISE in `responder_node`, draft stays empty, post-research prompt branch keeps
-  today's wording. Row 5 (the consumer) is already live and pinned; `notes_insufficient`
-  and `followup_research_done` already exist and default False per turn.
-- `ScriptedClient.researcher_notes` is `[case.notes] + [fu.research_notes …]` — correct for
-  path-2 cases, whose research turn does run the researcher.
-- Zero net-new golden cases (count stays 41); three cases left to flip (17-03); taxonomy
-  pins move same-commit; eval gates run `env -u CRITIC_MODEL ANTHROPIC_API_KEY=""`.
-- README lines 99 ("no new search") and 254 (the limitation), `graph.py:15` and
-  `responder_node`'s ":423" docstring are all still true of the shipped responder and are
-  wave 4's. The routing-table row and the test count (721) were corrected in 17-02.
-  Wave 3/4 should confirm the README's new `notes_insufficient` row became reachable.
+- ~~17-03 owns the flag's PRODUCER only~~ — **DONE in 17-03** (`ba50cd8`), red-first. The
+  mode-free gate was verified before it was used (only `author` names the responder, and
+  only in follow-up mode) and then pinned by an eight-state parametrized test.
+- ~~`ScriptedClient.researcher_notes` correct for path-2 cases~~ — confirmed by the run:
+  all three flipped cases pop the follow-up's authored notes on their second pass, with
+  the session's notes surviving as a prefix (240→500, 241→468, 229→440 chars).
+- ~~Zero net-new golden cases; three cases left to flip; taxonomy pins same-commit~~ —
+  **DONE in 17-03** (`028d13a`, dataset + tests, 162 insertions). Count still 41/41.
+- ~~Wave 3/4 should confirm the README's `notes_insufficient` row became reachable~~ —
+  **CONFIRMED**: three golden cases and four smoke tests take that row through the
+  compiled graph.
+- README line 99 ("no new search") and line **260** (the limitation — line moved with this
+  wave's edits), `graph.py`'s module docstring is now DONE, `responder_node`'s docstring is
+  now DONE. Wave 4 owns lines 99 and 260, `docs/DESIGN.md:21`, ADR-0003's status line, the
+  ADR index arithmetic, `service.py:701`, `static/index.html` ×2 and the test pinning that
+  placeholder copy. The README test count is **735** as of 17-03.
 - ADR-0011 supersedes 0003 (numstat 1/1 vs MAIN); 11-location "no new search" sweep;
   README limitation DELETED and the nine-list closure said visibly.
 - Wave 4 live checkpoint: ~$0.35–0.45, ceiling $0.60, record-or-defer, post-merge.
-- Local PG on :54329 (LC_ALL=C). Baselines after 17-02: plain 721/65, armed 785/1,
-  evals 41/41 keyless, routing suite 52.
+- Local PG on :54329 (LC_ALL=C). Baselines after 17-03: plain **735/65**, armed **799/1**,
+  evals **41/41** keyless, routing suite **60**, smoke **43**.
 
 ## Performance Metrics
 
@@ -95,7 +106,7 @@ Progress: [█████████░] 94% (16 of 17 phases + hotfix; THE LA
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
 | 15 | 6 of 6 (15-01 … 15-06) | 306min | 51min |
 | 16 | 3 of 4 (16-01, 16-02, 16-03) | 120min | 40min |
-| 17 | 2 of 4 (17-01, 17-02) | 65min | 33min |
+| 17 | 3 of 4 (17-01, 17-02, 17-03) | 110min | 37min |
 
 **Recent Trend:**
 
@@ -113,6 +124,11 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 17-03]: **Gate a parse and the prompt that invites it on the SAME boolean.** The responder's sentinel is model text turned into a routing flag, and the only thing keeping it out of shipped answers is that the parse never runs where the prompt never asked. Two conditions that agree today are a bug waiting for the day they don't — probe P1 drops `pre_research` from the parse alone and the post-research sentinel sets the flag, row 5 refuses it (flag-gated), the turn falls through to the author, and the responder's *fallback* reply becomes the shipped answer. **No error anywhere.** The four RED-first pins show the pre-fix behaviour was worse still: the sentinel text WAS the draft, the critic approved it (it claims nothing, so it is grounded), and the caller received it as their answer.
+- [Phase 17-03]: **A signal must be structurally unable to produce anything.** The sentinel path returns before `draft`, `reviewed`, `revision_count` and the `answer_length` trace entry are touched, so "the insufficiency window ships no answer" is a consequence of the control flow rather than a promise the node makes and then keeps by convention. The pin asserts the responder's trace entry for that pass EXISTS and carries no `answer_length` — an absence asserted on something that has to be there, which is the only way to test that nothing was generated.
+- [Phase 17-03]: **A before-pin whose condition can no longer be false must be deleted, with the reason stated.** Wave 2 deliberately kept the flip-tag test's before-half because three cases were still awaiting their flip; after wave 3 no case satisfies `not answerable and not expect_research`, so it would loop over zero cases and report green forever. Replaced by a COUNTED after-pin (`len(reaching) == 4`, so it cannot grade an empty set) plus a `stranded` clause that reds if any case goes back to refusing without looking. **A pin expires per case, then per wave — and the wave it expires in owes the deletion, not the next one.**
+- [Phase 17-03]: **Re-point a fixture when the case beneath it changes meaning.** Three `grade_recorded_refusal` tests built their state from `followup-admits-a-gap`, which flipped to answerable — every assertion would have been answered by *"not a refusal case"*. They failed loudly only because they assert `not passed`; written the other way round they would have gone green and graded nothing. Re-pointed at `followup-refuses-a-forecast` (reaches, still cannot answer) in the same commit as the flip.
+- [Phase 17-03]: **Verify the premise a gate rests on, then pin it.** `pre_research` has no `mode` check, which is safe only because `"responder"` is produced by exactly one expression in the routing table (`author`) and `author` is the responder only in follow-up mode. Verified by reading every `next_step` assignment, then pinned by eight research-mode states that may never route there — because "verified once at implementation time" is how a premise rots.
 - [Phase 17-02]: **A green-from-the-start pin proves nothing about a silent bug.** `state["research_notes"] = notes` had been green through fifteen phases because the critic grades the draft against whatever `research_notes` holds — a swapped note set and an enlarged one produce identical, equally green runs, and the only turn that could tell is a later one nobody had written. The append pin was written and run against the REPLACE FIRST (`assert 'FACTS: the sky scatters blue light.'.startswith('PRIOR NOTES MUST SURVIVE')`), and its red is quoted in the summary. Had it been written after the fix it would have passed on the first run and said exactly as much as it said before the fix existed: nothing.
 - [Phase 17-02]: **When a flip is destination-invisible, the destination is not the pin.** Row 4 and the generic `not research_notes -> researcher` row send the same state to the same node, so mutation M2 (row 4 moved below it) leaves `next_step == "researcher"` and every destination assertion green while the behaviour — the spent pass, the recorded reason, the classifier skip — is gone. All twelve precedence tests assert side effects; each of the five row mutations was observed red on the assertion that owns it, and five further probes cover the branches no row move can reach (mode guard, flag gate, flag clear, store prefix, the append itself).
 - [Phase 17-02]: **A probe that passes is a result to investigate, not a gate to trust.** The `why` after-pin's first probe came back green — because the replacement prose still contained "reaches" later in the same sentence. The probe was at fault, not the gate; re-run against a `why` with no form of the word, it reds. The same run's P15 (supervisor stops recording WHY it reached) is the one that matters most: it drops the REAL 41-case offline suite to 40/41, which is the only evidence that wave 1's `grade_followup_reach_traced` is reached by the shipped run rather than dead registry weight.
