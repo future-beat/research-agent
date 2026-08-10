@@ -785,7 +785,12 @@ tests/test_supervisor_routing.py:365–373 (`test_a_followup_is_a_new_run_with_i
 Everything else in this document is `[VERIFIED: codebase]` — read directly from the tree
 at the cited file:line locations on 2026-08-10.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+Q1 declared STALE by CONTEXT § Post-research calls (phase 16 was complete; repo state
+misread). Q2's no-schema-change recommendation adopted by 17-04's copy-only demo work.
+Q3's working names adopted in 17-02's interfaces block.
+
 
 1. **Phase 16 is 3/4 — is Phase 17 building on settled ground?**
    - What we know: this tree contains 16 waves 1–3 (critic_model, fixture gate, ADR-0010,
