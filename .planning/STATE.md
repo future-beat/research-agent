@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: phase-complete
-stopped_at: "Phase 16 COMPLETE — Fly release v10 live, critic on claude-opus-5, verified on the wire. Next: /gsd:plan-phase 17 (the last, and the deepest reversal)."
+status: planned
+stopped_at: "Phase 17 planned — the LAST phase, strongest reversal. 4 plans, 4 waves; checker 0 blockers, 3 warnings fixed. Next: /gsd:execute-phase 17 (all waves; the live checkpoint closes the milestone)."
 last_updated: "2026-08-10T04:25:00.000Z"
-last_activity: "2026-08-10 — Phase 16 shipped as release v10, the first deploy since v9, carrying phases 13-16. Live logs show critic model=claude-opus-5 cost=0.021855 while classifier/researcher/writer stayed on claude-sonnet-5. Phase 14 booked smoke passed: embedding_usd 5.3e-05 non-zero in production."
+last_activity: "2026-08-10 — Phase 17 planned: follow-ups route to research instead of refusing. Grounding redefined honestly (no answer from parametric knowledge, ever), INSUFFICIENT sentinel, one-pass bound, no_prior_research becomes a trace event, ADR-0011 supersedes 0003. Eval mechanics land BEFORE the graph flips because the offline evals drive the real supervisor."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,32 +25,31 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 16 of 17 (Independent critic model) — **COMPLETE, deployed as v10**
-Plan: 4 of 4 · PR #12 merged · cutover run from merged main 2026-08-10
-Status: Complete. The critic runs on claude-opus-5 in production, proven on the wire.
+Phase: 17 of 17 (Follow-ups that can reach for new information) — **PLANNED, not started**
+Plan: 0 of 4 · branch `gsd/phase-17-followup-live-search` off clean main (PR #13 merged)
+Status: Planned and verified — checker 0 blockers, 3 warnings fixed (the notable one:
+Phase 16's fixture gate makes any CRITIC_MODEL-exporting shell grade the replay stale BY
+DESIGN, so every eval gate now runs `env -u CRITIC_MODEL`).
 
-Progress: [█████████░] 94% (16 of 17 phases complete + hotfix; v1.0 shipped)
+Progress: [█████████░] 94% (16 of 17 phases + hotfix; THE LAST PHASE)
 
-**Live evidence (fly logs, release v10):**
-```
-classifier   model=claude-sonnet-5   cost=0.000354
-researcher   model=claude-sonnet-5   cost=0.173144
-writer       model=claude-sonnet-5   cost=0.013910
-critic       model=claude-opus-5     cost=0.021855
-```
-
-**Carry into Phase 17 (the last phase, and the deepest reversal):**
-- The Opus critic costs ~$0.022 of a ~$0.21 run — a ~12% increase, not a doubling. The
-  researcher node dominates at $0.173. The $0.20 reservation is now marginally under a
-  typical run; the 2026-09-01 Sonnet boundary will push it further. Documented, not resized.
-- The recorded eval fixture grades STALE wherever CRITIC_MODEL is set — the Phase 15 gate
-  working as designed. CI is keyless so unaffected. Re-record deferred to the full run.
-- Phase 17 reverses ADR-0003 (no_prior_research) — the deepest reversal in the milestone,
-  retiring what DESIGN.md calls "the single failure mode this whole pipeline exists to
-  prevent". Phase 15 built the before/after measure: the golden set now HAS
-  no_prior_research cases (baseline was 0).
-- Deploys are manual; deploy only from merged main. Local PG on :54329 (LC_ALL=C).
-  Baselines: plain 692/65, armed 756/1, offline evals 41/41 keyless.
+**Carry into execution:**
+- Wave ORDER is load-bearing: eval mechanics (wave 1, zero behaviour change) land BEFORE
+  the graph flips, because the offline evals drive the real supervisor and
+  grade_followup_did_not_research reds any flipped behaviour mid-phase.
+- The sharpest trap: graph.py:333 REPLACES research_notes — the append pin must be
+  observed RED against today's code before the fix.
+- The row flip is destination-invisible; precedence tests pin SIDE EFFECTS, never
+  next_step alone. Guardrails stay on top (6 tests).
+- INSUFFICIENT: sentinel parsed like APPROVED/REVISE; draft stays empty; one pass per
+  follow-up; post-research sentinel is an ordinary draft (cannot re-route).
+- Zero net-new golden cases (count stays 41); four cases flip; taxonomy pins move
+  same-commit; eval gates run `env -u CRITIC_MODEL ANTHROPIC_API_KEY=""`.
+- ADR-0011 supersedes 0003 (numstat 1/1 vs MAIN); 11-location "no new search" sweep;
+  README limitation DELETED and the nine-list closure said visibly.
+- Wave 4 live checkpoint: ~$0.35–0.45, ceiling $0.60, record-or-defer, post-merge.
+- Local PG on :54329 (LC_ALL=C). Baselines: plain 692/65, armed 756/1, evals 41/41
+  keyless, routing suite 38.
 
 ## Performance Metrics
 
