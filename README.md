@@ -12,7 +12,7 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 721 tests
+backends, an eval harness that grades real recorded answers, and 735 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
@@ -183,7 +183,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 721 tests, ~30s, no API keys, no network
+pytest                    # 735 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
@@ -195,9 +195,9 @@ what would be worth faking least. Postgres runs in CI against a
 `pgvector/pgvector` container, with a guard that fails rather than skips when
 the database is missing.
 
-Offline evals grade the **pipeline** — routing, both guardrails, follow-up
-isolation, and the invariant that an unapproved draft is never returned as if
-approved. The answers that leg runs against are authored in the dataset, so
+Offline evals grade the **pipeline** — routing, both guardrails, the one-pass
+bound on a follow-up that reaches for new notes, and the invariant that an
+unapproved draft is never returned as if approved. The answers that leg runs against are authored in the dataset, so
 nothing about answer quality can be read from it.
 
 An offline run also replays any real answers recorded under `evals/fixtures/`
