@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: in-progress
-stopped_at: "17-04 Tasks 1–2 complete, Task 3 UNSTARTED by instruction (it runs post-merge; the PR is not open). ADR-0011 is Accepted and supersedes ADR-0003 with wave 3's own measurement as its argument; ADR-0003 changed exactly one line (numstat 1/1 vs main, re-checked post-commit) and ADR-0002 is zero-diff; the index arithmetic is verified against its own table and three stale paragraphs were rewritten, not one; README's follow-up limitation is DELETED and the original nine-limitation list is closed and said so in two places. Next: 17-04 Task 3, the live closing checkpoint (~$0.35–0.45, ceiling $0.60, record-or-defer), then the phase PR."
+status: milestone-complete
+stopped_at: "MILESTONE v1.1 COMPLETE. Phase 17 shipped as release v11 and proven on the wire: a follow-up researched instead of refusing, answered from the new notes, and declined to fill the remaining gap from parametric knowledge. All nine README limitations closed."
 last_updated: "2026-08-10T22:15:00.000Z"
-last_activity: "2026-08-10 — 17-04 Tasks 1–2 executed: the record and the 11-location sweep, which is now at zero on every tracked surface. ADR-0011 leads with the RED-first discovery that under ADR-0003 the refusal text WAS the shipped draft, critic-approved because it claimed nothing — the strongest case for the reversal, and the measured reason critic-as-detector is rejected. The one-pass bound is named as the new deliberate limit; no_prior_research is redefined as a trace event, not retired; ADR-0002 is reaffirmed by citation and untouched. Eleven mutation probes against a plan that named none, and two of them found vacuous gates: A5 (table row drifts, every literal grep stays green) and B5 (closure sentence deleted, grep -ci nine stays nonzero). SC-6 is proven by AST equality modulo docstrings against main rather than by hunk count — B1 shows a routing `if` landing inside the same hunk as the prose edit. 735/65 plain, 799/1 armed, 41/41 keyless, routing 60, ruff clean, CI diff 0, ADRs 10→11, zero test delta."
+last_activity: "2026-08-11 — Phase 17 live check passed on release v11. Node sequence responder→researcher→responder→critic with trace followup_research: notes_insufficient; forced_stop_reason empty; notes appended not replaced (8 notes/7 sessions)."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,91 +25,38 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 17 of 17 (Follow-ups that can reach for new information) — **IN PROGRESS**
-Plan: 3 of 4 complete · **17-04 Tasks 1–2 done, Task 3 (the live checkpoint) UNSTARTED** ·
-branch `gsd/phase-17-followup-live-search` off clean main (PR #13 merged), unpushed
+**MILESTONE v1.1 COMPLETE — all 17 phases + the 10.5 hotfix.**
 
-**Wave 4 (17-04 Tasks 1–2, `25c34d7` / `b2d6ccd` / `1ffebe7`): the record and the sweep.**
-ADR-0011 is `Accepted — supersedes ADR-0003`, and it leads with **wave 3's measurement**
-rather than the design argument, because that is the stronger case: under ADR-0003 the
-refusal text WAS the shipped draft, and the critic approved it — correctly, since a sentence
-that asserts nothing cannot be an unsupported assertion — so the pipeline's one quality gate
-was at its most vacuous exactly where a reader needed it. The record separates **what dies**
-("no searches after session start", the `no_prior_research` END, the README limitation) from
-**what survives** (ADR-0002 reaffirmed by citation and **zero-diff**; the replacement
-guarantee is the *window*, which is a property of control flow rather than a promise), names
-**the one-pass bound as its own deliberate limit**, and records `no_prior_research` as
-**redefined, not retired**. ADR-0003 loses exactly one line — numstat `1	1` against **main**,
-re-checked POST-commit because a working-tree diff is empty then and passes vacuously.
-**Three index paragraphs went stale with the eleventh record, not one**, and the arithmetic
-is verified against the table by a checker rather than grepped. README: the limitation
-**DELETED**, with grep-before-delete finding one fact that lived only there (*"the research
-didn't cover that"*, still true after a pass) and relocating it; the nine-list closure said
-in § Limitations **and** § Status 17, checked against `3acaec7`'s nine bullet headings.
-**Eleven probes against a plan that named none**, two of which found vacuous gates (A5, B5),
-and **SC-6 proven by AST equality modulo docstrings against main** after B1 showed a routing
-`if` landing inside the same hunk as a prose edit. Suites **735/65** plain and **799/1**
-armed — **zero delta, no tests added** — evals 41/41 keyless, routing 60, ruff clean, CI diff
-0, ADRs 10 → **11**.
+Phase: 17 of 17 (Follow-ups that can reach for new information) — **COMPLETE, live on v11**
+Progress: [██████████] 100% (17 of 17 phases + hotfix; v1.0 and v1.1 both shipped)
 
-Status: **Waves 1–3 in (17-01 4 commits, 17-02 5 commits, 17-03 5 commits). Both paths of
-the reversal now work end to end.** Path 1 landed in wave 2; path 2 landed here: the
-responder signals with the critic's own `INSUFFICIENT:` idiom, **one boolean gates the
-prompt branch and the parse** so a sentinel can never be read out of a response the prompt
-never asked for, and the signal path returns before `draft`/`reviewed`/`revision_count`/the
-`answer_length` trace entry are touched — the insufficiency window ships NO answer, it
-routes. The one-pass bound holds on both halves: the honest refusal ships critic-reviewed
-WITH the attempt in trace, and a post-research sentinel is an ordinary draft that cannot
-re-route. `critic_node` is byte-identical to main by `md5` (SC-3 / ADR-0002 measured, not
-claimed). Three path-2 golden cases flipped with their taxonomy pins in one commit, so
-**row 5 now fires end to end** and the README row wave 2 shipped describes a path an input
-can take. 735/65 plain (+14, zero new skips), 799/1 armed, 41/41 keyless, routing 52→60,
-smoke 37→43, ruff clean, CI diff 0. Four behaviour pins observed RED first — the shipped
-responder was handing the sentinel to the critic and to the caller. Thirteen probes where
-the plan named three; Q1/Q2/Q4 drop the REAL 41-case run to 40/41. Every eval gate ran
-`env -u CRITIC_MODEL ANTHROPIC_API_KEY=""`.
+**The live proof (release v11, 2026-08-11):**
+```
+responder    ← notes cannot answer, signals INSUFFICIENT
+researcher   ← goes and searches (this row did not exist before)
+responder    ← drafts from the enlarged note set
+critic       ← approved: True
 
-Progress: [█████████░] 94% (16 of 17 phases + hotfix; THE LAST PHASE)
+trace: supervisor → researcher   followup_research: "notes_insufficient"
+forced_stop_reason: ''
+```
+The answer cited the new notes AND declined to fill the remaining gap from parametric
+knowledge — the replacement guarantee observed, not asserted.
 
-**Carry into execution:**
-- ~~Wave ORDER is load-bearing: eval mechanics (wave 1) land BEFORE the graph flips~~ —
-  **DONE in 17-01.** `grade_followup_did_not_research` is retired; the after-behaviour is
-  already gradeable, so wave 2 can land case + graph + pins in one green commit.
-- Wave 2 owes the supervisor a trace entry `{"node": "supervisor", "followup_research":
-  "no_prior_research" | "notes_insufficient"}` — `grade_followup_reach_traced` reds every
-  flipped case without it, and it rejects any value outside
-  `graders.FOLLOWUP_RESEARCH_REASONS`.
-- ~~The three before-pins wave 2 must rewrite same-commit with the dataset~~ — **DONE in
-  17-02** (`d436984`, dataset + tests in one commit). ~~The flip-tag test kept its BEFORE
-  half~~ — **RETIRED in 17-03**: with all three refusal cases flipped, no case satisfies
-  `not answerable and not expect_research`, so that half would loop over zero cases and
-  pass forever. Replaced by a counted after-pin (`len(reaching) == 4`) plus a `stranded`
-  clause that reds if a case ever goes back to refusing without looking.
-- ~~Preview arithmetic~~ — confirmed: `evals/__main__.py` was not touched and 41/41 held.
-- ~~graph.py:333 REPLACES research_notes~~ — **FIXED in 17-02**, red-first, quoted.
-- ~~The row flip is destination-invisible~~ — **PINNED in 17-02**: twelve pairs by side
-  effect, M2 (row 4 below the generic row) leaves `next_step` unchanged and still reds.
-- ~~17-03 owns the flag's PRODUCER only~~ — **DONE in 17-03** (`ba50cd8`), red-first. The
-  mode-free gate was verified before it was used (only `author` names the responder, and
-  only in follow-up mode) and then pinned by an eight-state parametrized test.
-- ~~`ScriptedClient.researcher_notes` correct for path-2 cases~~ — confirmed by the run:
-  all three flipped cases pop the follow-up's authored notes on their second pass, with
-  the session's notes surviving as a prefix (240→500, 241→468, 229→440 chars).
-- ~~Zero net-new golden cases; three cases left to flip; taxonomy pins same-commit~~ —
-  **DONE in 17-03** (`028d13a`, dataset + tests, 162 insertions). Count still 41/41.
-- ~~Wave 3/4 should confirm the README's `notes_insufficient` row became reachable~~ —
-  **CONFIRMED**: three golden cases and four smoke tests take that row through the
-  compiled graph.
-- README line 99 ("no new search") and line **260** (the limitation — line moved with this
-  wave's edits), `graph.py`'s module docstring is now DONE, `responder_node`'s docstring is
-  now DONE. Wave 4 owns lines 99 and 260, `docs/DESIGN.md:21`, ADR-0003's status line, the
-  ADR index arithmetic, `service.py:701`, `static/index.html` ×2 and the test pinning that
-  placeholder copy. The README test count is **735** as of 17-03.
-- ADR-0011 supersedes 0003 (numstat 1/1 vs MAIN); 11-location "no new search" sweep;
-  README limitation DELETED and the nine-list closure said visibly.
-- Wave 4 live checkpoint: ~$0.35–0.45, ceiling $0.60, record-or-defer, post-merge.
-- Local PG on :54329 (LC_ALL=C). Baselines after 17-03: plain **735/65**, armed **799/1**,
-  evals **41/41** keyless, routing suite **60**, smoke **43**.
+**All nine original README limitations are closed.** Six were deliberate reversals, each
+superseding a numbered ADR rather than quietly contradicting prose. The reversal register
+is spent: ADRs 0011 records the last one.
+
+**Next, if wanted:** `/gsd:complete-milestone` (archive v1.1, prep the next), or
+`/gsd:audit-milestone` first. Open items carried across the milestone and never phased:
+- The full 40-case eval record run (~$16.51 now, ~$21 after 2026-09-01) — machinery proven
+  by one calibration case; recording the rest is an operator decision.
+- `/health` reports the Anthropic key present, not valid — it stayed green through a full
+  revoked-key outage in phase 11.
+- No CSP header on the demo page (logged in phase 12's deferred items).
+- Cost estimates drawn pre-Opus-critic are low: a research run is ~$0.25–0.32, not ~$0.18.
+  The $0.20 reservation is marginally under a typical run; the 2026-09-01 Sonnet boundary
+  widens that.
 
 ## Performance Metrics
 
