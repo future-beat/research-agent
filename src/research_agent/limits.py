@@ -126,6 +126,35 @@ def reserved_run_usd() -> float:
     1.33, which the published 1.1 cannot reach with any discount at or below
     1.0 -- and a discount below 1.0 makes the reservation more conservative,
     never less. See docs/OPERATIONS.md.
+
+    Phase 16 puts the critic on its own model and production sets
+    `CRITIC_MODEL = 'claude-opus-5'` (fly.toml [env]) -- the critic that gates
+    the draft is deliberately more capable than the writer that produced it.
+    That is the deployed arithmetic, not a hypothetical, and this default
+    survives it too, so no resize ships with the cutover:
+
+      typical run, 1 critic call, Opus:  ~$0.15 + ~$0.03  = ~$0.18  (under $0.20)
+      fully-revised, 3 critic calls:     ~$0.15 + ~$0.13  = ~$0.28  (over, by design)
+
+    The worst case being outside the estimate is the design, not a hole in it:
+    this number is sized on the typical run, `AGENT_MAX_RUN_COST_USD`'s $1.00
+    bounds the tail per run, and `settle()` replaces the estimate with the real
+    cost the moment the run ends -- so an over-run makes the daily cap fire
+    slightly late, never not at all.
+
+    The threshold that actually breaks this default has nothing to do with the
+    critic: from **2026-09-01** the Sonnet 5 introductory window closes and the
+    standard rate alone lifts a typical unchanged run to ~$0.21-0.22. Raise
+    `DEMO_RESERVED_RUN_USD` when a threshold is crossed -- that date, or a
+    critic priced above Opus. ~$0.30 covers the boundary and the revision tail
+    together.
+
+    Deliberately NOT model-aware, and this is the second time it has been
+    asked: `limits.py` imports neither `usage` nor `graph`, and coupling the
+    money store to the price table and the graph's configuration -- to sharpen
+    an admission estimate by at most $0.13, when settlement is already real
+    cost -- buys a dependency and nothing else. The operator knob already
+    exists; this docstring says when to turn it.
     """
     return max(0.0, _env_float("DEMO_RESERVED_RUN_USD", 0.20))
 

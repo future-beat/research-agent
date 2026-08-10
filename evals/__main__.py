@@ -226,6 +226,22 @@ def _caveat(loaded: list[dict]) -> str:
 # totals and this recording measured none of them). And the measured turn took
 # the CHEAPEST path the graph has -- a case whose critic sends the draft back
 # adds a writer and a critic call that no number here anticipates.
+#
+# One more assumption the quote makes, named here because Phase 16 falsified
+# it: the whole pipeline turn is priced as a single synthetic call at
+# `graph.MODEL`, so every model call in it -- classifier, researcher, writer
+# and CRITIC -- is quoted at the writer's rate. Since Phase 16 the critic runs
+# on `graph.critic_model()`, and production pins `CRITIC_MODEL=claude-opus-5`
+# (the cutover, fly.toml [env]), which is 2.5x the writer's Sonnet rate. So
+# against the deployed configuration this preview UNDER-quotes -- by the
+# critic's share of the turn, not by the whole difference. A record run is made
+# from an operator shell, so the size of that gap is whatever that shell sets
+# CRITIC_MODEL to, which is why the correction is not a constant. Left as a
+# note rather than a second `_call_cost` line: splitting the turn per node is a
+# re-calibration, and the honest input for it is the deferred full record run's
+# measurements, not another estimate. This is the follow-up to the 35%
+# under-quote Phase 15 corrected above -- same failure mode, stated before it
+# surprises anyone.
 ASSUMED_RESEARCH_INPUT_TOKENS = 72_000  # measured 71,333
 ASSUMED_RESEARCH_OUTPUT_TOKENS = 8_000  # measured 5,000 -- kept, as headroom
 ASSUMED_FOLLOWUP_INPUT_TOKENS = 6_000  # unmeasured

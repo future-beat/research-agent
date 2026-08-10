@@ -459,7 +459,7 @@ def test_judge_raises_on_an_unparseable_verdict():
 
 def test_the_judge_runs_on_a_different_model_than_the_pipeline():
     """A judge sharing the writer's model inherits the blind spots it exists
-    to find -- the same limitation the in-graph critic already has."""
+    to find. This is the independence ADR-0010 keeps: judge != WRITER."""
 
     assert G.JUDGE_MODEL != graph.MODEL
 
@@ -1647,13 +1647,117 @@ def test_replay_never_reads_the_clock_for_a_verdict():
 
 def test_the_replay_model_gate_states_its_claim_boundary():
     """The one gate that lives outside graders.py still owes the reader the
-    same honesty the five rubrics do -- and its boundary is the sharpest of
-    them, because Phase 16 walks straight through it."""
+    same honesty the five rubrics do. Phase 16 walked through the old boundary
+    -- the gate now compares the critic too -- so this pins the NEW one, and
+    pins it against the old text coming back: a docstring that still says a
+    critic-model change will not fire this gate would be describing code that
+    no longer exists."""
     doc = grade_fixture_current.__doc__ or ""
 
     assert "Cannot catch:" in doc
     assert "graph.MODEL" in doc
-    assert "CRITIC" in doc and "Phase 16" in doc
+    # The critic comparison is claimed, and the backfill that makes it honest
+    # for pre-16 recordings is stated rather than left to be discovered.
+    assert "critic_model()" in doc
+    assert "BACKFILL" in doc
+    # The dead claim, negatively: the pre-16 docstring said a critic-model
+    # change "will NOT fire this gate". Reverting to it reds here as well as
+    # on the two positive pins above.
+    assert "will NOT fire this gate" not in doc
+    # The judge is the boundary now: recorded, deliberately uncompared.
+    assert "JUDGE" in doc
+
+
+# --------------------------------------------------------------------------
+# The staleness gate's second role: the critic
+#
+# `CRITIC_MODEL` is delenv'd or setenv'd in every one of these, never assumed:
+# the suite runs in whatever shell the operator has, and production pins
+# `CRITIC_MODEL=claude-opus-5`. A test that read the ambient value would grade
+# the shell rather than the gate.
+#
+# Haiku is the stand-in throughout because its PRICES row is undated and it is
+# an obviously-not-production name. It is a UNIT-TEST model and nothing else:
+# the deployed critic is Opus 5, and the live leg in 16-04 uses that.
+# --------------------------------------------------------------------------
+
+
+def test_fixture_critic_gate_backfills_a_pre_16_recording(monkeypatch):
+    """The one committed fixture has no `critic` key, because it was recorded
+    when the code had no critic seam -- so its critic ran on the pipeline model
+    by construction. With `CRITIC_MODEL` unset the tree still runs it there,
+    and the recording is current. This is the leg that keeps offline evals at
+    41/41 keyless."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, fixture, _ = replayable()
+    assert "critic" not in fixture["models"]  # the pre-16 shape, not a mock of it
+
+    grade = grade_fixture_current(fixture)
+
+    assert grade.passed, grade.detail
+    assert graph.critic_model() == graph.MODEL  # the premise, stated
+
+
+def test_fixture_critic_gate_reads_a_blank_critic_as_absent(monkeypatch):
+    """A key present but empty names no model, so it cannot mean "the critic
+    ran on nothing" -- the only honest reading is the pre-16 one, which is what
+    `critic_model()` does with a blank `CRITIC_MODEL` at the other end. A gate
+    testing `"critic" in models` instead of truthiness grades this stale and
+    tells the operator to re-record a recording that is current."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, fixture, _ = replayable(models={**MODELS, "critic": ""})
+
+    assert grade_fixture_current(fixture).passed
+
+
+def test_fixture_critic_gate_goes_stale_when_the_critic_moves(monkeypatch):
+    """The designed staleness, and the whole point of the extension: nothing
+    about the recording changed, the pipeline model did not move, and the gate
+    fires anyway because the critic did. Driven through `replay_case` rather
+    than the gate alone, so the wiring is proven too -- a gate nothing calls
+    grades nothing."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
+    case, fixture, _ = replayable()
+
+    result = replay_case(case, fixture)
+
+    assert not result.passed
+    assert [g.grader for g in result.failures] == ["fixture_current"]
+    detail = result.failures[0].detail
+    # Which model moved, and in which role. "the pipeline is stale" would send
+    # the operator looking at the wrong env var.
+    assert "claude-haiku-4-5" in detail and graph.MODEL in detail
+    assert "CRITIC" in detail and "re-record" in detail
+
+
+def test_fixture_critic_gate_prefers_a_recorded_critic_to_the_backfill(monkeypatch):
+    """A recording that says which model its critic ran on is never
+    second-guessed. `CRITIC_MODEL` is unset here, so a gate that always
+    backfilled would compare the pipeline model against itself and grade this
+    green -- while the fixture on disk says, in writing, that its critic was
+    something else entirely."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, fixture, _ = replayable(models={**MODELS, "critic": "claude-haiku-4-5"})
+
+    grade = grade_fixture_current(fixture)
+
+    assert not grade.passed
+    assert "claude-haiku-4-5" in grade.detail and "CRITIC" in grade.detail
+
+
+def test_fixture_critic_gate_still_fires_on_the_pipeline_model(monkeypatch):
+    """The first role did not become decorative. With the critic current --
+    unset env, no critic key, so the backfill agrees -- a moved pipeline model
+    is still the failure, and still reported as the pipeline's."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, fixture, _ = replayable()
+    fixture["models"]["pipeline"] = "claude-sonnet-4"
+
+    grade = grade_fixture_current(fixture)
+
+    assert not grade.passed
+    assert "claude-sonnet-4" in grade.detail
+    assert "CRITIC" not in grade.detail  # the critic did not move; don't say it did
 
 
 # --------------------------------------------------------------------------
@@ -2059,13 +2163,124 @@ def test_record_writes_a_fixture_per_case_with_fakes(tmp_path):
         # recording, however good it looks in a diff.
         fixture = F.load_fixture(tmp_path / f"{case_id}.json")
         assert fixture["case_id"] == case_id
-        assert fixture["models"] == {"pipeline": graph.MODEL, "judge": "claude-opus-5"}
+        # Three roles since Phase 16, and exact-equality so a fourth cannot
+        # arrive unannounced. `critic_model()` rather than a literal: this test
+        # runs in whatever environment the suite runs in, and the claim is that
+        # the recorder writes what the graph would actually use, not that the
+        # critic is any particular model.
+        assert fixture["models"] == {
+            "pipeline": graph.MODEL,
+            "judge": "claude-opus-5",
+            "critic": graph.critic_model(),
+        }
         assert fixture["git_sha"] and fixture["pipeline_cost_usd"] > 0
         assert "forced" not in fixture
         # A judge verdict per turn, which is what makes replay a gate rather
         # than a restatement of the recording.
         assert all(turn["judge"] for turn in fixture["turns"])
         assert len(fixture["turns"]) == 1 + len(by_id(case_id).followups)
+
+
+def test_record_writes_the_models_map_critic_from_the_environment(tmp_path, monkeypatch):
+    """The anti-vacuity twin of the map pin above. That one runs with
+    `CRITIC_MODEL` unset, where `critic_model()` and `graph.MODEL` are the same
+    string -- so a recorder that wrote `graph.MODEL` into the critic slot would
+    satisfy it and then lie in every recording made from a shell that sets the
+    variable, which is the shell every real record run uses. Setting it is the
+    only way to tell the two apart.
+
+    Haiku here for the same reason as everywhere else in these tests: undated
+    row, unmistakably not the deployed critic (that is Opus 5)."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
+
+    record_with_fakes(["technical-figures"], tmp_path)
+
+    fixture = F.load_fixture(tmp_path / "technical-figures.json")
+    assert fixture["models"]["critic"] == "claude-haiku-4-5"
+    # And only the critic moved: the writer's model is not read from this knob.
+    assert fixture["models"]["pipeline"] == graph.MODEL
+
+
+def test_judge_critic_collision_warning_fires_once_per_run(tmp_path, monkeypatch, capsys):
+    """`FakeJudge` grades on claude-opus-5 and production pins the critic to
+    claude-opus-5, so this is the DEPLOYED configuration, not a contrived one.
+    Once per run, not once per case: two cases here, one line."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
+
+    record_with_fakes(["technical-figures", "followups-chain"], tmp_path)
+
+    err = capsys.readouterr().err
+    assert err.count("both run on claude-opus-5") == 1
+    assert "ADR-0010" in err
+
+
+def test_judge_critic_collision_warning_is_silent_when_they_differ(tmp_path, monkeypatch, capsys):
+    """The silent twin. Without it the test above proves only that the recorder
+    prints something, not that the collision is what it prints about."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
+
+    record_with_fakes(["technical-figures"], tmp_path)
+
+    err = capsys.readouterr().err
+    assert "both run on" not in err and "ADR-0010" not in err
+
+
+def test_judge_critic_collision_warning_states_a_fact_not_a_fault(tmp_path, monkeypatch, capsys):
+    """The wording is the deliverable here, not decoration. This line fires on
+    the configuration Hesam chose -- the critic is deliberately more capable
+    than the writer it gates, which puts it on the judge's model -- so calling
+    it a misconfiguration would be telling the operator their own decision is a
+    mistake, every single record run, until they learn to skip the line. It
+    names the shared model, says what the verdicts can still claim, and points
+    at the record that accepted it."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
+
+    record_with_fakes(["technical-figures"], tmp_path)
+
+    err = capsys.readouterr().err.lower()
+    assert "claude-opus-5" in err and "adr-0010" in err
+    for fault in ("misconfig", "error", "invalid", "should not", "must not", "fix"):
+        assert fault not in err, f"the collision line implies fault: {fault!r}"
+    # And it says what it is: accepted, deployed, not a defect.
+    assert "accepted" in err and "deployed" in err
+
+
+def test_judge_critic_collision_warning_points_at_a_record_that_exists():
+    """The three tests above pin a *string*, `ADR-0010`, in a line an operator
+    reads at the moment they are deciding whether to trust a recording. Nothing
+    checked that the string resolves to anything. A dangling pointer in an
+    operator-facing message is worse than no pointer: it spends the reader's
+    trust and then their time.
+
+    So: the record exists, it is the one that supersedes ADR-0005, and 0005's
+    own status line agrees. The supersession is a two-file claim and this is
+    the only thing in the tree that holds both halves together -- the
+    one-line-diff gate on 0005 lived in a plan, and plans stop being run."""
+    adr = pathlib.Path(__file__).resolve().parent.parent / "docs" / "adr"
+    record = adr / "0010-judge-rederived-for-an-independent-critic.md"
+
+    assert record.exists(), "record mode names ADR-0010; no such record on disk"
+    assert "supersedes ADR-0005" in record.read_text()
+    assert "Superseded by ADR-0010" in (adr / "0005-opus-5-eval-judge.md").read_text()
+
+
+def test_judge_critic_collision_warning_leaves_the_judgeless_refusal_intact(tmp_path, capsys):
+    """The collision line reads `judge.model`, and it runs BEFORE the loop that
+    refuses a judgeless recording -- so a missing None guard would turn a
+    stated programming error into an AttributeError from a line that only
+    exists to print a note. The existing judgeless test drives
+    `record_case_to_fixture` and cannot see this."""
+    with pytest.raises(ValueError, match="judge"):
+        record_suite(
+            [by_id("technical-figures")],
+            client_factory=offline_client_factory,
+            memory_factory=offline_memory_factory,
+            judge=None,
+            directory=tmp_path,
+        )
+
+    assert "both run on" not in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_record_refuses_a_failing_case_and_continues(tmp_path):

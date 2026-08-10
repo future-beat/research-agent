@@ -6,6 +6,9 @@ the compiled graph actually goes there -- that the edges exist, the nodes write
 the fields the supervisor reads, and a run terminates.
 """
 
+import logging
+from contextlib import contextmanager
+
 import pytest
 from test_memory_stores import FakeEmbedder
 
@@ -57,6 +60,10 @@ class FakeClient:
     def __init__(self, critic_verdicts=("APPROVED",)):
         self.critic_verdicts = list(critic_verdicts)
         self.calls = []
+        # The whole request payload per call, not just the prompt. The fakes
+        # ignore `model`, which is exactly why nothing here could catch a
+        # mis-threaded one until this existed.
+        self.calls_with_kwargs = []
         self.messages = self
 
     def create(self, **kwargs):
@@ -79,6 +86,7 @@ class FakeClient:
             text = "REPORT: the sky is blue."
 
         self.calls.append((node, prompt))
+        self.calls_with_kwargs.append((node, dict(kwargs)))
         # Only the researcher has the web search tool, so only it bills searches.
         return Response(text, web_search_requests=2 if node == "researcher" else 0)
 
@@ -356,3 +364,313 @@ def test_every_run_carries_a_distinct_run_id(fake_client):
     first = app.invoke(initial_state("why?"))
     second = app.invoke(initial_state("why again?"))
     assert first["run_id"] != second["run_id"]
+
+
+# --------------------------------------------------------------------------
+# The critic's own model
+#
+# `call_model` names a model in four places -- the span, the API call, the
+# cost record, and the log line -- and none of them reads it back off the
+# response. `CallUsage.from_response` never touches `response.model`; the name
+# that ends up on the invoice is the one the caller passed in. So the model is
+# threaded, and every one of the four sites is asserted separately: a critic
+# threaded to the API call but recorded as `MODEL` bills an Opus critic at
+# Sonnet rates, 2.5x under, with no error anywhere to notice.
+#
+# Exact-dollar assertions here use only the UNDATED price rows (haiku $1/$5,
+# opus $5/$25). `call_model` prices at wall-clock today and Sonnet's
+# introductory window closes 2026-08-31, so an exact figure written against
+# Sonnet would go red on a date nobody chose.
+# --------------------------------------------------------------------------
+
+HAIKU = "claude-haiku-4-5"  # undated row, $1/$5
+OPUS = "claude-opus-5"  # undated row, $5/$25
+UNPRICED = "some-unpriced-model"  # no row at all -> pricing_unknown
+
+# FakeClient bills 1000 input / 100 output tokens on every call.
+HAIKU_CALL_USD = (1000 * 1.0 + 100 * 5.0) / 1e6  # $0.0015
+OPUS_CALL_USD = (1000 * 5.0 + 100 * 25.0) / 1e6  # $0.0075
+
+
+def _models_by_node(client):
+    return {node: kwargs["model"] for node, kwargs in client.calls_with_kwargs}
+
+
+def _run(fake_client, question="why is the sky blue?"):
+    """One clean research run against a FRESH client and a FRESH store.
+
+    The fresh store matters: `fake_client()` installs a new InMemoryStore, and
+    a second run against the *same* store recalls the first run's notes, which
+    changes the researcher's prompt. A payload-equality test would then fail
+    for a reason that has nothing to do with the model.
+    """
+    client = fake_client()
+    return client, app.invoke(initial_state(question))
+
+
+# --- A. the accessor, and the neutral default ------------------------------
+
+
+def test_critic_model_accessor_defaults_to_the_writers_model(monkeypatch):
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    assert graph.critic_model() == graph.MODEL
+
+
+def test_critic_model_accessor_returns_the_configured_model(monkeypatch):
+    monkeypatch.setenv("CRITIC_MODEL", OPUS)
+    assert graph.critic_model() == OPUS
+
+
+def test_critic_model_accessor_treats_blank_as_unset(monkeypatch):
+    """An env var exported empty by a deploy template must not name a model
+    called "" -- it means "not configured"."""
+    monkeypatch.setenv("CRITIC_MODEL", "   ")
+    assert graph.critic_model() == graph.MODEL
+
+
+def test_critic_model_accessor_reads_the_environment_on_every_call(monkeypatch):
+    """The value is read per call, never cached at import. A module-scope read
+    would freeze it at import time, so an operator changing configuration
+    would not change what the process does -- and no test could flip it."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    assert graph.critic_model() == graph.MODEL
+
+    monkeypatch.setenv("CRITIC_MODEL", HAIKU)
+    assert graph.critic_model() == HAIKU
+
+    monkeypatch.setenv("CRITIC_MODEL", OPUS)
+    assert graph.critic_model() == OPUS
+
+    monkeypatch.delenv("CRITIC_MODEL")
+    assert graph.critic_model() == graph.MODEL
+
+
+def test_critic_model_accessor_unset_is_byte_identical_to_setting_it(
+    fake_client, monkeypatch
+):
+    """The neutral default, demonstrated rather than claimed.
+
+    Unset must produce the same requests as CRITIC_MODEL explicitly set to the
+    writer's model -- so the default path adds nothing, and shipping the
+    capability is a no-op until an operator acts. Full payload dicts are
+    compared, not just the model key: that also catches the default path
+    growing an extra kwarg.
+
+    This is the CI guard too. The keyless 41/41 evals and the recorded
+    fixture's green replay both depend on `critic_model() == MODEL` in CI;
+    a future workflow that exports CRITIC_MODEL should surface as this red,
+    not as a mystery-stale fixture.
+    """
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    unset_client, unset = _run(fake_client)
+
+    monkeypatch.setenv("CRITIC_MODEL", graph.MODEL)
+    set_client, _ = _run(fake_client)
+
+    assert set(_models_by_node(unset_client)) == {
+        "classifier", "researcher", "writer", "critic",
+    }
+    assert all(m == graph.MODEL for m in _models_by_node(unset_client).values())
+    assert unset_client.calls_with_kwargs == set_client.calls_with_kwargs
+    assert unset["usage"]["pricing_unknown"] is False
+
+
+# --- B. all four naming sites ----------------------------------------------
+
+
+def test_critic_threading_four_sites_a_reaches_the_api_payload(
+    fake_client, monkeypatch
+):
+    monkeypatch.setenv("CRITIC_MODEL", HAIKU)
+    client, _ = _run(fake_client)
+
+    models = _models_by_node(client)
+    assert models["critic"] == HAIKU
+    assert models["writer"] == graph.MODEL
+    assert models["researcher"] == graph.MODEL
+    assert models["classifier"] == graph.MODEL
+
+
+def test_critic_threading_four_sites_b_reaches_the_span(fake_client, monkeypatch):
+    """Telemetry that disagrees with the invoice is worse than no telemetry."""
+    spans = []
+
+    @contextmanager
+    def recording_span(name, **attributes):
+        spans.append((name, attributes))
+        yield None
+
+    monkeypatch.setattr(graph, "span", recording_span)
+    monkeypatch.setenv("CRITIC_MODEL", HAIKU)
+    _run(fake_client)
+
+    by_name = dict(spans)
+    assert by_name["node.critic"]["model"] == HAIKU
+    assert by_name["node.writer"]["model"] == graph.MODEL
+
+
+def test_critic_threading_four_sites_c_reaches_the_cost_record(
+    fake_client, monkeypatch
+):
+    """The site that decides what the run says it cost.
+
+    Measured as a difference so no Sonnet rate appears in an exact figure:
+    the same run with an UNPRICED critic contributes exactly $0 for that call
+    (record() catches UnknownModelPricing and returns 0.0), so the gap between
+    the two runs is the critic call and nothing else. If record() were still
+    passed `MODEL`, the unpriced run would price the critic at Sonnet and this
+    difference would be neither $0.0015 nor even positive.
+    """
+    monkeypatch.setenv("CRITIC_MODEL", HAIKU)
+    _, priced = _run(fake_client)
+
+    monkeypatch.setenv("CRITIC_MODEL", UNPRICED)
+    _, uncosted = _run(fake_client)
+
+    critic_share = priced["usage"]["cost_usd"] - uncosted["usage"]["cost_usd"]
+    assert critic_share == pytest.approx(HAIKU_CALL_USD, abs=1e-9)
+
+
+def test_critic_threading_four_sites_d_reaches_the_log_line(
+    fake_client, monkeypatch, caplog
+):
+    """The agent logger deliberately does not propagate -- its own handler is
+    the only one that should fire -- so propagation is turned on for the
+    duration rather than the log call being replaced by a fake. What is under
+    test is the real `log.info(..., extra={"model": ...})`.
+    """
+    monkeypatch.setattr(graph.log, "propagate", True)
+    monkeypatch.setenv("CRITIC_MODEL", HAIKU)
+
+    with caplog.at_level(logging.INFO, logger=graph.log.name):
+        _run(fake_client)
+
+    by_node = {
+        r.node: r.model
+        for r in caplog.records
+        if getattr(r, "event", "") == "model_call"
+    }
+    assert by_node["critic"] == HAIKU
+    assert by_node["writer"] == graph.MODEL
+
+
+# --- C. the misbilling discriminator ---------------------------------------
+
+
+def test_critic_misbilling_discriminator_unpriced_critic_is_reported(
+    fake_client, monkeypatch
+):
+    """The phase's central test.
+
+    `pricing_unknown` can flip only if the threaded name reached `record()`.
+    Threading `messages.create` alone changes nothing here -- the fakes ignore
+    the model they are handed -- so this is the one red that separates "the
+    critic runs on its own model" from "the critic runs on its own model and
+    the bill knows it". The rest of the run stays priced: an unpriced critic
+    makes `cost_usd` a floor, not a zero.
+    """
+    monkeypatch.setenv("CRITIC_MODEL", UNPRICED)
+    _, result = _run(fake_client)
+
+    assert result["usage"]["pricing_unknown"] is True
+    assert result["usage"]["cost_usd"] > 0
+    assert result["usage"]["calls"] == 4  # the call is counted, just not costed
+
+
+def test_critic_misbilling_discriminator_stays_silent_when_unset(
+    fake_client, monkeypatch
+):
+    """The twin. Unset means the writer's model, which is priced -- so the
+    flag must not fire, or it would mean nothing when it did."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, result = _run(fake_client)
+
+    assert result["usage"]["pricing_unknown"] is False
+    assert result["usage"]["cost_usd"] > 0
+
+
+def test_critic_misbilling_discriminator_spares_the_other_nodes(
+    fake_client, monkeypatch
+):
+    """An unpriced critic must not take the whole run's accounting with it.
+    Three priced calls still cost what three priced calls cost -- the same
+    figure a run whose critic is priced at $0 would report."""
+    monkeypatch.setenv("CRITIC_MODEL", UNPRICED)
+    _, unpriced_critic = _run(fake_client)
+
+    monkeypatch.setenv("CRITIC_MODEL", HAIKU)
+    _, priced_critic = _run(fake_client)
+
+    assert unpriced_critic["usage"]["cost_usd"] > 0
+    assert unpriced_critic["usage"]["cost_usd"] == pytest.approx(
+        priced_critic["usage"]["cost_usd"] - HAIKU_CALL_USD, abs=1e-9
+    )
+
+
+# --- D. per-node attribution, exact and date-safe --------------------------
+
+
+def test_per_node_attribution_prices_the_critic_at_its_own_rate(
+    fake_client, monkeypatch
+):
+    """Exact arithmetic without naming a dated rate.
+
+    One critic call per run at 1000 in / 100 out. Opus $5/$25 and haiku $1/$5
+    are both single undated windows, so the difference between the two runs is
+    fixed forever at ($5000 + $2500 - $1000 - $500)/1M = $0.0060. Everything
+    else in the run -- three Sonnet-priced calls and two web searches -- is
+    identical and cancels, which is what keeps the 2026-08-31 Sonnet boundary
+    out of the assertion. Phase 14's multipliers sit at their 1.0 defaults
+    under the fakes and cancel too.
+    """
+    monkeypatch.setenv("CRITIC_MODEL", HAIKU)
+    _, cheap = _run(fake_client)
+
+    monkeypatch.setenv("CRITIC_MODEL", OPUS)
+    _, dear = _run(fake_client)
+
+    delta = dear["usage"]["cost_usd"] - cheap["usage"]["cost_usd"]
+    assert delta == pytest.approx(OPUS_CALL_USD - HAIKU_CALL_USD, abs=1e-9)
+    assert delta == pytest.approx(0.0060, abs=1e-9)
+    assert cheap["usage"]["pricing_unknown"] is False
+    assert dear["usage"]["pricing_unknown"] is False
+
+
+def test_per_node_attribution_leaves_every_other_node_on_the_writers_model(
+    fake_client, monkeypatch
+):
+    """Independence is the critic's alone. A revision run makes two critic
+    calls and three writer calls; each is attributed to its own model, and the
+    token counts stay identical to a uniform-model run -- only the dollars
+    move."""
+    monkeypatch.setenv("CRITIC_MODEL", OPUS)
+    client = fake_client(["REVISE: cite the scattering claim", "APPROVED"])
+    result = app.invoke(initial_state("why is the sky blue?"))
+
+    per_call = [(node, kwargs["model"]) for node, kwargs in client.calls_with_kwargs]
+    assert per_call == [
+        ("classifier", graph.MODEL),
+        ("researcher", graph.MODEL),
+        ("writer", graph.MODEL),
+        ("critic", OPUS),
+        ("writer", graph.MODEL),
+        ("critic", OPUS),
+    ]
+    assert result["usage"]["calls"] == 6
+    assert result["usage"]["input_tokens"] == 6000
+    assert result["usage"]["pricing_unknown"] is False
+
+
+def test_per_node_attribution_a_pricier_critic_costs_more(fake_client, monkeypatch):
+    """The plain-language claim behind the arithmetic, on the production
+    config's own terms: an Opus critic makes a run cost more than a Sonnet one,
+    and the difference is the critic call, not the rest of the pipeline."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, shared = _run(fake_client)
+
+    monkeypatch.setenv("CRITIC_MODEL", OPUS)
+    _, independent = _run(fake_client)
+
+    assert independent["usage"]["cost_usd"] > shared["usage"]["cost_usd"]
+    assert independent["usage"]["input_tokens"] == shared["usage"]["input_tokens"]
+    assert independent["usage"]["calls"] == shared["usage"]["calls"]

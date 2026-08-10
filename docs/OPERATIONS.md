@@ -457,6 +457,7 @@ Environment variables:
 | `HEALTH_PROBE_BUDGET` | Wall-clock seconds one `/health` store probe may take, end to end | `3.0` |
 | `CHROMA_PATH` · `CHROMA_COLLECTION` | Chroma location and collection | `chroma_store` / `research_notes` |
 | `VOYAGE_EMBEDDING_MODEL` | Embedding model | `voyage-3.5` |
+| `CRITIC_MODEL` | The model the in-graph critic runs on, read per call. Unset or blank means the critic runs on `MODEL`, exactly as before Phase 16. **Production pins `claude-opus-5`** (fly.toml `[env]`) — see below | *(unset — the critic runs on `MODEL`)* |
 | `AGENT_MAX_RUN_COST_USD` | Per-run spend cap; `0` disables. Bounds **multiplied** cost since Phase 14 — see below | `1.00` |
 | `COST_DISCOUNT_FACTOR` | Negotiated discount applied to computed Anthropic cost, including the per-search fee. `≤ 0` or unparseable falls back to `1.0`, so a typo cannot disarm the spend caps by costing every run at $0.00 | `1.0` |
 | `INFERENCE_GEO_MULTIPLIER` | The **rate** charged when a response reports `usage.inference_geo == "us"`; applicability is observed from the API per call, never declared here. Same clamp as the discount | `1.1` |
@@ -552,6 +553,46 @@ adjusting anything else.
 `AGENT_MAX_RUN_COST_USD` now bounds **multiplied** cost, which is the correct
 semantics rather than a side effect: a discounted deployment gets more work per
 capped dollar because the cap bounds *spend*, not calls.
+
+### `CRITIC_MODEL` and the reservation, together
+
+Since Phase 16 the in-graph critic runs on its own model, and production pins
+`CRITIC_MODEL = 'claude-opus-5'` in fly.toml `[env]` — committed configuration
+rather than a secret, so the stance is visible in the repo. The stance: **the
+critic that gates a draft is deliberately more capable than the writer that
+produced it** (ADR-0010). Every other node stays on `MODEL` (Sonnet 5); unset
+the variable and the critic goes back to `MODEL` with no other change.
+
+**What it costs, and why the reservation did not move.** A typical run — one
+critic call — goes from ~$0.15 to **~$0.18** against the **$0.20**
+`DEMO_RESERVED_RUN_USD`, so the estimate stays honest and no resize ships with
+the cutover. A fully-revised run makes at most 3 critic calls and can reach
+**~$0.28**, which is *outside* the estimate by design: the reservation is sized
+on the typical run, `AGENT_MAX_RUN_COST_USD` bounds the tail per run, and
+settlement replaces the estimate with the real figure at run end.
+
+**The threshold that will actually break it is not the critic.** From
+**2026-09-01** Sonnet 5's introductory window closes and the standard rate
+alone lifts a typical *unchanged* run to **~$0.21–0.22**. Raise
+`DEMO_RESERVED_RUN_USD` when a threshold is crossed — that date, or pointing
+`CRITIC_MODEL` at something priced above Opus. **~$0.30** covers both.
+
+**What is checked and what is not.** Pricing is: a `CRITIC_MODEL` with no row
+in the price table costs the run nothing and reports `pricing_unknown` on that
+run rather than failing it. API compatibility is **not**: the critic node sends
+`thinking` and `output_config` parameters, and a model that rejects them
+returns a 400, retries, and fails the run. Supported values are
+current-generation models.
+
+**Recorded evals see this too.** A fixture's `models` map records the critic
+alongside the pipeline and judge, and the replay staleness gate compares it —
+so a recording made before the cutover grades stale in any environment that
+sets `CRITIC_MODEL`, which is correct: it describes a pipeline that no longer
+exists. CI runs keyless with the variable unset, so the offline suite is
+unaffected. A record run made against production's configuration also prints
+one line noting that the judge and the critic share `claude-opus-5`; that is a
+statement about what those verdicts can claim, and an accepted one (ADR-0010),
+not something to correct.
 
 **Deployment:** this ships with the **next deploy** — no dedicated cutover, no
 migration step to run by hand. At neutral defaults (both variables unset, and

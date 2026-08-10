@@ -43,10 +43,11 @@ rather than reversing, that is a new record too.
 
 ## Index
 
-Eight of the nine records are `Accepted` today. One supersession has actually
-happened — ADR-0007 overturned ADR-0006 in Phase 12, which ADR-0006 had itself
-forecast. The remaining *expected* supersessions come from the reversal register
-in `.planning/ROADMAP.md` and are forecasts, not facts.
+Eight of the ten records are `Accepted` today. Two supersessions have actually
+happened — ADR-0007 overturned ADR-0006 in Phase 12 and ADR-0010 overturned ADR-0005 in
+Phase 16, and each was forecast by the record it overturned. The remaining *expected*
+supersessions come from the reversal register in `.planning/ROADMAP.md` and are forecasts,
+not facts.
 
 | # | Record | Title | Status | Superseded by |
 |---|--------|-------|--------|---------------|
@@ -54,18 +55,20 @@ in `.planning/ROADMAP.md` and are forecasts, not facts.
 | 0002 | [0002-separate-critic-node.md](0002-separate-critic-node.md) | The critic is a separate node with the research notes as sole source of truth | Accepted | — |
 | 0003 | [0003-followups-reuse-critic-no-prior-research.md](0003-followups-reuse-critic-no-prior-research.md) | Follow-ups reuse the critic; no prior notes stops with `no_prior_research` | Accepted | *expected:* Phase 17 (REQ-followup-live-search) |
 | 0004 | [0004-sessions-in-sqlite-not-langgraph-checkpointer.md](0004-sessions-in-sqlite-not-langgraph-checkpointer.md) | Sessions store completed runs in SQLite, deliberately not LangGraph's checkpointer | Accepted | — |
-| 0005 | [0005-opus-5-eval-judge.md](0005-opus-5-eval-judge.md) | The eval judge runs on a stronger model than the pipeline and returns a structured verdict | Accepted | *expected:* Phase 16 (REQ-independent-critic-model) |
+| 0005 | [0005-opus-5-eval-judge.md](0005-opus-5-eval-judge.md) | The eval judge runs on a stronger model than the pipeline and returns a structured verdict | Superseded | [ADR-0010](0010-judge-rederived-for-an-independent-critic.md) (Phase 16) |
 | 0006 | [0006-separate-sessions-token-fails-closed.md](0006-separate-sessions-token-fails-closed.md) | A separate `SESSIONS_TOKEN`, and the session endpoints fail closed | Superseded | [ADR-0007](0007-anonymous-identity-fairness-global-cap.md) (Phase 12) |
 | 0007 | [0007-anonymous-identity-fairness-global-cap.md](0007-anonymous-identity-fairness-global-cap.md) | Fairness keys on an auto-issued anonymous identity; the global cap bounds the bill | Accepted — supersedes [ADR-0006](0006-separate-sessions-token-fails-closed.md) | — |
 | 0008 | [0008-embedding-migration-two-commands.md](0008-embedding-migration-two-commands.md) | Embedding migration is two commands: copy-only preserved, re-embed measured | Accepted | — |
 | 0009 | [0009-recorded-answer-quality-evals.md](0009-recorded-answer-quality-evals.md) | Answer quality is graded from recorded runs, and never claimed of the current model | Accepted | — |
+| 0010 | [0010-judge-rederived-for-an-independent-critic.md](0010-judge-rederived-for-an-independent-critic.md) | The judge is re-derived for an independent critic: a different job, not a compensating control | Accepted — supersedes [ADR-0005](0005-opus-5-eval-judge.md) | — |
 
-**ADR-0006 through ADR-0009 are the odd ones out.** Records 0001–0005 are promotions of
+**ADR-0006 through ADR-0010 are the odd ones out.** Records 0001–0005 are promotions of
 existing `docs/DESIGN.md` passages and carry a `**Promoted from:**` line. ADR-0006 originates
 in the Phase 10.5 hotfix that closed the live endpoint exposure, ADR-0007 in Phase 12's
-identity work, ADR-0008 in Phase 13's embedding migration, and ADR-0009 in Phase 15's
-answer-quality evals — there is no `docs/DESIGN.md` passage behind any of the four, so all
-four carry `**Source:**` instead. Do not go looking for one.
+identity work, ADR-0008 in Phase 13's embedding migration, ADR-0009 in Phase 15's
+answer-quality evals, and ADR-0010 in Phase 16's independent critic model — there is no
+`docs/DESIGN.md` passage behind any of the five, so all five carry `**Source:**` instead. Do
+not go looking for one.
 
 **ADR-0008 and ADR-0009 supersede nothing, deliberately.** Each reverses the *scope* of a
 `DEC-NN` in `.planning/intel/decisions.md` — `DEC-10` and `DEC-20` respectively — that was
@@ -77,4 +80,7 @@ copy-only guarantee was preserved as a named command rather than dropped.
 
 **Reading a superseded record.** ADR-0006 stays exactly as it was written, including the
 claims Phase 12 overturned; that is the point of keeping it. Which of its parts survived is
-recorded in ADR-0007's *Carried forward from ADR-0006* section, not by editing 0006.
+recorded in ADR-0007's *Carried forward from ADR-0006* section, not by editing 0006. ADR-0005
+is read the same way: its premise — that the in-graph critic shares the writer's model — was
+true when it was written and Phase 16 removed it, so what survives is in ADR-0010's *Carried
+forward from ADR-0005* section and 0005 itself is untouched below its status line.
