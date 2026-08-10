@@ -306,7 +306,13 @@ Plans:
   3. The per-run spend cap accounts for the more expensive critic path.
   4. The eval-judge choice is stated as a fresh decision with its own reasoning, superseding the promoted ADR for DEC-22 — not carried forward by default.
   5. README no longer says "The eval judge runs on a stronger model precisely because of this," because the "this" it refers to is gone.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 16-01-PLAN.md — critic_model() accessor + four-site threading in call_model + attribution proofs (neutral default, misbilling discriminator, per-node arithmetic)
+- [ ] 16-02-PLAN.md — Fixture gate with backfill semantics + recorder critic entry + judge/critic collision warning + reservation threshold prose
+- [ ] 16-03-PLAN.md — ADR-0010 supersedes ADR-0005 + graders/DESIGN stale prose + README whole-file pass (limitation deleted)
+- [ ] 16-04-PLAN.md — Live demonstration (haiku critic, record-or-defer) + full phase gate + close checkpoint
 
 **Notes for discuss-phase:**
 - **Reversal — second-strongest in the set. Supersedes the ADR promoted from DEC-22.** The shared critic model was not accidental: it is the explicit justification for the stronger eval judge. Removing it removes the reason the judge is stronger.
