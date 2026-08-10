@@ -57,8 +57,14 @@ class FakeClient:
     "reject, then approve" and watch the revision loop run.
     """
 
-    def __init__(self, critic_verdicts=("APPROVED",)):
+    def __init__(self, critic_verdicts=("APPROVED",), responder_answers=()):
         self.critic_verdicts = list(critic_verdicts)
+        # Consumed one per responder call, the `critic_verdicts` idiom. A
+        # follow-up that signals insufficiency speaks twice in one turn -- the
+        # sentinel, then the answer built from the enlarged notes -- so a
+        # single fixed reply cannot script the path this phase adds. Empty
+        # means "behave exactly as before".
+        self.responder_answers = list(responder_answers)
         self.calls = []
         # The whole request payload per call, not just the prompt. The fakes
         # ignore `model`, which is exactly why nothing here could catch a
@@ -77,7 +83,10 @@ class FakeClient:
             text = "FACTS: the sky scatters blue light."
         elif "follow-up question" in prompt:
             node = "responder"
-            text = "ANSWER: because of Rayleigh scattering."
+            text = (
+                self.responder_answers.pop(0) if self.responder_answers
+                else "ANSWER: because of Rayleigh scattering."
+            )
         elif "Does the" in prompt:
             node = "critic"
             text = self.critic_verdicts.pop(0) if self.critic_verdicts else "APPROVED"
@@ -96,8 +105,8 @@ class FakeClient:
 
 @pytest.fixture
 def fake_client(monkeypatch):
-    def install(critic_verdicts=("APPROVED",)):
-        client = FakeClient(critic_verdicts)
+    def install(critic_verdicts=("APPROVED",), responder_answers=()):
+        client = FakeClient(critic_verdicts, responder_answers)
         monkeypatch.setattr(graph, "client", lambda: client)
         graph.set_memory(InMemoryStore(embedder=FakeEmbedder()))
         return client
@@ -266,6 +275,128 @@ def test_a_followup_pass_files_its_notes_under_the_followup_question(fake_client
     newest = graph.memory().entries[-1]["text"]
     assert newest.startswith("[and what about at sunset?] ")
     assert SENTINEL_NOTES not in newest  # the note is what this pass found
+
+
+# --------------------------------------------------------------------------
+# Path 2: the notes exist but don't cover the question (Phase 17)
+# --------------------------------------------------------------------------
+
+RESEARCHER_FINDING = "FACTS: the sky scatters blue light."
+SENTINEL_REPLY = "INSUFFICIENT: the notes name no such figure"
+
+
+def _followup_over_notes(question="what does lock_timeout default to?"):
+    """A follow-up turn whose session already has notes -- so row 4 (no prior
+    notes) cannot fire and only the responder's own signal can start a pass."""
+    prior = initial_state("postgres locking defaults")
+    prior.update({
+        "topic_type": "technical",
+        "research_notes": SENTINEL_NOTES,
+        "draft": "the report",
+    })
+    return followup_state(prior, question)
+
+
+def _nodes(result):
+    return [e["node"] for e in result["trace"]]
+
+
+def test_insufficiency_signal_routes_to_researcher_and_ships_no_answer(fake_client):
+    """Path 2 end to end: the signal ROUTES, it never generates.
+
+    The window between "these notes don't cover it" and "new notes arrive"
+    produces no answer at all. The sentinel is a flag's origin, not a draft:
+    it never reaches the critic and it never reaches the caller. What ships is
+    written from the enlarged note set and reviewed like any other answer.
+    """
+    client = fake_client(responder_answers=[
+        SENTINEL_REPLY, "a grounded answer from the enlarged notes",
+    ])
+
+    result = app.invoke(_followup_over_notes())
+
+    assert result["draft"] == "a grounded answer from the enlarged notes"
+    assert SENTINEL_REPLY not in result["draft"]
+    assert _nodes(result) == [
+        "supervisor", "responder",    # the signal
+        "supervisor", "researcher",   # the one pass it buys
+        "supervisor", "responder",    # the answer, from the enlarged notes
+        "supervisor", "critic",
+        "supervisor",
+    ]
+    # The signalling pass produced no answer: it reports insufficiency and
+    # nothing else. An `answer_length` here would mean a draft was written.
+    signal = [e for e in result["trace"] if e["node"] == "responder"][0]
+    assert signal == {"node": "responder", "insufficient": True}
+    assert "answer_length" not in signal
+    # The pass enlarged the note set rather than swapping it, so the answer is
+    # grounded in everything the session has, not only in what this pass found.
+    assert result["research_notes"].startswith(SENTINEL_NOTES)
+    assert RESEARCHER_FINDING in result["research_notes"]
+    assert client.nodes_called().count("researcher") == 1
+
+
+def test_one_pass_bound_ships_the_honest_refusal_with_the_attempt(fake_client):
+    """The other half of the bound: one pass, then the honest tail ships.
+
+    If the enlarged notes still don't cover the question, "the research didn't
+    cover that" is the correct answer -- and now it ships as a critic-reviewed
+    draft WITH the attempt visible in the trace, which is the difference
+    between a refusal that looked before it spoke and one that didn't.
+    """
+    client = fake_client(responder_answers=[
+        SENTINEL_REPLY, "The research didn't cover the default value.",
+    ])
+
+    result = app.invoke(_followup_over_notes())
+
+    assert result["draft"] == "The research didn't cover the default value."
+    assert result["approved"] is True
+    assert result["forced_stop_reason"] == ""
+    assert client.nodes_called().count("researcher") == 1
+    reaches = [e["followup_research"] for e in result["trace"] if "followup_research" in e]
+    assert reaches == ["notes_insufficient"]
+
+
+def test_one_pass_bound_post_research_sentinel_is_an_ordinary_draft(fake_client):
+    """The leak gate. The parse is gated on the SAME condition as the prompt.
+
+    After the pass, the prompt no longer asks for a sentinel -- so a reply that
+    starts with one is just text the model produced, and it is treated as an
+    ordinary draft for the critic to judge. A parse that outlived its prompt
+    would read routing input out of a response nobody asked for.
+    """
+    client = fake_client(responder_answers=[
+        SENTINEL_REPLY, "INSUFFICIENT: still nothing about lock_timeout",
+    ])
+
+    result = app.invoke(_followup_over_notes())
+
+    assert result["draft"] == "INSUFFICIENT: still nothing about lock_timeout"
+    assert result["reviewed"] is True                  # the critic saw it
+    assert "critic" in client.nodes_called()
+    assert result["notes_insufficient"] is False       # nothing re-flagged
+    assert client.nodes_called().count("researcher") == 1  # and no second pass
+
+
+def test_grounding_survives_followup_research(fake_client):
+    """SC-3: no path ships an answer the critic has not reviewed.
+
+    The reach adds a node to the front of the follow-up path; it does not move
+    the critic hop, which stays the last thing between the responder and the
+    caller.
+    """
+    fake_client(responder_answers=[
+        SENTINEL_REPLY, "a grounded answer from the enlarged notes",
+    ])
+
+    result = app.invoke(_followup_over_notes())
+
+    workers = [n for n in _nodes(result) if n != "supervisor"]
+    assert workers == ["responder", "researcher", "responder", "critic"]
+    assert workers.index("critic") == len(workers) - 1  # the last word is the critic's
+    assert result["reviewed"] is True
+    assert result["approved"] is True
 
 
 def test_the_researcher_stores_what_it_finds(fake_client):
