@@ -1669,6 +1669,98 @@ def test_the_replay_model_gate_states_its_claim_boundary():
 
 
 # --------------------------------------------------------------------------
+# The staleness gate's second role: the critic
+#
+# `CRITIC_MODEL` is delenv'd or setenv'd in every one of these, never assumed:
+# the suite runs in whatever shell the operator has, and production pins
+# `CRITIC_MODEL=claude-opus-5`. A test that read the ambient value would grade
+# the shell rather than the gate.
+#
+# Haiku is the stand-in throughout because its PRICES row is undated and it is
+# an obviously-not-production name. It is a UNIT-TEST model and nothing else:
+# the deployed critic is Opus 5, and the live leg in 16-04 uses that.
+# --------------------------------------------------------------------------
+
+
+def test_fixture_critic_gate_backfills_a_pre_16_recording(monkeypatch):
+    """The one committed fixture has no `critic` key, because it was recorded
+    when the code had no critic seam -- so its critic ran on the pipeline model
+    by construction. With `CRITIC_MODEL` unset the tree still runs it there,
+    and the recording is current. This is the leg that keeps offline evals at
+    41/41 keyless."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, fixture, _ = replayable()
+    assert "critic" not in fixture["models"]  # the pre-16 shape, not a mock of it
+
+    grade = grade_fixture_current(fixture)
+
+    assert grade.passed, grade.detail
+    assert graph.critic_model() == graph.MODEL  # the premise, stated
+
+
+def test_fixture_critic_gate_reads_a_blank_critic_as_absent(monkeypatch):
+    """A key present but empty names no model, so it cannot mean "the critic
+    ran on nothing" -- the only honest reading is the pre-16 one, which is what
+    `critic_model()` does with a blank `CRITIC_MODEL` at the other end. A gate
+    testing `"critic" in models` instead of truthiness grades this stale and
+    tells the operator to re-record a recording that is current."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, fixture, _ = replayable(models={**MODELS, "critic": ""})
+
+    assert grade_fixture_current(fixture).passed
+
+
+def test_fixture_critic_gate_goes_stale_when_the_critic_moves(monkeypatch):
+    """The designed staleness, and the whole point of the extension: nothing
+    about the recording changed, the pipeline model did not move, and the gate
+    fires anyway because the critic did. Driven through `replay_case` rather
+    than the gate alone, so the wiring is proven too -- a gate nothing calls
+    grades nothing."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
+    case, fixture, _ = replayable()
+
+    result = replay_case(case, fixture)
+
+    assert not result.passed
+    assert [g.grader for g in result.failures] == ["fixture_current"]
+    detail = result.failures[0].detail
+    # Which model moved, and in which role. "the pipeline is stale" would send
+    # the operator looking at the wrong env var.
+    assert "claude-haiku-4-5" in detail and graph.MODEL in detail
+    assert "CRITIC" in detail and "re-record" in detail
+
+
+def test_fixture_critic_gate_prefers_a_recorded_critic_to_the_backfill(monkeypatch):
+    """A recording that says which model its critic ran on is never
+    second-guessed. `CRITIC_MODEL` is unset here, so a gate that always
+    backfilled would compare the pipeline model against itself and grade this
+    green -- while the fixture on disk says, in writing, that its critic was
+    something else entirely."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, fixture, _ = replayable(models={**MODELS, "critic": "claude-haiku-4-5"})
+
+    grade = grade_fixture_current(fixture)
+
+    assert not grade.passed
+    assert "claude-haiku-4-5" in grade.detail and "CRITIC" in grade.detail
+
+
+def test_fixture_critic_gate_still_fires_on_the_pipeline_model(monkeypatch):
+    """The first role did not become decorative. With the critic current --
+    unset env, no critic key, so the backfill agrees -- a moved pipeline model
+    is still the failure, and still reported as the pipeline's."""
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _, fixture, _ = replayable()
+    fixture["models"]["pipeline"] = "claude-sonnet-4"
+
+    grade = grade_fixture_current(fixture)
+
+    assert not grade.passed
+    assert "claude-sonnet-4" in grade.detail
+    assert "CRITIC" not in grade.detail  # the critic did not move; don't say it did
+
+
+# --------------------------------------------------------------------------
 # Replay through the CLI: the exit rule, the guards, and the caveat
 #
 # Every test here monkeypatches FIXTURES_DIR. That was hygiene while the repo
@@ -2087,6 +2179,26 @@ def test_record_writes_a_fixture_per_case_with_fakes(tmp_path):
         # than a restatement of the recording.
         assert all(turn["judge"] for turn in fixture["turns"])
         assert len(fixture["turns"]) == 1 + len(by_id(case_id).followups)
+
+
+def test_record_writes_the_models_map_critic_from_the_environment(tmp_path, monkeypatch):
+    """The anti-vacuity twin of the map pin above. That one runs with
+    `CRITIC_MODEL` unset, where `critic_model()` and `graph.MODEL` are the same
+    string -- so a recorder that wrote `graph.MODEL` into the critic slot would
+    satisfy it and then lie in every recording made from a shell that sets the
+    variable, which is the shell every real record run uses. Setting it is the
+    only way to tell the two apart.
+
+    Haiku here for the same reason as everywhere else in these tests: undated
+    row, unmistakably not the deployed critic (that is Opus 5)."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
+
+    record_with_fakes(["technical-figures"], tmp_path)
+
+    fixture = F.load_fixture(tmp_path / "technical-figures.json")
+    assert fixture["models"]["critic"] == "claude-haiku-4-5"
+    # And only the critic moved: the writer's model is not read from this knob.
+    assert fixture["models"]["pipeline"] == graph.MODEL
 
 
 def test_record_refuses_a_failing_case_and_continues(tmp_path):
