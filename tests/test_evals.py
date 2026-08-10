@@ -158,8 +158,14 @@ def test_dataset_taxonomy_per_stratum_minimums():
 
 
 def test_dataset_taxonomy_followup_strata():
-    """Phase 17 changes what a follow-up does. Each of these strata is one of
-    its before-measures, and a missing one is a comparison nobody can make."""
+    """The strata Phase 17 leaves behind, and the one it adds.
+
+    A follow-up that can answer from its notes must still do exactly that; a
+    chain must still be tested past turn one; and there must be a case where
+    the reach happens and a guardrail catches it anyway, because "the caps
+    outrank the new route" is a claim about the real graph, not about the
+    routing table read on its own.
+    """
     answerable = [c for c in GOLDEN if c.followups and all(f.answerable for f in c.followups)]
     assert len(answerable) >= 4, [c.id for c in answerable]
 
@@ -168,11 +174,17 @@ def test_dataset_taxonomy_followup_strata():
     refusals = [c for c in GOLDEN if any(not f.answerable for f in c.followups)]
     assert len(refusals) >= 3, [c.id for c in refusals]
 
-    no_prior = [
+    route_then_guardrail = [
         c for c in GOLDEN
-        if any(f.expect_forced_stop == "no_prior_research" for f in c.followups)
+        if any(
+            f.expect_research and f.expect_forced_stop == "budget_exceeded"
+            for f in c.followups
+        )
     ]
-    assert no_prior, "the no_prior_research stop has no golden case (it had none before 15-04)"
+    assert route_then_guardrail, (
+        "no case reaches and is then stopped: the route and the guardrail that "
+        "outranks it are both untested end to end"
+    )
 
 
 def test_dataset_taxonomy_adversarial_cases_are_armed():
@@ -213,15 +225,26 @@ def test_dataset_taxonomy_authored_reports_satisfy_their_own_pins():
             assert marker.lower() not in body, f"{case.id}: report claims {marker!r}"
 
 
-def test_dataset_taxonomy_phase17_flip_cases_are_tagged():
-    """Phase 17 inverts these expectations. Untagged, the cheapest way to make
-    that phase green is to edit the case -- which turns a before/after measure
-    into a rewritten history."""
+def test_dataset_taxonomy_phase17_cases_say_which_side_of_the_flip_they_are_on():
+    """Both halves of the same discipline, one before the flip and one after.
+
+    Before: a case whose expectations Phase 17 inverts has to say so, because
+    the cheapest way to make that phase green is to edit the case, which turns
+    a before/after measure into a rewritten history. That is still live for
+    the refusal cases -- they flip when the responder learns to signal a gap.
+
+    After: a case that has flipped has to say what it now measures. A dataset
+    where the reversal is visible only as a changed boolean is one nobody can
+    read the history of, and `expect_research=True` is exactly the boolean.
+    """
     for case in GOLDEN:
-        flips = any(not f.answerable for f in case.followups) or any(
-            f.expect_forced_stop == "no_prior_research" for f in case.followups
-        )
-        if flips:
+        reaches = [f for f in case.followups if f.expect_research]
+        if reaches:
+            assert "reach" in case.why.lower(), (
+                f"{case.id} reaches for new information but its why never says so"
+            )
+        awaiting = [f for f in case.followups if not f.answerable and not f.expect_research]
+        if awaiting:
             assert "Phase 17" in case.why, f"{case.id} flips in Phase 17 but does not say so"
 
 
@@ -795,18 +818,26 @@ def test_seeded_notes_are_recallable_in_the_cases_own_store():
     assert recalled and recalled[-1] >= 1, result.turns[0].state["trace"]
 
 
-def test_a_followup_with_no_prior_notes_stops_honestly():
-    """The `no_prior_research` stop, end to end through the real graph.
+def test_a_followup_with_no_prior_notes_reaches_then_hits_the_guardrail():
+    """The reversal and its limit, end to end through the real graph.
 
     A budget-stopped research turn never reaches the researcher, so its
-    follow-up carries empty notes -- and a follow-up with nothing behind it
-    must stop rather than answer from the model's own knowledge. Every
-    follow-up grader has to call that a pass, because the case says so.
+    follow-up carries empty notes. That used to END the turn; now it sends it
+    to the researcher, which is the honest move -- and the researcher's own
+    spend then blows the case's budget, so the turn stops before any answer.
+    Both halves are load-bearing and neither is visible from the routing table
+    alone: the reach happens through the compiled graph, and the guardrail
+    that outranks it fires on real accumulated cost.
+
+    The trace is asserted as well as the stop, because a reach nobody recorded
+    a reason for is indistinguishable from a routing row that moved by
+    accident -- both produce a researcher entry and a budget stop.
     """
     case = Case(
         id="no-prior-probe",
         task="Produce an exhaustive survey of every agent framework released since 2023.",
-        why="a follow-up with no notes behind it must stop instead of inventing an answer",
+        why="a follow-up with no notes behind it reaches for some, and the budget "
+            "still outranks the reach",
         expect_approved=False,
         expect_forced_stop="budget_exceeded",
         expect_notes_stored=False,
@@ -819,7 +850,8 @@ def test_a_followup_with_no_prior_notes_stops_honestly():
                 question="Which of those is most widely adopted?",
                 answerable=False,
                 expect_approved=False,
-                expect_forced_stop="no_prior_research",
+                expect_research=True,
+                expect_forced_stop="budget_exceeded",
                 answer="(never reached: the run stops before the responder)",
             ),
         ),
@@ -834,12 +866,21 @@ def test_a_followup_with_no_prior_notes_stops_honestly():
 
     assert result.passed, result.failures
     followup = result.turns[1]
-    assert followup.state["forced_stop_reason"] == "no_prior_research"
+    assert followup.state["forced_stop_reason"] == "budget_exceeded"
     assert not followup.state["draft"]
+
+    trace = followup.state["trace"]
+    assert [e for e in trace if e.get("node") == "researcher"], trace
+    assert [
+        e for e in trace
+        if e.get("node") == "supervisor" and e.get("followup_research") == "no_prior_research"
+    ], trace
+
     # By name, not by count: `len(grades) == len(FOLLOWUP_GRADERS)` shrinks in
-    # step with the registry, so it stays green when the grader this case
-    # exists for is dropped. Observed under mutation F.
-    assert "followup_forced_stop" in {g.grader for g in followup.grades}
+    # step with the registry, so it stays green when the graders this case
+    # exists for are dropped. Observed under mutation F.
+    names = {g.grader for g in followup.grades}
+    assert {"followup_forced_stop", "followup_research_bounded", "followup_reach_traced"} <= names
     assert all(g.passed for g in followup.grades), followup.grades
 
 

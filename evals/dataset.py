@@ -847,17 +847,23 @@ GOLDEN: tuple[Case, ...] = (
             ),
         ),
     ),
-    # -- a follow-up with nothing behind it (Phase 17 redefines this stop) --
+    # -- a follow-up with nothing behind it: it reaches, the budget stops it --
     Case(
         id="followup-with-no-prior-research",
         task="Produce a complete catalogue of every vector database released since 2020.",
-        why="A follow-up with no notes behind it must stop and say so rather "
-            "than answer from the model's own knowledge. This stop had no golden "
-            "case at all before this phase; Phase 17 retires or redefines it "
-            "once follow-ups can search, so this is its before-measure.",
+        why="A follow-up with no notes behind it used to stop and say so. Since "
+            "Phase 17 it reaches for the notes it hasn't got -- and this case is "
+            "the reversal and its limit in one run, because a follow-up that "
+            "reaches is a run under the same guardrails as any other. The budget "
+            "catches it after the researcher spends and before any answer, which "
+            "is the order that matters: the guardrail outranks the new route.",
         expect_approved=False,
         expect_forced_stop="budget_exceeded",
-        expect_notes_stored=False,  # the budget stops it before the researcher
+        # Graded on the research turn, which this budget stops before the
+        # researcher. The FOLLOW-UP's pass does store a note -- inside the
+        # researcher, before the supervisor can see what it cost -- so those
+        # notes outlive the stop and the next turn can use them.
+        expect_notes_stored=False,
         expect_topic_type="general",
         budget_usd=0.0000001,
         topic_label="general",
@@ -868,8 +874,15 @@ GOLDEN: tuple[Case, ...] = (
                 question="Which of those is the most widely deployed?",
                 answerable=False,
                 expect_approved=False,
-                expect_forced_stop="no_prior_research",
-                answer="(never reached: the run stops before the responder)",
+                expect_research=True,
+                expect_forced_stop="budget_exceeded",
+                # No `research_notes` script: the research turn never reached
+                # the researcher, so this pass pops `notes` off the head of the
+                # list. Nothing grades that text -- the turn stops before the
+                # responder -- and authoring a second output would put a
+                # transcript in the file that the run does not produce.
+                answer="(never reached: the turn stops on the budget the "
+                       "researcher's own spend blew)",
             ),
         ),
     ),
