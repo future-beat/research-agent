@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: in_progress
-stopped_at: "Completed 15-06-PLAN.md — ADR-0009, the README claim rewrite, the first real recording ($0.2427), and the explicit deferral of the full 40-case run. PHASE 15 IS COMPLETE (6/6) on gsd/phase-15-answer-quality-evals, unpushed. Next: open the phase PR, then Phase 16 (independent critic model)."
+status: planned
+stopped_at: "Phase 16 planned on gsd/phase-16-independent-critic. 4 plans, 4 waves; checker 3 blockers + 3 warnings, all fixed. Next: /gsd:execute-phase 16 (all waves in one go)."
 last_updated: "2026-08-10T02:20:00.000Z"
-last_activity: "2026-08-10 — Phase 15 waves 5 and 6 executed; the phase is complete. Wave 5 shipped the `--record` CLI and its runtime cost preview. Wave 6 recorded ADR-0009 (the replacement guarantee for DEC-20's scope), rewrote the README limitation that had survived four waves, and made the recorder's FIRST LIVE EXECUTION: `technical-figures` recorded for a measured $0.2427 against a $0.2950 preview, committed, and replaying green keyless — offline is now 41/41. Three findings only a real run could produce: the preview's pipeline assumption was a 35% under-quote hidden by a generous judge assumption (corrected; full run $12.78 → $16.51); a CLI test passed only because the fixtures directory was empty; and grounding has a role-blind collision (`4.0` in a note grounds a fabricated `$4` price), now pinned and in the ADR. The full 40-case run is explicitly DEFERRED. Suites 663/65 plain, 727/1 armed."
+last_activity: "2026-08-10 — Phase 16 planned: CRITIC_MODEL with neutral default, four-site threading (attribution is a passed constant, NOT a response echo — the CONTEXT premise was false), fixture models map gains critic with backfill semantics, ADR-0010 supersedes 0005 with the judge rationale re-derived."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,71 +25,35 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 15 of 17 (Answer-quality evals) — **COMPLETE (6/6), awaiting verify + PR**
-Plan: 6 of 6 complete · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged), unpushed
-Status: All six waves executed. The recorder mechanism, the grading vocabulary, the replay
-wiring, the 40-case benchmark, the `--record` CLI with its runtime cost preview, and now
-**a real recording and the record that says what it is worth**. `technical-figures` was
-recorded against the live API on 2026-08-10 for a measured **$0.2427**, committed as
-`evals/fixtures/technical-figures.json`, and it replays green keylessly — the offline run is
-**41/41** and the shipped caveat now prints `recorded 2026-08-10 on claude-sonnet-5
-(225b06b, 0 days ago) — that grades what the pipeline said then, not what the current model
-would say`. ADR-0009 records what may and may not be claimed, per grader and for the
-staleness gate itself. **The full 40-case record run is explicitly DEFERRED** — an operator
-spend decision (~$16.51 now, ~$21.06 from 2026-09-01), stated in the SUMMARY, VALIDATION,
-ROADMAP, REQUIREMENTS and the README, which says fixtures exist for 1 of 40. Suites 663/65
-plain, 727/1 armed, `ruff` clean, `.github/workflows/ci.yml` untouched across the phase.
+Phase: 16 of 17 (Independent critic model) — **PLANNED, not started**
+Plan: 0 of 4 · branch `gsd/phase-16-independent-critic` off clean main (PR #10 merged)
+Status: Planned and verified. Checker: 3 blockers (a wrong arithmetic constant $0.0055 vs
+$0.0060; pin updates split across commits leaving a knowingly-red suite; unmarked research
+resolutions) + 3 warnings (vacuous post-commit git-diff gates — now diff-against-main;
+a DESIGN grep criterion contradicting its own task; the armed suite unnamed) — all fixed.
 
-Progress: [████████░░] 82% (14 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 15: [██████████] 6 of 6 plans — 15-01 … 15-06 complete
+Progress: [█████████░] 88% (15 of 17 phases complete + hotfix; v1.0 shipped)
+Phase 16: [░░░░░░░░░░] 0 of 4 plans — planned
 
-**Carry into Phase 16 (independent critic model):**
-- **The staleness gate will NOT fire on your change, and that is written down.**
-  `grade_fixture_current` compares `fixture["models"]["pipeline"]` against `graph.MODEL` — the
-  writer/researcher model — and nothing else. Making the critic's model independently
-  configurable leaves every recording green with only the printed date hinting that it
-  describes an older pipeline. Closing it needs three things TOGETHER: a per-node entry in the
-  fixture's `models` map, the gate extended to compare it, and the fixtures re-recorded. The
-  map is a map precisely so that is additive. Stated in the gate's docstring, asserted by a
-  test, and in ADR-0009's own cannot-catch section.
-- **Re-recording is not free and not automatic.** One fixture exists. The full 40-case run
-  quotes **$16.51** today and **$21.06** from 2026-09-01 (Sonnet 5's introductory window
-  closes 2026-08-31); `python -m evals --record --yes` is the command, and it previews before
-  it spends. If Phase 16 changes `graph.MODEL`, the one existing fixture goes red and must be
-  re-recorded or deleted — a red replay exits 1 regardless of the pass rate.
-- **DEC-22 was deliberately NOT pre-empted.** ADR-0009 says one thing about the judge: its
-  verdicts are recorded as fixture metadata and replayed as fixed data. The judge's rationale
-  is Phase 16's to re-derive.
-- **`case_pins` over-fits its recording by design.** Re-recording without re-reading the pins
-  leaves assertions about a run that no longer exists. Seven cases pin something today.
-
-**Measured facts to carry (do not re-derive):**
-- Suites: plain **663/65**, armed (local PG :54329) **727/1**. Offline evals **41/41** keyless,
-  exit 0 at `--min-pass-rate 0.9`. `tests/test_evals.py` **147**.
-- Local PG on :54329 is a Homebrew PG 17.10 cluster in the scratchpad started with `LC_ALL=C`
-  (without it the postmaster dies with "became multithreaded during startup"); `docker` is not
-  installed on this machine.
-- A research turn on the real API, cheapest topology (4 calls, 0 revisions): **71,333 input /
-  5,000 output tokens, 5 web searches, $0.2427**, fixture 10 KB. The preview constants were
-  corrected to that measurement and say which of them are still unmeasured (follow-up, judge).
-- **Grounding is role-blind, measured.** `4.0` in the notes ("the earlier 3.x/4.0 model
-  generations") normalises to `4` and grounds a draft restating a `$2` price as `$4`. Green.
-  The same recording reds on 73.3% → 81.9% and 1M → 3M. Pinned by
-  `test_quality_grader_grounding_cannot_see_a_figure_reused_in_another_role`, which asserts
-  both directions so it cannot pass against a grounding grader that has stopped working.
-- **The quality thresholds have now met exactly one real report** and were not moved:
-  coverage 75% against a 0.4 floor, 2,594 chars against a 200–8000 range, grounding clean
-  across 28 extracted figures. One sample, comfortable margins — not validation across the
-  taxonomy.
-- **A test can be green because a directory is empty.** `test_cli_exits_nonzero_when_the_threshold_is_not_met`
-  passed for five waves only because `evals/fixtures/` had nothing in it; the first committed
-  fixture ran the replay-merge line for the first time and it failed with `KeyError: 'cases'`.
-  Every test that reads `FIXTURES_DIR` now redirects it, and that is load-bearing rather than
-  hygiene.
-- Replay still maps fixture turns to `case.followups` **by index**; turn COUNT is checked,
-  question text is not. Deferred through three waves — still open.
-- `--min-pass-rate 0.9` governs 40 behavioural cases: four reds is 90% and exits 0. The replay
-  leg cannot hide (all-must-pass); the behavioural leg can.
+**Carry into execution:**
+- Attribution is a PASSED CONSTANT (graph.py:103), not a response echo. Thread the model
+  through FOUR sites (:96 span, :99 API, :103 record, :111 log). The discriminator: an
+  unpriced CRITIC_MODEL fires pricing_unknown ONLY if the name reached record().
+- Neutral default must be proven byte-identical (full payload dict equality, fresh store
+  per run — a shared InMemoryStore makes run 2 differ for an unrelated reason).
+- Exact-cost tests use UNDATED rows only (opus $5/$25, haiku $1/$5); delta = $0.0060.
+  Sonnet is boundary-dated and forbidden in exact assertions.
+- Fixture gate: backfill (models.get("critic") or models["pipeline"]); pins at
+  test_evals.py:2062 and :1648-1656 are updated IN THE SAME COMMIT as the changes that
+  break them (checker blocker).
+- ADR-0005 supersession is a status-line edit gated by git diff MAIN (working-tree diffs
+  are empty post-commit and pass vacuously). ADR-0002 zero-diff against main.
+- README: whole-file pass; the critic limitation DELETED (grep first for facts living only
+  in the deleted prose); Status list gains the entry.
+- Wave 4: one live run with CRITIC_MODEL=claude-haiku-4-5 (~$0.15–0.25, $0.40 ceiling)
+  authorised; production flip is NOT this phase's.
+- Local PG on :54329 (LC_ALL=C to restart). Baselines: plain 663/65, armed 727/1,
+  offline evals 41/41 keyless.
 
 ## Performance Metrics
 
