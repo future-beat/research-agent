@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: planned
-stopped_at: "Phase 17 planned — the LAST phase, strongest reversal. 4 plans, 4 waves; checker 0 blockers, 3 warnings fixed. Next: /gsd:execute-phase 17 (all waves; the live checkpoint closes the milestone)."
-last_updated: "2026-08-10T04:25:00.000Z"
-last_activity: "2026-08-10 — Phase 17 planned: follow-ups route to research instead of refusing. Grounding redefined honestly (no answer from parametric knowledge, ever), INSUFFICIENT sentinel, one-pass bound, no_prior_research becomes a trace event, ADR-0011 supersedes 0003. Eval mechanics land BEFORE the graph flips because the offline evals drive the real supervisor."
+status: in-progress
+stopped_at: "Completed 17-01-PLAN.md — wave 1 of Phase 17 (eval mechanics, zero behaviour change) is in. Next: 17-02 (the graph flip: routing row 4, the INSUFFICIENT sentinel, append-not-replace notes, the dataset + taxonomy pins in one commit)."
+last_updated: "2026-08-10T19:20:00.000Z"
+last_activity: "2026-08-10 — 17-01 executed: Followup script fields, ScriptedClient pop-lists, grade_followup_research_bounded + grade_followup_reach_traced (did_not_research retired BY DESIGN), and the record preview pricing a reaching follow-up as a research turn. Ten mutation probes; 41/41 keyless before and after; 705/65 plain, 769/1 armed, zero new skips."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 36
-  percent: 70
+  completed_plans: 37
+  percent: 71
 ---
 
 # Project State
@@ -25,18 +25,32 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 17 of 17 (Follow-ups that can reach for new information) — **PLANNED, not started**
-Plan: 0 of 4 · branch `gsd/phase-17-followup-live-search` off clean main (PR #13 merged)
-Status: Planned and verified — checker 0 blockers, 3 warnings fixed (the notable one:
-Phase 16's fixture gate makes any CRITIC_MODEL-exporting shell grade the replay stale BY
-DESIGN, so every eval gate now runs `env -u CRITIC_MODEL`).
+Phase: 17 of 17 (Follow-ups that can reach for new information) — **IN PROGRESS**
+Plan: 1 of 4 complete · branch `gsd/phase-17-followup-live-search` off clean main (PR #13 merged), unpushed
+Status: **Wave 1 in (17-01, 4 commits).** The eval machinery the flips will land on exists
+and every default preserves today's grading: 41/41 keyless before and after, 705/65 plain
+(+13, zero new skips), 769/1 armed, ruff clean. Ten mutation probes, each red on the
+assertion that owns it; two of them (P8, P9) drop the suite to 33/41, which is the proof
+both new graders are actually reached by the 41 cases rather than dead registry weight.
+Every eval gate ran `env -u CRITIC_MODEL ANTHROPIC_API_KEY=""` — Phase 16's fixture gate
+makes any CRITIC_MODEL-exporting shell grade the replay stale BY DESIGN.
 
 Progress: [█████████░] 94% (16 of 17 phases + hotfix; THE LAST PHASE)
 
 **Carry into execution:**
-- Wave ORDER is load-bearing: eval mechanics (wave 1, zero behaviour change) land BEFORE
-  the graph flips, because the offline evals drive the real supervisor and
-  grade_followup_did_not_research reds any flipped behaviour mid-phase.
+- ~~Wave ORDER is load-bearing: eval mechanics (wave 1) land BEFORE the graph flips~~ —
+  **DONE in 17-01.** `grade_followup_did_not_research` is retired; the after-behaviour is
+  already gradeable, so wave 2 can land case + graph + pins in one green commit.
+- Wave 2 owes the supervisor a trace entry `{"node": "supervisor", "followup_research":
+  "no_prior_research" | "notes_insufficient"}` — `grade_followup_reach_traced` reds every
+  flipped case without it, and it rejects any value outside
+  `graders.FOLLOWUP_RESEARCH_REASONS`.
+- The three before-pins wave 2 must rewrite same-commit with the dataset (line numbers as
+  of 17-01, drifted +173 for the last three): `test_dataset_taxonomy_followup_strata`
+  (:171–175), `test_dataset_taxonomy_phase17_flip_cases_are_tagged` (:216–225),
+  `test_a_followup_with_no_prior_notes_stops_honestly` (:798–840). All intact.
+- Preview arithmetic is already correct for reaching cases; wave 2 should not need to
+  touch `evals/__main__.py` or `hand_computed`.
 - The sharpest trap: graph.py:333 REPLACES research_notes — the append pin must be
   observed RED against today's code before the fix.
 - The row flip is destination-invisible; precedence tests pin SIDE EFFECTS, never
@@ -71,6 +85,7 @@ Progress: [█████████░] 94% (16 of 17 phases + hotfix; THE LA
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
 | 15 | 6 of 6 (15-01 … 15-06) | 306min | 51min |
 | 16 | 3 of 4 (16-01, 16-02, 16-03) | 120min | 40min |
+| 17 | 1 of 4 (17-01) | 30min | 30min |
 
 **Recent Trend:**
 
@@ -88,6 +103,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 17-01]: **A grader is not believed until a mutation shows it firing in the real suite.** Unit tests prove a grader's logic; they say nothing about whether the registry reaches it. Two probes here answered that separately by dropping the 41-case run to **33/41** — `grade_followup_reach_traced` firing wrongly on eight non-reach follow-up cases, and `grade_followup_research_bounded` failing them. A grader that passed its unit tests and was never wired would look identical to one that works, and the exact-membership registry pin only proves the *name* is in the tuple. **The suite-level probe is the one that proves the wiring.**
+- [Phase 17-01]: **Retire a property by SCOPING it, not by re-deriving it.** `grade_followup_did_not_research` red any researcher visit on any follow-up; Phase 17 makes that false for the cases that reach. The replacement's `expect_research=False` branch is the **old body verbatim**, so the surviving half is provably the same check rather than something that reads like it. The one-pass branch is bounded on **both** sides — `!= 1`, not `> 1` — because zero passes (the reach never happened, the answer came from somewhere nobody authorised) is as silent a failure as two, and `> 1` would have shipped it ungated. Both halves probed red independently.
+- [Phase 17-01]: **Fix a cost assumption when the topology changes, not when the invoice arrives.** `_assumed_pipeline_cost` priced every follow-up at 6K-in/2K-out with zero web searches; a reaching follow-up runs a research pass. Phase 15 paid $0.24 to discover its quote read 35% low, and the identical failure was structurally available here on a forty-case run. Corrected before any record run, with the calibration comment now stating which class each constant covers and that **both remain unmeasured** — and that a reaching follow-up carries the session transcript on top of what it finds, so if the research constants are wrong for it they are wrong low.
+- [Phase 17-01]: **`grep -rn "16.51"` found zero shipped hits.** The plan predicted this and instructed "the tree wins" either way. No prose outside `.planning/` quotes the old full-run total, so the upward re-quote needed no doc edit. The README fact wave 1 *did* falsify was its test count (690 → **705**, lines 15 and 180) — already two behind before this wave. **Sixth phase family running where a whole-file README pass meant counting something the plan never mentioned.**
 - [Phase 16-03]: **A grep inventory finds the phrasings it was given.** The dead premise ("the critic shares the writer's model") was grep-audited three times — in RESEARCH Finding 6, in the plan, and in VALIDATION — and all three missed the docstring above the `:464` independence pin, which ended "-- the same limitation the in-graph critic already has". No search for the canonical phrasing could see it. It was found by reading the neighbourhood of a site the grep DID find. **The corollary for every future doc-correctness sweep: the grep locates the neighbourhoods, it does not enumerate the sentences.**
 - [Phase 16-03]: **When an operator-facing message names a document, something must check the document exists.** Three tests from 16-02 pin the string `"ADR-0010"` inside the stderr line an operator reads while deciding whether to trust a recording — and nothing checked it resolved to a record. Measured, not assumed: rename the record away and **all four collision tests stay green**. A dangling pointer in an operator message spends the reader's trust and then their time. The new test also holds the second half of the supersession (0005's status line agrees), which converts the one-line-diff gate from a command inside a closing plan into something the suite runs — the same lesson 16-02 drew about the reservation prose, applied to the artefact this plan created.
 - [Phase 16-03]: **ADR-0010 records TWO positions, and both are the user's, not the record's deductions.** The critic-stronger-than-writer stance is quoted verbatim and attributed by name and date, with the note that the research recommended the opposite (defer the flip) — so a later reader cannot mistake it for a conclusion the evidence forced. And **judge == critic is an ACCEPTANCE, not an oversight**: production runs both on `claude-opus-5` deliberately, so a recorded verdict is independent of the WRITER's model and **not** independent of the critic's family. That is the honest narrowing of ADR-0005's independence claim, stated in the record rather than discovered by whoever first noticed two model names were the same string.
@@ -366,8 +385,46 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-09
-Stopped at: **Completed 14-01-PLAN.md — Wave 1 of Phase 14 is in.** Two commits on
+Last session: 2026-08-10
+Stopped at: **Completed 17-01-PLAN.md — wave 1 of Phase 17 is in.** Four commits on
+`gsd/phase-17-followup-live-search`, unpushed: `48b2739` (`Followup.expect_research` /
+`.insufficiency` / `.research_notes`, all no-change defaults; `ScriptedClient` keeps
+researcher outputs in a pop-list and interleaves the `INSUFFICIENT:` sentinel ahead of each
+answer — Pitfall 5 closed), `cf5f814` (`grade_followup_did_not_research` retired BY DESIGN;
+`grade_followup_research_bounded` with the old body verbatim on the `expect_research=False`
+branch and a both-sided one-pass bound on the True branch; `grade_followup_reach_traced`
+grading SC-4's trace event against a named `FOLLOWUP_RESEARCH_REASONS` vocabulary; the
+synthetic-state stop tests moved off the retired `no_prior_research` literal onto
+`budget_exceeded`/`max_revisions_exceeded`), `ba3ac46` (the record preview prices an
+`expect_research` follow-up at the research constants and its five web searches — the 35%
+lesson Phase 15 paid, closed before a record run instead of after one) and `371f086`
+(README 690 → 705 tests).
+**Zero behaviour change, which was the plan's whole point:** offline evals **41/41 keyless**
+before and after; suite **705 passed / 65 skipped** plain against 692/65 and **769 / 1**
+armed against 756/1 — **+13 in both arms, zero new skips**, exactly the thirteen tests
+added. `ruff check` clean. Routing suite 38, untouched. Every eval gate ran
+`env -u CRITIC_MODEL ANTHROPIC_API_KEY=""`.
+**Ten mutation probes against the plan's three**, each red on the assertion that owns it,
+files restored from scratchpad copies rather than git while uncommitted. Two of them (the
+reach-traced early return, the bounded False branch) drop the run to **33/41** — the proof
+that both new graders are reached by the real suite and not dead registry weight, which no
+unit test can establish. **All three `-k` selectors were `--collect-only`'d first**: 5, 8
+and 7 against minimums of 3, 6 and 1.
+**The three wave-2-owned before-pins survive intact** (`test_dataset_taxonomy_followup_strata`,
+`test_dataset_taxonomy_phase17_flip_cases_are_tagged`,
+`test_a_followup_with_no_prior_notes_stops_honestly`); weakening them a wave early is
+Pitfall 4 and would leave the dataset flip ungated. Their `no_prior_research` literals are
+the only ones left in `tests/test_evals.py` apart from two history-stating prose mentions.
+**README deliberately part-unchanged.** Line 99's "no new search", line 155's routing row
+and line 254's limitation are still true of the shipped graph today; waves 2 and 4 own
+them, and the limitation is wave 4's to DELETE.
+Next: **17-02** — the graph flip. Routing row 4 to the researcher, the `INSUFFICIENT:`
+sentinel parsed like `APPROVED`/`REVISE:`, **append-not-replace** at graph.py:333 (pin
+observed RED against today's code first), the supervisor emitting `followup_research`, the
+four golden cases and their taxonomy pins in one commit.
+Resume file: None
+
+Superseded — previously recorded session: **Completed 14-01-PLAN.md — Wave 1 of Phase 14 is in.** Two commits on
 `gsd/phase-14-real-cost-accounting`: `b79d506` (`CallUsage.inference_geo` captured from the response
 with the file's defensive `getattr`; `cost_discount_factor()` / `inference_geo_multiplier()` reading
 the env per call with a `> 0` clamp; `_geo_factor()` returning 1.0 for `""`/`"global"`, the env rate
