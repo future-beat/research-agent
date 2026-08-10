@@ -1,6 +1,6 @@
 # ADR-0005 — The eval judge runs on a stronger model than the pipeline and returns a structured verdict
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0010 (Phase 16)
 **Promoted from:** `docs/DESIGN.md` § Testing — "The judge runs on a different, stronger model than the pipeline" (DEC-22)
 
 ## Context
