@@ -423,6 +423,31 @@ def test_precedence_the_insufficiency_row_is_followup_only():
     assert reach_reasons(result) == []
 
 
+@pytest.mark.parametrize("overrides", [
+    {},
+    {"topic_type": "technical"},
+    {"topic_type": "technical", "research_notes": "n"},
+    {"topic_type": "technical", "research_notes": "n", "draft": "d"},
+    {"topic_type": "technical", "research_notes": "n", "draft": "d",
+     "reviewed": True, "approved": False},
+    {"topic_type": "technical", "research_notes": "n", "draft": "d",
+     "reviewed": True, "approved": True},
+    {"topic_type": "technical", "research_notes": "n", "notes_insufficient": True},
+    {"topic_type": "technical", "research_notes": "n", "followup_research_done": True},
+])
+def test_the_responder_is_unreachable_outside_followup_mode(overrides):
+    """The premise the responder's sentinel gate rests on.
+
+    `responder_node` decides pre- vs post-research on `followup_research_done`
+    alone, with no `mode` check -- and asks for the sentinel whenever that flag
+    is False. That is safe only because the one row that can name the responder
+    resolves to the WRITER in research mode. If a future row ever routes to the
+    responder directly, a research run starts being prompted for a routing
+    signal nothing in that mode consumes, and this test is what says so.
+    """
+    assert supervisor_node(state(**overrides))["next_step"] != "responder"
+
+
 # --------------------------------------------------------------------------
 # Guardrails: these outrank every routing rule above
 # --------------------------------------------------------------------------

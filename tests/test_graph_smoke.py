@@ -379,6 +379,33 @@ def test_one_pass_bound_post_research_sentinel_is_an_ordinary_draft(fake_client)
     assert client.nodes_called().count("researcher") == 1  # and no second pass
 
 
+def test_the_sentinel_is_asked_for_only_before_the_pass(fake_client):
+    """The prompt half of the identical gating.
+
+    The parse only ever reads a sentinel out of a response the prompt asked
+    for. That is a claim about two branches at once, and only the prompts can
+    show the first of them: before the pass the responder is told to signal,
+    after it the wording is the pre-Phase-17 one verbatim, because by then
+    saying so plainly IS the answer.
+    """
+    client = fake_client(responder_answers=[
+        SENTINEL_REPLY, "a grounded answer from the enlarged notes",
+    ])
+
+    app.invoke(_followup_over_notes())
+
+    before, after = [p for node, p in client.calls if node == "responder"]
+    assert "INSUFFICIENT: " in before
+    assert "say plainly" not in before
+    assert "say plainly that the research didn't cover it" in after
+    assert "INSUFFICIENT" not in after
+    # And the line the eval harness dispatches the responder on survives both
+    # branches -- rewriting it would make every scripted follow-up case fall
+    # through to the writer's reply.
+    assert "follow-up question" in before
+    assert "follow-up question" in after
+
+
 def test_grounding_survives_followup_research(fake_client):
     """SC-3: no path ships an answer the critic has not reviewed.
 

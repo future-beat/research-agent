@@ -415,19 +415,47 @@ def _conversation_block(state: AgentState) -> str:
     return f"\n\nEarlier follow-up questions in this conversation:\n{turns}"
 
 
+INSUFFICIENCY_SENTINEL = "INSUFFICIENT:"
+
+
 @retry_node("responder")
 def responder_node(state: AgentState) -> AgentState:
-    """Answer a follow-up question from the previous run's notes and report.
+    """Answer a follow-up question from the notes -- or say they cannot.
 
-    Structurally this is the writer's twin -- it writes into state["draft"] so
-    the critic can grade it with the same rubric -- but it never searches. If
-    the notes don't cover the question, saying so is the correct answer; that
-    honesty is what the critic is there to enforce.
+    Structurally this is the writer's twin: it writes into state["draft"] so
+    the critic grades an answer with the same rubric it grades a report with.
+    It has exactly two alternatives, and neither of them is guessing:
+
+    1. answer from the notes and the report, or
+    2. signal that the notes do not cover the question.
+
+    Before this turn has spent its research pass, (2) is the sentinel below --
+    a flag, not a draft. It ROUTES: the supervisor sends the turn to the
+    researcher, and the window between the signal and the new notes produces
+    no answer at all. After the pass it is prose -- "the research didn't cover
+    that" is the honest answer once looking has been tried, and it ships as a
+    draft the critic reviews like any other.
+
+    So this node no longer "never searches"; what it never does is answer from
+    the model's own knowledge, which was always the property that mattered.
     """
     is_revision = bool(state["critic_feedback"])
     feedback_block = (
         f"\n\nPrevious critic feedback to address:\n{state['critic_feedback']}"
         if is_revision else ""
+    )
+    # ONE boolean for both the prompt branch and the parse below. Gating them
+    # separately is the bug that writes itself: a parse that outlives its
+    # prompt turns a stray post-research "INSUFFICIENT:" -- text the model was
+    # never asked for -- into a routing input.
+    pre_research = not state["followup_research_done"]
+    gap_instruction = (
+        f"If the notes do not cover what was asked, respond with exactly "
+        f"'{INSUFFICIENCY_SENTINEL} ' followed by one line naming what is "
+        f"missing. Never answer from your own knowledge."
+        if pre_research else
+        "If the notes do not cover what was asked, say plainly "
+        "that the research didn't cover it rather than guessing."
     )
     response = call_model(
         state,
@@ -444,13 +472,25 @@ def responder_node(state: AgentState) -> AgentState:
                 f"The user is now asking a follow-up question: {state['task']}\n\n"
                 f"Answer it directly and concisely, using only the research notes "
                 f"and the report above. Do not introduce facts from your own "
-                f"knowledge. If the notes do not cover what was asked, say plainly "
-                f"that the research didn't cover it rather than guessing."
+                f"knowledge. {gap_instruction}"
                 f"{feedback_block}"
             ),
         }],
     )
     answer = _text(response)
+
+    if pre_research and answer.strip().startswith(INSUFFICIENCY_SENTINEL):
+        # The signal sets a flag and does nothing else. `draft` is left
+        # untouched -- the sentinel text is never a draft, so it reaches
+        # neither the critic nor the caller -- and `reviewed`, `revision_count`
+        # and the usual trace entry are all skipped, because no answer was
+        # produced to review, revise or measure. Parsed by fixed prefix, which
+        # is exactly how `approved` is read off the critic; the supervisor
+        # still routes on plain state (ADR-0001).
+        state["notes_insufficient"] = True
+        state["trace"].append({"node": "responder", "insufficient": True})
+        return state
+
     state["draft"] = answer
     state["reviewed"] = False
     if is_revision:
