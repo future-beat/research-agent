@@ -1,6 +1,6 @@
 # ADR-0003 — Follow-ups reuse the critic; a follow-up with no prior notes stops with `no_prior_research`
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0011 (Phase 17)
 **Promoted from:** `docs/DESIGN.md` § The graph — "Follow-ups reuse the critic instead of bypassing it" (DEC-04)
 
 ## Context
