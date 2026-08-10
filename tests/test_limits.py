@@ -5,6 +5,7 @@ The service is publicly reachable with live API keys, so these are the tests
 that stand between a shared URL and someone else's Anthropic bill.
 """
 
+import pathlib
 import threading
 import time
 
@@ -679,3 +680,47 @@ def test_status_never_reveals_the_token(monkeypatch):
     monkeypatch.setenv("DEMO_TOKEN", "s3cret")
     assert "s3cret" not in str(limits.status(FakeMetrics()))
     assert limits.status(FakeMetrics())["token_required"] is True
+
+
+# --------------------------------------------------------------------------
+# The reservation estimate: what it is sized on, and what it refuses to know
+# --------------------------------------------------------------------------
+
+
+def test_reservation_threshold_stays_flat_and_model_unaware(monkeypatch):
+    """Phase 16 put the critic on its own model and production pins it to
+    claude-opus-5, which raises a typical run to ~$0.18. The reservation did
+    not move, and this pins that it cannot move by itself: `reserved_run_usd`
+    reads one env var and nothing else. It has been proposed twice that the
+    estimate become model-aware (`base + critic_premium()`); both times the
+    answer was no, because `limits.py` importing the price table and the graph
+    to sharpen an ADMISSION estimate -- when settlement is already real cost --
+    buys a dependency and nothing else."""
+    monkeypatch.delenv("DEMO_RESERVED_RUN_USD", raising=False)
+
+    monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
+    assert limits.reserved_run_usd() == 0.20
+    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
+    assert limits.reserved_run_usd() == 0.20
+
+    # The knob the docstring points at is the one that does move it.
+    monkeypatch.setenv("DEMO_RESERVED_RUN_USD", "0.30")
+    assert limits.reserved_run_usd() == 0.30
+
+    source = pathlib.Path(limits.__file__).read_text()
+    assert "from research_agent import usage" not in source
+    assert "import graph" not in source
+
+
+def test_reservation_threshold_docstring_names_what_would_break_it():
+    """The reservation is documented, not enforced -- so the documentation is
+    the deliverable and deserves a gate of its own. It has to say three things
+    an operator cannot derive from the number `0.20`: what the deployed critic
+    costs, that the fully-revised tail is outside the estimate on purpose, and
+    that the date is what actually breaks it."""
+    doc = limits.reserved_run_usd.__doc__ or ""
+
+    assert "CRITIC_MODEL" in doc and "claude-opus-5" in doc
+    assert "0.18" in doc and "0.28" in doc  # typical under, revised tail over
+    assert "2026-09-01" in doc  # the Sonnet boundary, which needs no critic
+    assert "0.30" in doc  # what to raise it to when a threshold is crossed

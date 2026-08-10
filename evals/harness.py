@@ -25,6 +25,7 @@ from __future__ import annotations
 import contextlib
 import os
 import pathlib
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -607,6 +608,44 @@ def _per_case_memory(memory_factory):
     return per_case
 
 
+def _state_judge_critic_relation(judge: G.Judge | None) -> None:
+    """Say it out loud, once per record run, when the judge and the in-graph
+    critic are the same model.
+
+    This is a STATEMENT OF FACT about what the recordings can claim, not a
+    complaint about how the machine is set up -- and the distinction matters
+    because it fires on the DEPLOYED configuration: `JUDGE_MODEL` defaults to
+    claude-opus-5 and Phase 16's cutover pins `CRITIC_MODEL` to claude-opus-5
+    too, deliberately, so the critic is more capable than the writer it gates.
+    Every record run made against production's configuration sees this line.
+    Wording it as a misconfiguration would train the operator to ignore the one
+    line that tells them what their fixtures are worth.
+
+    What it narrows: ADR-0005 claimed the judge is independent of the pipeline.
+    ADR-0010 keeps the load-bearing half -- the judge never shares the WRITER's
+    model, pinned at `JUDGE_MODEL != graph.MODEL` -- and records the other half
+    as accepted rather than met: a grounding failure the critic waved through
+    is likelier to be one the judge waves through too, because the same model
+    is looking at it twice.
+
+    Not an exception and not a refusal: both variables are legitimate operator
+    knobs and this combination is the chosen one. Policy belongs in the record,
+    not in a crash.
+    """
+    if judge is None:
+        return
+    critic = graph.critic_model()
+    if judge.model != critic:
+        return
+    print(
+        f"note: the judge and the in-graph critic both run on {critic}. These recorded "
+        "verdicts are independent of the writer's model and not of the critic's -- what "
+        "one waves through, the other is likelier to wave through. This is the deployed "
+        "configuration and it is accepted, recorded in ADR-0010.",
+        file=sys.stderr,
+    )
+
+
 def record_suite(
     cases,
     *,
@@ -625,6 +664,11 @@ def record_suite(
     behind it, and hiding it would commit a partial recording set that looks
     complete.
     """
+    # Once per run, before the loop: what these forty recordings will and will
+    # not be able to claim is worth knowing before they are paid for, and
+    # per-case it would print forty times and be read none.
+    _state_judge_critic_relation(judge)
+
     guarded = _per_case_memory(memory_factory)
     # Before anything is spent, not after: a factory that hands out one shared
     # store would poison all forty recordings, and finding that out on case

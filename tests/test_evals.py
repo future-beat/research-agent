@@ -2201,6 +2201,69 @@ def test_record_writes_the_models_map_critic_from_the_environment(tmp_path, monk
     assert fixture["models"]["pipeline"] == graph.MODEL
 
 
+def test_judge_critic_collision_warning_fires_once_per_run(tmp_path, monkeypatch, capsys):
+    """`FakeJudge` grades on claude-opus-5 and production pins the critic to
+    claude-opus-5, so this is the DEPLOYED configuration, not a contrived one.
+    Once per run, not once per case: two cases here, one line."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
+
+    record_with_fakes(["technical-figures", "followups-chain"], tmp_path)
+
+    err = capsys.readouterr().err
+    assert err.count("both run on claude-opus-5") == 1
+    assert "ADR-0010" in err
+
+
+def test_judge_critic_collision_warning_is_silent_when_they_differ(tmp_path, monkeypatch, capsys):
+    """The silent twin. Without it the test above proves only that the recorder
+    prints something, not that the collision is what it prints about."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
+
+    record_with_fakes(["technical-figures"], tmp_path)
+
+    err = capsys.readouterr().err
+    assert "both run on" not in err and "ADR-0010" not in err
+
+
+def test_judge_critic_collision_warning_states_a_fact_not_a_fault(tmp_path, monkeypatch, capsys):
+    """The wording is the deliverable here, not decoration. This line fires on
+    the configuration Hesam chose -- the critic is deliberately more capable
+    than the writer it gates, which puts it on the judge's model -- so calling
+    it a misconfiguration would be telling the operator their own decision is a
+    mistake, every single record run, until they learn to skip the line. It
+    names the shared model, says what the verdicts can still claim, and points
+    at the record that accepted it."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
+
+    record_with_fakes(["technical-figures"], tmp_path)
+
+    err = capsys.readouterr().err.lower()
+    assert "claude-opus-5" in err and "adr-0010" in err
+    for fault in ("misconfig", "error", "invalid", "should not", "must not", "fix"):
+        assert fault not in err, f"the collision line implies fault: {fault!r}"
+    # And it says what it is: accepted, deployed, not a defect.
+    assert "accepted" in err and "deployed" in err
+
+
+def test_judge_critic_collision_warning_leaves_the_judgeless_refusal_intact(tmp_path, capsys):
+    """The collision line reads `judge.model`, and it runs BEFORE the loop that
+    refuses a judgeless recording -- so a missing None guard would turn a
+    stated programming error into an AttributeError from a line that only
+    exists to print a note. The existing judgeless test drives
+    `record_case_to_fixture` and cannot see this."""
+    with pytest.raises(ValueError, match="judge"):
+        record_suite(
+            [by_id("technical-figures")],
+            client_factory=offline_client_factory,
+            memory_factory=offline_memory_factory,
+            judge=None,
+            directory=tmp_path,
+        )
+
+    assert "both run on" not in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_record_refuses_a_failing_case_and_continues(tmp_path):
     """One red recording does not end a paid loop, and it does not get
     committed either. The cases behind it are still worth their money."""
