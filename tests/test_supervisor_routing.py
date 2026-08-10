@@ -142,6 +142,36 @@ def test_followup_no_notes_routes_to_researcher():
     }
 
 
+def test_a_fresh_run_has_reached_for_nothing_yet():
+    s = initial_state("why?")
+    assert s["notes_insufficient"] is False
+    assert s["followup_research_done"] is False
+
+
+def test_every_followup_turn_gets_its_own_research_allowance():
+    """The one-pass bound is per TURN, and that is the design, not a leak.
+
+    A follow-up turn is a new run with its own run_id, its own budget and its
+    own reservation; it gets a fresh pass allowance on the same reasoning. The
+    flags come from `initial_state`, which `followup_state` builds on -- so
+    even a previous turn that spent its pass hands the next one a clean slate,
+    and nothing is read off `previous` (a state blob written before this phase
+    has neither key).
+    """
+    prior = state(research_notes="notes", draft="report")
+    prior.update({"notes_insufficient": True, "followup_research_done": True})
+
+    s = followup_state(prior, "and?")
+    assert s["notes_insufficient"] is False
+    assert s["followup_research_done"] is False
+
+    legacy = {k: v for k, v in prior.items()
+              if k not in ("notes_insufficient", "followup_research_done")}
+    fresh = followup_state(legacy, "and?")
+    assert fresh["notes_insufficient"] is False
+    assert fresh["followup_research_done"] is False
+
+
 def test_followup_state_carries_notes_and_report_forward():
     prior = state(research_notes="the notes", draft="the report", topic_type="contested")
     s = followup_state(prior, "and the second point?")
