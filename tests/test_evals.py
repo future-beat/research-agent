@@ -2245,6 +2245,25 @@ def test_judge_critic_collision_warning_states_a_fact_not_a_fault(tmp_path, monk
     assert "accepted" in err and "deployed" in err
 
 
+def test_judge_critic_collision_warning_points_at_a_record_that_exists():
+    """The three tests above pin a *string*, `ADR-0010`, in a line an operator
+    reads at the moment they are deciding whether to trust a recording. Nothing
+    checked that the string resolves to anything. A dangling pointer in an
+    operator-facing message is worse than no pointer: it spends the reader's
+    trust and then their time.
+
+    So: the record exists, it is the one that supersedes ADR-0005, and 0005's
+    own status line agrees. The supersession is a two-file claim and this is
+    the only thing in the tree that holds both halves together -- the
+    one-line-diff gate on 0005 lived in a plan, and plans stop being run."""
+    adr = pathlib.Path(__file__).resolve().parent.parent / "docs" / "adr"
+    record = adr / "0010-judge-rederived-for-an-independent-critic.md"
+
+    assert record.exists(), "record mode names ADR-0010; no such record on disk"
+    assert "supersedes ADR-0005" in record.read_text()
+    assert "Superseded by ADR-0010" in (adr / "0005-opus-5-eval-judge.md").read_text()
+
+
 def test_judge_critic_collision_warning_leaves_the_judgeless_refusal_intact(tmp_path, capsys):
     """The collision line reads `judge.model`, and it runs BEFORE the loop that
     refuses a judgeless recording -- so a missing None guard would turn a
