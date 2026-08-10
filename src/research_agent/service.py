@@ -698,7 +698,7 @@ def ask(
     metrics: MetricsStore = Depends(get_metrics),
     limits_store: LimitsStore = Depends(get_limits),
 ) -> RunResponse:
-    """Follow up on a session's research notes. No new web search.
+    """Follow up on a session's research notes; one fresh search if they fall short.
 
     Ownership is enforced HERE rather than by adding the session-tree
     dependency to this route. The dependency set stays grouped by what it
@@ -717,8 +717,10 @@ def ask(
         return session_id
 
     run = followup_state(session.state, body.cleaned(), owner=owner)
-    # A follow-up is cheaper than a research run, not free -- so it reserves
-    # too. Forgetting it here is the specific regression the four-route gate in
+    # A follow-up reserves too. It used to be cheap by construction; since
+    # Phase 17 a follow-up whose notes cannot answer runs a research pass and
+    # costs like one, so this line matters more than it did, not less.
+    # Forgetting it here is the specific regression the four-route gate in
     # tests/test_service.py exists to catch.
     limits.reserve_or_429(limits_store, run["run_id"], owner, metrics)
     _, state = _execute(run, metrics, limits_store, on_complete)

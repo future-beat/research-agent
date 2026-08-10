@@ -26,7 +26,7 @@ the demo link never signs up for anything.
 
 - [x] **1 — Core loop.** Supervisor pattern: classifier, researcher, writer, critic. Routing is deterministic Python over state, not a model call.
 - [x] **2 — Memory.** Voyage embeddings, cosine recall with a relevance floor, persisted across runs.
-- [x] **3 — Conversation & resilience.** Follow-ups over prior notes; pluggable stores; per-node retry with jittered backoff.
+- [x] **3 — Conversation & resilience.** Follow-ups over prior notes; pluggable stores; per-node retry with jittered backoff. *(A follow-up reaches for new notes when the old ones can't answer now — see 17.)*
 - [x] **4 — Service.** FastAPI, blocking and SSE, sessions that survive a restart.
 - [x] **5 — Cost & observability.** Date-aware price table, spend cap as a routing rule, JSON logs, `/metrics`.
 - [x] **6 — Evals.** Golden set with deterministic graders plus an LLM judge on a stronger model. Found a real bug on its first run. *(Twelve cases then; forty now — see 15.)*
@@ -45,6 +45,7 @@ README used to list as a known gap, or reverses a design decision on purpose.
 - [x] **14 — Real cost accounting.** A negotiated discount and the `inference_geo` multiplier feed cost, applied at one choke point; Voyage embedding spend is counted for the first time; `/pricing` shows which multipliers are in effect and what the next rate window is.
 - [x] **15 — Answer-quality evals.** Forty golden cases, and real recorded answers graded deterministically, keylessly, free on every push. What that can and cannot claim is written down rather than implied.
 - [x] **16 — Independent critic.** `CRITIC_MODEL` gives the critic its own model, priced per node at every place a model is named, and production pins it to Opus 5 — the gate now runs on a *more capable* model than the writer it checks. The eval judge's rationale is re-derived rather than inherited, including what the choice costs in independence ([ADR-0010](docs/adr/0010-judge-rederived-for-an-independent-critic.md)).
+- [x] **17 — Follow-ups reach for new information.** A follow-up whose notes can't answer no longer refuses: the responder signals the gap, and that signal routes the turn to the researcher for exactly one pass. Grounding is unchanged and was never what was being given up — an answer still comes only from notes the critic reviewed, and the window in between ships nothing at all. This closes the last of the nine limitations v1.0 listed ([ADR-0011](docs/adr/0011-followups-reach-for-new-information.md), superseding ADR-0003 — the sharpest reversal in the milestone).
 
 ---
 
@@ -96,7 +97,7 @@ never pulls it. A worker that imports the graph never pulls in a web server.
 |---|---|---|
 | `GET` | `/` | Demo page in a browser, JSON index to `curl` |
 | `POST` | `/research` · `/research/stream` | Full pipeline; blocking or SSE |
-| `POST` | `/sessions/{id}/ask` · `/ask/stream` | Follow-up from that session's notes — no new search |
+| `POST` | `/sessions/{id}/ask` · `/ask/stream` | Follow-up from that session's notes; one fresh search when they can't answer |
 | `GET` | `/sessions` · `/sessions/{id}` · `/{id}/trace` | Session list, thread, node-by-node trace — your own sessions; `X-Demo-Token` lists everyone's |
 | `DELETE` | `/sessions/{id}` | Delete a session — the owner, or `X-Demo-Token` |
 | `GET` | `/health` · `/ready` | Liveness (always 200) · readiness (503 when a store is down) |
@@ -169,6 +170,17 @@ over-budget follow-up still ENDs with its own reason and never researches, and
 a follow-up never classifies a topic it already inherited. `no_prior_research`
 names a row that reaches, recorded on the supervisor's trace entry — it is not
 a stop reason.
+
+Those two rows are worth spelling out, because they replace something this
+README used to list as a limitation. A follow-up whose notes can't answer the
+question neither guesses nor gives up: the responder signals the gap, that
+signal *routes* instead of shipping, and no text reaches the caller until the
+researcher has gathered and the critic has reviewed. Grounding never meant "no
+new search" — it meant the answer comes only from notes the critic checked, and
+that is untouched. One pass per turn, deliberately: if the answer still isn't
+in the notes after looking, "the research didn't cover that" is the answer, and
+the trace shows the attempt. Recorded as
+[ADR-0011](docs/adr/0011-followups-reach-for-new-information.md).
 
 The classifier's label isn't cosmetic — it selects the researcher's strategy
 *and* the critic's rubric. A `technical` run gets hunted for numbers absent
@@ -255,9 +267,12 @@ migration, CI, the embedding-migration procedure, and the full configuration tab
 
 ## Limitations
 
-Known, and deliberate for the scope.
+Known, and deliberate for the scope. **The v1.0 README listed nine limitations,
+and v1.1 has now closed all nine** — the last of them in phase 17, where
+follow-ups stopped being unable to reach for new information. Several were
+closed by narrowing rather than erasing, so their narrower successors are still
+here; everything below is one of those or a limit the v1.1 work created.
 
-- **Follow-ups can't reach for new information.** By design: a follow-up needing a fresh search gets "the research didn't cover that" rather than an answer.
 - **The eval judge shares the critic's model.** Production runs the critic on Opus 5 — a more capable model than the Sonnet 5 writer it gates — and the judge on Opus 5 too, so a recorded verdict is independent of the writer's model and not of the critic's ([ADR-0010](docs/adr/0010-judge-rederived-for-an-independent-critic.md)).
 - **Only one of forty answers is recorded.** Offline runs grade real recorded answers, but recording costs real money and only the calibration case has been run. Until the rest are recorded, the suite claims one measured answer, not a benchmark — and even then it reports what the pipeline said on a stated date and model, never what the model would say today. `--live` is the only thing that answers that. [ADR-0009](docs/adr/0009-recorded-answer-quality-evals.md) states what each grader can and cannot see.
 - **Reported cost is an approximation, never the invoice.** Nothing here reads a bill. Provider token counts are telemetry — measured live, Voyage reported 25 tokens where the tokenizer counted 40, and 0 for a one-word document that embedded fine. `/pricing` shows the rate window and multipliers in effect; read it there, not from a number in a document.
