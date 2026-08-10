@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: in-progress
-stopped_at: "Completed 17-03-PLAN.md — path 2 is live: the responder's INSUFFICIENT: sentinel sets the flag, the draft stays empty, and row 5 routes ONE research pass; the three path-2 golden cases flipped with their taxonomy pins in the same commit; no_prior_research is out of every shipped code surface's stop vocabulary. Next: 17-04 (ADR-0011 supersedes ADR-0003, README whole-file pass with the limitation DELETED, demo copy + its pin, live closing checkpoint record-or-defer)."
-last_updated: "2026-08-10T20:40:00.000Z"
-last_activity: "2026-08-10 — 17-03 executed: one boolean gates the responder's prompt branch AND its sentinel parse, the signal returns before any answer-shaped state is written, and the one-pass bound is proven on both halves (honest tail ships critic-reviewed with the attempt; a post-research sentinel is an ordinary draft). Four behaviour pins observed RED first — the shipped responder was handing the sentinel to the critic and to the caller. critic_node byte-identical to main (md5). Three path-2 cases flipped (A1 honoured), row 5 now fires end to end. Thirteen probes; Q1/Q2/Q4 drop the real run to 40/41. 735/65 plain, 799/1 armed, 41/41 keyless, routing 52→60, smoke 37→43, zero new skips."
+stopped_at: "17-04 Tasks 1–2 complete, Task 3 UNSTARTED by instruction (it runs post-merge; the PR is not open). ADR-0011 is Accepted and supersedes ADR-0003 with wave 3's own measurement as its argument; ADR-0003 changed exactly one line (numstat 1/1 vs main, re-checked post-commit) and ADR-0002 is zero-diff; the index arithmetic is verified against its own table and three stale paragraphs were rewritten, not one; README's follow-up limitation is DELETED and the original nine-limitation list is closed and said so in two places. Next: 17-04 Task 3, the live closing checkpoint (~$0.35–0.45, ceiling $0.60, record-or-defer), then the phase PR."
+last_updated: "2026-08-10T22:15:00.000Z"
+last_activity: "2026-08-10 — 17-04 Tasks 1–2 executed: the record and the 11-location sweep, which is now at zero on every tracked surface. ADR-0011 leads with the RED-first discovery that under ADR-0003 the refusal text WAS the shipped draft, critic-approved because it claimed nothing — the strongest case for the reversal, and the measured reason critic-as-detector is rejected. The one-pass bound is named as the new deliberate limit; no_prior_research is redefined as a trace event, not retired; ADR-0002 is reaffirmed by citation and untouched. Eleven mutation probes against a plan that named none, and two of them found vacuous gates: A5 (table row drifts, every literal grep stays green) and B5 (closure sentence deleted, grep -ci nine stays nonzero). SC-6 is proven by AST equality modulo docstrings against main rather than by hunk count — B1 shows a routing `if` landing inside the same hunk as the prose edit. 735/65 plain, 799/1 armed, 41/41 keyless, routing 60, ruff clean, CI diff 0, ADRs 10→11, zero test delta."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -26,7 +26,32 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 17 of 17 (Follow-ups that can reach for new information) — **IN PROGRESS**
-Plan: 3 of 4 complete · branch `gsd/phase-17-followup-live-search` off clean main (PR #13 merged), unpushed
+Plan: 3 of 4 complete · **17-04 Tasks 1–2 done, Task 3 (the live checkpoint) UNSTARTED** ·
+branch `gsd/phase-17-followup-live-search` off clean main (PR #13 merged), unpushed
+
+**Wave 4 (17-04 Tasks 1–2, `25c34d7` / `b2d6ccd` / `1ffebe7`): the record and the sweep.**
+ADR-0011 is `Accepted — supersedes ADR-0003`, and it leads with **wave 3's measurement**
+rather than the design argument, because that is the stronger case: under ADR-0003 the
+refusal text WAS the shipped draft, and the critic approved it — correctly, since a sentence
+that asserts nothing cannot be an unsupported assertion — so the pipeline's one quality gate
+was at its most vacuous exactly where a reader needed it. The record separates **what dies**
+("no searches after session start", the `no_prior_research` END, the README limitation) from
+**what survives** (ADR-0002 reaffirmed by citation and **zero-diff**; the replacement
+guarantee is the *window*, which is a property of control flow rather than a promise), names
+**the one-pass bound as its own deliberate limit**, and records `no_prior_research` as
+**redefined, not retired**. ADR-0003 loses exactly one line — numstat `1	1` against **main**,
+re-checked POST-commit because a working-tree diff is empty then and passes vacuously.
+**Three index paragraphs went stale with the eleventh record, not one**, and the arithmetic
+is verified against the table by a checker rather than grepped. README: the limitation
+**DELETED**, with grep-before-delete finding one fact that lived only there (*"the research
+didn't cover that"*, still true after a pass) and relocating it; the nine-list closure said
+in § Limitations **and** § Status 17, checked against `3acaec7`'s nine bullet headings.
+**Eleven probes against a plan that named none**, two of which found vacuous gates (A5, B5),
+and **SC-6 proven by AST equality modulo docstrings against main** after B1 showed a routing
+`if` landing inside the same hunk as a prose edit. Suites **735/65** plain and **799/1**
+armed — **zero delta, no tests added** — evals 41/41 keyless, routing 60, ruff clean, CI diff
+0, ADRs 10 → **11**.
+
 Status: **Waves 1–3 in (17-01 4 commits, 17-02 5 commits, 17-03 5 commits). Both paths of
 the reversal now work end to end.** Path 1 landed in wave 2; path 2 landed here: the
 responder signals with the critic's own `INSUFFICIENT:` idiom, **one boolean gates the
@@ -106,7 +131,7 @@ Progress: [█████████░] 94% (16 of 17 phases + hotfix; THE LA
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
 | 15 | 6 of 6 (15-01 … 15-06) | 306min | 51min |
 | 16 | 3 of 4 (16-01, 16-02, 16-03) | 120min | 40min |
-| 17 | 3 of 4 (17-01, 17-02, 17-03) | 110min | 37min |
+| 17 | 3 of 4 (17-01, 17-02, 17-03; 17-04 Tasks 1–2 only, T3 unstarted) | 165min | 41min |
 
 **Recent Trend:**
 
@@ -307,9 +332,22 @@ Recent decisions affecting current work:
 - [Phase 12-06]: **Never `git checkout` a file to revert a mutation while uncommitted work sits on it.** A mutation script failed silently (`python` is not on `PATH` in this environment — only `.venv/bin/python`), and the `git checkout --` that "reverted" it discarded a real uncommitted edit instead. Use a file copy as the restore point.
 - [Phase 12-06]: **12-06 Task 4 (the live cutover) is deferred by the user and unstarted.** Criterion 6 is therefore proven **statically** against the served file, not in a real browser against the deployed service; two-machine identity continuity is untested; and `IDENTITY_SIGNING_SECRET` is unset in production, so the fleet mints per-process ephemeral identities. `/health`'s new `credentials.identity_signing` is what makes that visible.
 
+- [Phase 17-04]: **A gate that greps for the string you just typed is not a gate.** The ADR index's counting prose was verified by a checker that reads the TABLE and derives the numbers (11 records, 8 Accepted, 3 supersessions, files-on-disk cross-checked, and every superseded row's target required to say `supersedes` back). Probe A5 moves a table row and leaves the prose alone: **both of the plan's literal greps stay green** while the checker reds on both count clauses. The same shape bit the README closure — probe B5 deletes the § Limitations sentence and `grep -ci "nine"` stays nonzero, because § Status also says it.
+- [Phase 17-04]: **Prove a "no code changed" claim on the code, not on the diff.** SC-6's gate was "exactly one docstring hunk", but hunk counts are a property of *adjacency*: probe B1 inserts `if not run["research_notes"]: run["next_step"] = "researcher"` beside a comment edit and it lands **inside the same hunk**, leaving the count unchanged. Comparing the two files' ASTs with docstrings stripped (comments never reach an AST) makes the same claim where it cannot be gamed — identical at 71291 chars.
+- [Phase 17-04]: **A supersession makes more prose stale than the record it names.** Flipping ADR-0003 falsified three paragraphs in the index, not one: the counting sentence, the "remaining *expected* supersessions" sentence (0003 held the **only** forecast, so the sentence began describing an empty set), and *Reading a superseded record*, which enumerates superseded records by name. Grep the index for every sentence that counts, forecasts or enumerates before calling a supersession done.
+- [Phase 17-04]: **Grep before you delete, even when the research says there is nothing to find.** RESEARCH verified the follow-up limitation bullet held no facts beyond the promise itself. It held one: *"the research didn't cover that"* appeared **only** there in the whole README, and it is still true after a research pass. Relocated to the routing prose rather than lost — the phase-15 near-miss, avoided by checking rather than by trusting the check.
+- [Phase 17-04]: **A whole-file pass should grep for number words.** `grep -ci "nine" README.md` returned one more hit than the closure needed, and the extra was § Status 10's "Nine numbered ADRs" — measured and true when written at `bafaff0`, stale since phase 16, two behind after this plan. Nobody had caught it because nobody had had a reason to grep for a spelled-out count.
+
 ### Pending Todos
 
-None yet.
+- **17-04 Task 3 — the live closing checkpoint. UNSTARTED**, not deferred: it runs post-merge
+  against the deployed service and the phase PR is not open. One narrow research run, then a
+  follow-up its notes cannot cover; capture a researcher stage on the FOLLOW-UP turn, an answer
+  grounded in the new notes (or an honest refusal WITH the attempt in the trace — both pass),
+  the supervisor trace entry carrying `followup_research`, and `forced_stop_reason` NOT
+  `no_prior_research`. ~$0.35–0.45, **ceiling $0.60**, abort past it. Operator-held keys. The
+  defer path in Phase 15's record-run style stays first-class: every behaviour is already pinned
+  offline.
 
 ### Blockers/Concerns
 
@@ -416,7 +454,48 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-10
-Stopped at: **Completed 17-01-PLAN.md — wave 1 of Phase 17 is in.** Four commits on
+Stopped at: **17-04 Tasks 1–2 complete; Task 3 (the live checkpoint) UNSTARTED by
+instruction.** Three commits on `gsd/phase-17-followup-live-search`, unpushed: `25c34d7`
+(ADR-0011 `Accepted — supersedes ADR-0003`; ADR-0003's status line and nothing else, numstat
+`1	1` against **main**, re-checked post-commit; ADR-0002 zero-diff and reaffirmed by
+citation; the index arithmetic; DESIGN.md's DEC-04 paragraph), `b2d6ccd` (README whole-file
+pass with the limitation **DELETED** and the nine-list closure said in two places, demo copy
++ its pin in the same commit, `service.py` prose, the final zero-grep) and `1ffebe7` (the
+README's "Nine numbered ADRs", stale since phase 16).
+**ADR-0011 leads with wave 3's measurement, not the design argument** — under ADR-0003 the
+refusal text WAS the shipped draft, approved by the critic because a sentence that claims
+nothing cannot be ungrounded, so the one quality gate was at its most vacuous exactly where
+the reader needed it. It separates what dies from what survives (ADR-0002 reaffirmed,
+zero-diff; the replacement guarantee is the window, which is control flow rather than
+convention), names the **one-pass bound as its own deliberate limit**, and records
+`no_prior_research` as **redefined, not retired**, with a `Carried forward from ADR-0003`
+section.
+**Three index paragraphs went stale with the eleventh record, not one** — the counting prose
+(eight of eleven, three supersessions), the "remaining *expected* supersessions" sentence
+(0003 held the only forecast; the register is now spent and `grep -c "expected:"` is 0), and
+*Reading a superseded record*, extended to 0003. Verified by a checker that derives the
+numbers **from the table**, not by grepping a string.
+**Two vacuous gates found by probing**, from eleven probes against a plan that named none:
+**A5** moves the 0003 table row and leaves the prose alone — every literal grep stays green
+while the checker reds; **B5** deletes the § Limitations closure sentence and `grep -ci
+"nine"` stays nonzero because § Status also says it. **B1** is SC-6's: a routing `if`
+smuggled in beside the comment edit lands in the SAME hunk, so the hunk-count gate does not
+move — SC-6 is proven instead by **AST equality modulo docstrings against main**. B2 PASSED
+first and the probe was wrong (`-k demo_page` never collects the pin's owner); re-targeted by
+`--collect-only`, it reds both ways.
+**Grep-before-delete earned its keep**: RESEARCH said the deleted bullet held no facts of its
+own, but *"the research didn't cover that"* lived only there and is still true after a pass —
+relocated to the routing prose. The closure claim is checked against git history
+(`3acaec7`'s nine bullets, none surviving).
+Suites **735/65** plain and **799/1** armed — **zero delta, this plan adds no tests** — evals
+**41/41** keyless, routing **60**, `ruff` clean, CI diff 0, ADR count 10 → **11**. Every
+entering baseline measured before the first edit.
+Next: **17-04 Task 3** — the live closing checkpoint, post-merge, one research-triggered
+follow-up on the wire, ~$0.35–0.45 with a **$0.60 ceiling**, record-or-defer. Then the phase
+PR (one branch, one PR, locked) and the VALIDATION sign-off.
+Resume file: None
+
+Superseded — previously recorded session: **Completed 17-01-PLAN.md — wave 1 of Phase 17 is in.** Four commits on
 `gsd/phase-17-followup-live-search`, unpushed: `48b2739` (`Followup.expect_research` /
 `.insufficiency` / `.research_notes`, all no-change defaults; `ScriptedClient` keeps
 researcher outputs in a pop-list and interleaves the `INSUFFICIENT:` sentinel ahead of each
