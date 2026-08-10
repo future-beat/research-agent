@@ -114,12 +114,32 @@ def test_followup_approved_answer_ends():
     assert supervisor_node(s)["next_step"] == "done"
 
 
-def test_followup_without_prior_research_refuses_to_answer():
-    """The one thing worse than no answer is an ungrounded one."""
+def test_followup_no_notes_routes_to_researcher():
+    """The reversal (Phase 17, path 1).
+
+    A follow-up with nothing behind it used to END with `no_prior_research`,
+    on the reasoning that refusing beat answering from the model's own
+    knowledge. Both are still true of *answering*; neither was ever an
+    argument against going and getting notes first. So the row keeps its
+    place and changes its destination.
+
+    Everything asserted here except `next_step` is a side effect, deliberately:
+    the generic `not research_notes -> researcher` row below routes this same
+    state to the same node, so a swapped or deleted row is invisible to a
+    destination assertion. The trace event, the flag and the empty stop reason
+    are what say *this* row decided it.
+    """
     s = followup(research_notes="")
     result = supervisor_node(s)
-    assert result["next_step"] == "done"
-    assert result["forced_stop_reason"] == "no_prior_research"
+
+    assert result["next_step"] == "researcher"
+    assert result["forced_stop_reason"] == ""
+    assert result["followup_research_done"] is True
+    assert result["trace"][-1] == {
+        "node": "supervisor",
+        "routed_to": "researcher",
+        "followup_research": "no_prior_research",
+    }
 
 
 def test_followup_state_carries_notes_and_report_forward():

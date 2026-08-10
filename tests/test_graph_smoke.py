@@ -198,16 +198,74 @@ def test_second_followup_sees_the_first_exchange(fake_client):
     assert "ANSWER: because of Rayleigh scattering." in prompt
 
 
-def test_followup_without_prior_research_makes_no_api_calls(fake_client):
-    """Refusing costs nothing; answering ungrounded would cost the user's trust."""
+def test_a_followup_with_no_prior_notes_researches_instead_of_refusing(fake_client):
+    """The reversal, through the compiled graph (Phase 17, path 1).
+
+    This run used to make zero API calls and end `no_prior_research`: refusing
+    cost nothing, and answering ungrounded would have cost the user's trust.
+    The second half still holds -- what changed is that a third option exists.
+    The follow-up now goes and gets notes, drafts from them, and the critic
+    checks the draft, which is the same grounding contract a research run has.
+    No answer ships that the critic has not reviewed.
+    """
     client = fake_client()
     empty = initial_state("why is the sky blue?")
     empty.update({"mode": "followup", "topic_type": "general"})
 
     result = app.invoke(empty)
 
-    assert client.calls == []
-    assert result["forced_stop_reason"] == "no_prior_research"
+    assert client.nodes_called() == ["researcher", "responder", "critic"]
+    assert result["forced_stop_reason"] == ""
+    assert result["draft"]
+    assert result["approved"] is True
+
+
+SENTINEL_NOTES = "PRIOR NOTES MUST SURVIVE"
+
+
+def test_notes_append_not_replace_on_a_followup_pass(fake_client):
+    """A follow-up's research pass ENLARGES the session's note set.
+
+    `state["research_notes"] = notes` was a REPLACE. On a follow-up that
+    silently discards everything the session already gathered -- and nothing
+    goes red, because the critic grades the draft against whatever notes it is
+    handed, so a swapped note set reads exactly like an enlarged one. The
+    prior notes have to survive verbatim, as a prefix, or every earlier turn
+    in the conversation quietly loses its grounding.
+    """
+    fake_client()
+    prior = initial_state("why is the sky blue?")
+    prior.update({
+        "topic_type": "technical",
+        "research_notes": SENTINEL_NOTES,
+        "draft": "the report",
+    })
+    s = followup_state(prior, "and what about at sunset?")
+
+    result = graph.researcher_node(s)
+
+    assert result["research_notes"].startswith(SENTINEL_NOTES)
+    assert "FACTS: the sky scatters blue light." in result["research_notes"]
+
+
+def test_a_followup_pass_files_its_notes_under_the_followup_question(fake_client):
+    """SC-2 attribution, with no schema change: the note store has no session
+    or turn column, but the stored text is prefixed with the task -- and in
+    follow-up mode the task IS the follow-up question. So the note says which
+    turn went and got it, and `owner` says whose it is."""
+    fake_client()
+    prior = initial_state("why is the sky blue?")
+    prior.update({
+        "topic_type": "technical",
+        "research_notes": SENTINEL_NOTES,
+        "draft": "the report",
+    })
+
+    graph.researcher_node(followup_state(prior, "and what about at sunset?"))
+
+    newest = graph.memory().entries[-1]["text"]
+    assert newest.startswith("[and what about at sunset?] ")
+    assert SENTINEL_NOTES not in newest  # the note is what this pass found
 
 
 def test_the_researcher_stores_what_it_finds(fake_client):
