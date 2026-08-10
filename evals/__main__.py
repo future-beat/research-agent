@@ -242,6 +242,18 @@ def _caveat(loaded: list[dict]) -> str:
 # measurements, not another estimate. This is the follow-up to the 35%
 # under-quote Phase 15 corrected above -- same failure mode, stated before it
 # surprises anyone.
+#
+# Phase 17 changed the topology rather than the numbers: a follow-up whose
+# notes cannot answer it now routes to the researcher, so an `expect_research`
+# follow-up turn is priced with the RESEARCH constants and its web searches,
+# not the follow-up ones. The follow-up constants below therefore cover only
+# notes-sufficient turns from here on. Both classes remain UNMEASURED -- the
+# research constants were calibrated against a research turn, not against a
+# follow-up that reaches, and a reaching follow-up carries the session's
+# transcript on top of what it finds, so if it is wrong it is wrong low. The
+# deferred full record run is what would fix that; quoting the cheap class for
+# the expensive one is the 35% lesson above, repeated knowingly, which is why
+# it is corrected before any record run rather than after one.
 ASSUMED_RESEARCH_INPUT_TOKENS = 72_000  # measured 71,333
 ASSUMED_RESEARCH_OUTPUT_TOKENS = 8_000  # measured 5,000 -- kept, as headroom
 ASSUMED_FOLLOWUP_INPUT_TOKENS = 6_000  # unmeasured
@@ -283,7 +295,20 @@ def _assumed_pipeline_cost(case, day: datetime.date, unpriced: set[str]) -> floa
         output_tokens=ASSUMED_RESEARCH_OUTPUT_TOKENS,
         web_search_requests=WEB_SEARCHES_PER_RESEARCH_TURN,
     )
-    for _followup in case.followups:
+    for followup in case.followups:
+        # A follow-up that reaches for new information runs a research pass:
+        # same searches, same context. Pricing it at the follow-up constants
+        # would quote pennies for a turn that costs a research run.
+        if followup.expect_research:
+            total += _call_cost(
+                graph.MODEL,
+                day,
+                unpriced,
+                input_tokens=ASSUMED_RESEARCH_INPUT_TOKENS,
+                output_tokens=ASSUMED_RESEARCH_OUTPUT_TOKENS,
+                web_search_requests=WEB_SEARCHES_PER_RESEARCH_TURN,
+            )
+            continue
         total += _call_cost(
             graph.MODEL,
             day,

@@ -2169,22 +2169,35 @@ def judge_leg(case, price) -> float:
     return judge_calls_for(case) * per_call
 
 
+def research_turn(price=FAKE_PIPELINE_PRICE) -> float:
+    """A turn that searches: the research constants plus its web searches."""
+    return (
+        price.input * M.ASSUMED_RESEARCH_INPUT_TOKENS
+        + price.output * M.ASSUMED_RESEARCH_OUTPUT_TOKENS
+    ) / PER_MTOK + M.WEB_SEARCHES_PER_RESEARCH_TURN * usage.WEB_SEARCH_USD_PER_REQUEST
+
+
+def followup_turn(price=FAKE_PIPELINE_PRICE) -> float:
+    """A turn the notes on disk already answer: no searches, less context."""
+    return (
+        price.input * M.ASSUMED_FOLLOWUP_INPUT_TOKENS
+        + price.output * M.ASSUMED_FOLLOWUP_OUTPUT_TOKENS
+    ) / PER_MTOK
+
+
 def hand_computed(case) -> float:
     """The estimate spelled out from the named constants and the fake rates.
 
     Written independently of `record_preview`'s own expression on purpose: this
     is the arithmetic 15-RESEARCH's table describes, and the preview has to
-    agree with it rather than with itself.
+    agree with it rather than with itself. Since Phase 17 a follow-up that
+    reaches for new information belongs to the research class, so the turn it
+    is priced at is chosen the same way here -- by the case's expectation.
     """
-    research = (
-        M.ASSUMED_RESEARCH_INPUT_TOKENS * FAKE_PIPELINE_PRICE.input
-        + M.ASSUMED_RESEARCH_OUTPUT_TOKENS * FAKE_PIPELINE_PRICE.output
-    ) / PER_MTOK + M.WEB_SEARCHES_PER_RESEARCH_TURN * usage.WEB_SEARCH_USD_PER_REQUEST
-    followup = (
-        M.ASSUMED_FOLLOWUP_INPUT_TOKENS * FAKE_PIPELINE_PRICE.input
-        + M.ASSUMED_FOLLOWUP_OUTPUT_TOKENS * FAKE_PIPELINE_PRICE.output
-    ) / PER_MTOK
-    return research + len(case.followups) * followup + judge_leg(case, FAKE_JUDGE_PRICE)
+    pipeline = research_turn() + sum(
+        research_turn() if fu.expect_research else followup_turn() for fu in case.followups
+    )
+    return pipeline + judge_leg(case, FAKE_JUDGE_PRICE)
 
 
 def test_record_preview_prices_through_price_for(monkeypatch):
@@ -2202,6 +2215,37 @@ def test_record_preview_prices_through_price_for(monkeypatch):
     assert total == pytest.approx(hand_computed(research_only) + hand_computed(chained))
     for case in (research_only, chained):
         assert f"${hand_computed(case):.4f}" in line_for(text, case.id)
+
+
+def test_record_preview_prices_research_triggering_followups(monkeypatch):
+    """Phase 15 paid $0.24 to discover its quote read 35% low. A follow-up that
+    reaches for new information runs a research pass -- the same context, the
+    same five web searches -- so quoting it at the notes-sufficient constants
+    would repeat that lesson knowingly, on a forty-case run instead of one.
+
+    The two cases differ in exactly one field, and the assertion is on the
+    difference between them: same day, same table, so anything else cancels.
+    """
+    monkeypatch.setattr(usage, "price_for", fake_price_for)
+    day = datetime.date(2026, 8, 31)
+    unreached = Case(
+        id="quiet",
+        task="t",
+        why="w",
+        followups=(Followup(question="and?"),),
+    )
+    reaching = Case(
+        id="reaches",
+        task="t",
+        why="w",
+        followups=(Followup(question="and?", expect_research=True),),
+    )
+
+    quiet_cost = M._assumed_pipeline_cost(unreached, day, set())
+    reaching_cost = M._assumed_pipeline_cost(reaching, day, set())
+
+    assert reaching_cost > quiet_cost
+    assert reaching_cost - quiet_cost == pytest.approx(research_turn() - followup_turn())
 
 
 def test_record_preview_prefers_measured_fixture_costs(monkeypatch):
