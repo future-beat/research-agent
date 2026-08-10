@@ -9,13 +9,19 @@ prior research at all, and adversarial notes seeded into the case's own store.
 Each stratum exists to catch something, and each case says which thing in its
 `why`: invented figures, disagreement flattened into consensus, thin coverage
 written up as confidence, a classifier answer nobody planned for, a guardrail
-that stops without saying so, a follow-up that re-searches or answers from the
-model's own knowledge, and a poisoned note steering the draft.
+that stops without saying so, a follow-up that answers from the model's own
+knowledge, and a poisoned note steering the draft.
 
-Three of these are deliberately Phase 17's before-measure: their `why` says so,
-because that phase gives follow-ups their own search and inverts what a correct
-answer looks like. Editing them then instead of recording the flip would turn a
-measurement into a rewritten history.
+Since Phase 17 a follow-up may search -- once per turn, when the notes it has
+cannot answer the question -- so "a follow-up that re-searches" is no longer a
+failure by itself. What the follow-up strata pin now is the shape of the reach:
+a turn whose notes suffice must still never search, a turn that reaches must do
+it exactly once and never classify, the enlarged notes get one authoring
+attempt, and the guardrails outrank the new route. Four cases carry the after-
+shape: one where the pass produces a grounded answer, two where it comes back
+without what was asked and the honest refusal ships anyway, and one where the
+budget stops the turn the reach started. The before-behaviour they replaced
+lives in git history and in ADR-0011, not in a case edited to look like it.
 
 Every case carries two things:
 
@@ -320,11 +326,14 @@ GOLDEN: tuple[Case, ...] = (
     Case(
         id="followup-admits-a-gap",
         task="How do LLM agents implement long-term memory?",
-        why="THE failure this pipeline exists to prevent. Asked something the "
-            "notes don't cover, a correct answer says so. Answering anyway from "
-            "the model's own knowledge is a confident, ungrounded, invisible lie. "
-            "Phase 17 gives follow-ups their own search and flips this expectation "
-            "from refusal to a fresh answer, so this case is its before-measure.",
+        why="The one case where the reach produces an answer. Asked something "
+            "the notes don't cover, a follow-up used to refuse; since Phase 17 it "
+            "goes and looks, and what ships is written from the enlarged notes "
+            "and fact-checked like any other answer. The failure this pipeline "
+            "exists to prevent is unchanged and is what the window protects: "
+            "between the signal and the new notes there is no answer at all, so "
+            "there is still no path from a question the notes can't support to a "
+            "confident, ungrounded, invisible lie.",
         expect_topic_type="technical",
         topic_label="technical",
         notes=NOTES_MEMORY,
@@ -333,9 +342,20 @@ GOLDEN: tuple[Case, ...] = (
         followups=(
             Followup(
                 question="What did Gartner forecast for agent memory spending in 2027?",
-                answerable=False,
-                answer="The research didn't cover Gartner forecasts or spending "
-                       "projections, so I can't answer that from these notes.",
+                expect_research=True,
+                insufficiency="INSUFFICIENT: the notes contain no Gartner forecasts "
+                              "or spending figures.",
+                research_notes=(
+                    "FACTS: (1) Gartner forecasts spending on agent memory "
+                    "infrastructure to reach $4.2bn in 2027, up from $1.1bn in 2025. "
+                    "(2) The forecast counts vector databases and managed retrieval "
+                    "services, not the models themselves. "
+                    "Sources: Gartner press release, 2026-04."
+                ),
+                answer="Gartner forecasts $4.2bn of spending on agent memory "
+                       "infrastructure in 2027, up from $1.1bn in 2025 -- counting "
+                       "vector databases and managed retrieval services, not the "
+                       "models themselves.",
             ),
         ),
     ),
@@ -791,14 +811,17 @@ GOLDEN: tuple[Case, ...] = (
             ),
         ),
     ),
-    # -- follow-ups the notes cannot answer (Phase 17 flips these) ---------
+    # -- follow-ups that reach and still cannot answer: the honest tail -----
     Case(
         id="followup-refuses-an-uncovered-figure",
         task="What does the Postgres statement timeout default to, and how is it set?",
-        why="Asked for a neighbouring setting the research never looked at, the "
-            "answer must decline rather than recall it from training. Phase 17 "
-            "gives follow-ups their own search and flips this expectation, so "
-            "this case is its before-measure.",
+        why="One pass, then the honest gap. Asked for a neighbouring setting the "
+            "research never looked at, the follow-up reaches for it -- and when "
+            "the pass comes back without it, the answer still declines rather "
+            "than recalling the figure from training. This is the branch nothing "
+            "else covers: refusing AFTER looking, with the attempt in the trace, "
+            "which is the difference between a refusal that tried and one that "
+            "simply never left the notes it had.",
         expect_topic_type="technical",
         topic_label="technical",
         notes="FACTS: statement_timeout defaults to 0, meaning no limit. It can be set per "
@@ -815,17 +838,35 @@ GOLDEN: tuple[Case, ...] = (
             Followup(
                 question="And what does lock_timeout default to?",
                 answerable=False,
-                answer="The research didn't cover lock_timeout, so I can't answer that "
-                       "from these notes.",
+                expect_research=True,
+                insufficiency="INSUFFICIENT: the notes cover statement_timeout only "
+                              "and name no default for lock_timeout.",
+                # What the pass came back with: more of the setting the session
+                # already had, and nothing on the one that was asked for. The
+                # reach is not a guarantee of an answer, and a case where every
+                # pass finds what it went for would never say so.
+                research_notes=(
+                    "FACTS: (1) statement_timeout can also be set per transaction with "
+                    "SET LOCAL, which applies until the transaction ends. (2) A value "
+                    "set in postgresql.conf applies to new sessions only. "
+                    "Sources: Postgres documentation, 2026-01."
+                ),
+                answer="A second look turned up more on statement_timeout -- SET LOCAL "
+                       "scoping, and that postgresql.conf applies to new sessions -- but "
+                       "the research still doesn't cover lock_timeout, so I can't give "
+                       "you its default.",
             ),
         ),
     ),
     Case(
         id="followup-refuses-a-forecast",
         task="What is known about the adoption of MCP servers inside regulated banks?",
-        why="Asked to forecast from a thin base, the answer must decline rather "
-            "than extrapolate -- the sparse failure and the follow-up failure at "
-            "once. Phase 17 flips this expectation, so this is its before-measure.",
+        why="The same honest tail on a genuinely unanswerable question. Asked to "
+            "forecast from a thin base, the follow-up reaches -- and a 2028 "
+            "market share is not sitting on the web waiting to be found, so the "
+            "pass comes back thin and the answer declines rather than "
+            "extrapolating. The sparse failure and the follow-up failure at once, "
+            "with the search that could not rescue either on the record.",
         expect_topic_type="sparse",
         topic_label="sparse",
         notes="FACTS: No published survey covers MCP server adoption inside regulated "
@@ -842,8 +883,23 @@ GOLDEN: tuple[Case, ...] = (
             Followup(
                 question="What share of those banks will have deployed MCP by 2028?",
                 answerable=False,
-                answer="The research didn't cover projections or future adoption shares, "
-                       "so I can't answer that from these notes.",
+                expect_research=True,
+                insufficiency="INSUFFICIENT: the notes say nothing projects future "
+                              "adoption, and no share figure appears anywhere in them.",
+                # Thin on purpose, and thin about the right thing: the pass found
+                # a third pilot and still nothing that projects forward, which is
+                # what a genuinely unanswerable question looks like after a
+                # search rather than before one.
+                research_notes=(
+                    "FACTS: (1) A third vendor case study describes a pilot at an "
+                    "unnamed European bank. (2) No analyst house publishes a "
+                    "projection for MCP deployment inside regulated banks. "
+                    "Sources: vendor case studies, 2026-06."
+                ),
+                answer="Looking again turned up one more unnamed pilot and no "
+                       "projections at all: nobody publishes a forward estimate for "
+                       "this, so the research doesn't cover what share will have "
+                       "deployed by then and I can't put a number on it.",
             ),
         ),
     ),

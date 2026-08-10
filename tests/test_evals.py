@@ -158,33 +158,49 @@ def test_dataset_taxonomy_per_stratum_minimums():
 
 
 def test_dataset_taxonomy_followup_strata():
-    """The strata Phase 17 leaves behind, and the one it adds.
+    """The four shapes a follow-up turn can now have, each with a case.
 
-    A follow-up that can answer from its notes must still do exactly that; a
-    chain must still be tested past turn one; and there must be a case where
-    the reach happens and a guardrail catches it anyway, because "the caps
-    outrank the new route" is a claim about the real graph, not about the
-    routing table read on its own.
+    The reach has three outcomes and a boundary, and a dataset carrying only
+    some of them measures a fraction of the reversal while looking complete:
+    the pass answers the question, the pass comes back without it and the
+    refusal ships anyway, or a guardrail stops the turn the reach started.
+    The fourth shape is the one Phase 17 did NOT change -- notes that cover
+    the question are still answered from disk, and that has to stay pinned by
+    cases, or the property survives only in the grader that checks it.
     """
-    answerable = [c for c in GOLDEN if c.followups and all(f.answerable for f in c.followups)]
-    assert len(answerable) >= 4, [c.id for c in answerable]
+    turns = [(c, f) for c in GOLDEN for f in c.followups]
 
-    assert any(len(c.followups) >= 2 for c in GOLDEN), "no chain case: turn two is untested"
+    grounded_after_research = [
+        c.id for c, f in turns
+        if f.expect_research and f.answerable and not f.expect_forced_stop
+    ]
+    assert len(grounded_after_research) >= 1, grounded_after_research
 
-    refusals = [c for c in GOLDEN if any(not f.answerable for f in c.followups)]
-    assert len(refusals) >= 3, [c.id for c in refusals]
+    refuses_after_research = [
+        c.id for c, f in turns
+        if f.expect_research and not f.answerable and not f.expect_forced_stop
+    ]
+    assert len(refuses_after_research) >= 2, refuses_after_research
 
     route_then_guardrail = [
-        c for c in GOLDEN
-        if any(
-            f.expect_research and f.expect_forced_stop == "budget_exceeded"
-            for f in c.followups
-        )
+        c.id for c, f in turns
+        if f.expect_research and f.expect_forced_stop == "budget_exceeded"
     ]
     assert route_then_guardrail, (
         "no case reaches and is then stopped: the route and the guardrail that "
         "outranks it are both untested end to end"
     )
+
+    # The property Phase 17 keeps, and the cases that keep it honest: these are
+    # what `grade_followup_research_bounded`'s False branch -- the pre-17 check,
+    # verbatim -- is applied to. Zero of them and the branch grades nothing.
+    answers_from_disk = [
+        c.id for c in GOLDEN
+        if c.followups and all(f.answerable and not f.expect_research for f in c.followups)
+    ]
+    assert len(answers_from_disk) >= 4, answers_from_disk
+
+    assert any(len(c.followups) >= 2 for c in GOLDEN), "no chain case: turn two is untested"
 
 
 def test_dataset_taxonomy_adversarial_cases_are_armed():
@@ -225,27 +241,34 @@ def test_dataset_taxonomy_authored_reports_satisfy_their_own_pins():
             assert marker.lower() not in body, f"{case.id}: report claims {marker!r}"
 
 
-def test_dataset_taxonomy_phase17_cases_say_which_side_of_the_flip_they_are_on():
-    """Both halves of the same discipline, one before the flip and one after.
+def test_dataset_taxonomy_reaching_cases_say_what_they_measure():
+    """A case that reaches has to say what it now measures.
 
-    Before: a case whose expectations Phase 17 inverts has to say so, because
-    the cheapest way to make that phase green is to edit the case, which turns
-    a before/after measure into a rewritten history. That is still live for
-    the refusal cases -- they flip when the responder learns to signal a gap.
-
-    After: a case that has flipped has to say what it now measures. A dataset
-    where the reversal is visible only as a changed boolean is one nobody can
-    read the history of, and `expect_research=True` is exactly the boolean.
+    The before-half of this test retired with the last flip: it required a
+    case Phase 17 was going to invert to say so, and there is no such case
+    left -- every follow-up the notes cannot answer now reaches, so the
+    before-measures are complete and live in git history rather than in a
+    condition that can no longer be false. What survives is the after-half,
+    counted first so it cannot quietly grade an empty set: a dataset where a
+    reversal this size is visible only as a changed boolean is one nobody can
+    read the history of, and `expect_research=True` is exactly that boolean.
     """
-    for case in GOLDEN:
-        reaches = [f for f in case.followups if f.expect_research]
-        if reaches:
-            assert "reach" in case.why.lower(), (
-                f"{case.id} reaches for new information but its why never says so"
-            )
-        awaiting = [f for f in case.followups if not f.answerable and not f.expect_research]
-        if awaiting:
-            assert "Phase 17" in case.why, f"{case.id} flips in Phase 17 but does not say so"
+    reaching = [c for c in GOLDEN if any(f.expect_research for f in c.followups)]
+    assert len(reaching) == 4, [c.id for c in reaching]
+
+    for case in reaching:
+        assert "reach" in case.why.lower(), (
+            f"{case.id} reaches for new information but its why never says so"
+        )
+
+    # And nothing is left claiming the old shape: a follow-up the notes cannot
+    # answer either reaches or is stopped by a guardrail before it can.
+    stranded = [
+        c.id for c in GOLDEN
+        for f in c.followups
+        if not f.answerable and not f.expect_research and not f.expect_forced_stop
+    ]
+    assert not stranded, stranded
 
 
 def test_dataset_taxonomy_guardrail_cases_survive():
@@ -1541,14 +1564,21 @@ def test_quality_grader_structure_accepts_an_empty_draft_a_guardrail_explains():
 
 
 def refusal_turn(answer: str) -> tuple[Case, Followup, dict]:
-    """The dataset's own unanswerable follow-up, with a substituted answer."""
-    case = by_id("followup-admits-a-gap")
+    """The dataset's own unanswerable follow-up, with a substituted answer.
+
+    `followup-admits-a-gap` used to be this fixture; since Phase 17 its pass
+    finds the figure and the turn is answerable, which would make every
+    assertion below read `not a refusal case` and pass for nothing. The
+    forecast case is the one that reaches and still cannot answer -- the shape
+    this grader exists for.
+    """
+    case = by_id("followup-refuses-a-forecast")
     fu = case.followups[0]
     return case, fu, followup_state_dict(research_notes=case.notes, draft=answer)
 
 
 def test_quality_grader_refusal_passes_the_scripted_admission():
-    case, fu, state = refusal_turn(by_id("followup-admits-a-gap").followups[0].answer)
+    case, fu, state = refusal_turn(by_id("followup-refuses-a-forecast").followups[0].answer)
     grade = G.grade_recorded_refusal(case, fu, state)
     assert grade.passed, grade.detail
 
@@ -1556,7 +1586,7 @@ def test_quality_grader_refusal_passes_the_scripted_admission():
 def test_quality_grader_refusal_catches_an_answer_that_never_admits_the_gap():
     """Strip the admission and the same sentence becomes a confident answer to
     a question the research never touched."""
-    case, fu, state = refusal_turn("Gartner's figures aren't something these notes settle.")
+    case, fu, state = refusal_turn("Adoption by 2028 isn't something these notes settle.")
 
     grade = G.grade_recorded_refusal(case, fu, state)
 
@@ -1569,23 +1599,23 @@ def test_quality_grader_refusal_catches_an_admission_that_answers_anyway():
     correct figure smuggled in is still one the research never found -- the
     live judge's rule, made mechanical."""
     case, fu, state = refusal_turn(
-        "The research didn't cover Gartner forecasts, though analysts put agent "
-        "memory spending at $4.5B by 2027."
+        "The research didn't cover projections, though vendors put deployment "
+        "near 40% by 2028."
     )
 
     grade = G.grade_recorded_refusal(case, fu, state)
 
     assert not grade.passed
-    assert "4500000000" in grade.detail
+    assert "40" in grade.detail
 
 
 def test_quality_grader_refusal_lets_the_answer_repeat_the_questions_own_figure():
-    """"The research didn't cover Gartner's 2027 forecast" repeats a year the
-    asker supplied; it invents nothing. The scripted refusal quotes no figure
-    at all, so nothing else in this file can tell a grader that counts the
-    question as a source from one that doesn't -- and a grader that doesn't
-    would fail honest refusals for naming what they were asked."""
-    case, fu, state = refusal_turn("The research didn't cover Gartner's 2027 forecast.")
+    """"The research didn't cover the 2028 share" repeats a year the asker
+    supplied; it invents nothing. The scripted refusal quotes no figure at all,
+    so nothing else in this file can tell a grader that counts the question as
+    a source from one that doesn't -- and a grader that doesn't would fail
+    honest refusals for naming what they were asked."""
+    case, fu, state = refusal_turn("The research didn't cover the 2028 share.")
 
     grade = G.grade_recorded_refusal(case, fu, state)
 
