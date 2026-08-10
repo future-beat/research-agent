@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Phase 16 wave 2 complete (16-02): the staleness gate compares the critic with backfill, the recorder writes the entry, the collision line states a fact, the reservation threshold is documented and pinned. Next: 16-03 (ADR-0010 + stale prose + README)."
-last_updated: "2026-08-10T04:00:00.000Z"
-last_activity: "2026-08-10 — 16-02 executed: grade_fixture_current grades pipeline AND critic (backfill, falsy read as absent), record_case_to_fixture writes the third role, record_suite states the judge/critic relation once per run, reserved_run_usd documents the Opus-critic and 2026-09-01 thresholds without becoming model-aware. Suites 690/65 plain, 754/1 armed, evals 41/41 keyless. Fifteen mutation probes where the plan named two; two of this wave's gates had no probe at all and both gained a test."
+stopped_at: "Phase 16 wave 3 complete (16-03): ADR-0010 supersedes ADR-0005 with the four-leg re-derivation, the user's verbatim rationale and the judge==critic acceptance; every live document that stated the dead premise is fixed and the README limitation is deleted. Next: 16-04 (the CUTOVER — fly.toml [env] CRITIC_MODEL=claude-opus-5, merge, deploy, smoke)."
+last_updated: "2026-08-10T04:25:00.000Z"
+last_activity: "2026-08-10 — 16-03 executed: ADR-0010 written (different job stands alone; Hesam's critic-stronger rationale quoted verbatim; judge==critic recorded as an ACCEPTANCE, the honest narrowing of ADR-0005's independence claim; 'stronger' demoted to a preference for the judge), 0005 superseded by a one-line status edit gated against main, 0002 zero-diff, the index's counting prose corrected to eight-of-ten. README limitation DELETED with the grep audit run first; graders.py and DESIGN.md:74 fixed. Two gates had no probe: the ADR the record-mode line points at, and the docstring above the :464 pin that no grep could see. Suites 691/65 plain, 755/1 armed, evals 41/41 keyless."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 35
+  completed_plans: 36
   percent: 70
 ---
 
@@ -26,28 +26,17 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 16 of 17 (Independent critic model) — **EXECUTING**
-Plan: 2 of 4 done · branch `gsd/phase-16-independent-critic` off clean main (PR #10 merged), unpushed
-Status: Wave 2 complete. `grade_fixture_current` (harness.py:331) grades TWO roles — pipeline
-against `graph.MODEL`, critic against `graph.critic_model()` — backfilling a missing or blank
-`critic` key to the pipeline model, which is honest because the one committed fixture was
-recorded when the code had no critic seam. `record_case_to_fixture` writes the third entry
-from `critic_model()` (:557), so absence keeps meaning pre-16. `record_suite` states the
-judge/critic relation once per run on stderr, worded as a fact because it fires on the chosen
-production config. `reserved_run_usd`'s docstring carries the thresholds; its body is
-untouched and `limits.py` still imports neither `usage` nor `graph`. 12 new tests
-(`fixture_critic_gate` 5, `judge_critic_collision_warning` 4, `reservation_threshold` 2, plus
-the recorder's env-driven twin), all `--collect-only` verified against the whole `tests/` tree.
-**Fifteen mutation probes where the plan named two**; two gates had no probe at all (the new
-stderr site's None-judge guard, and the reservation prose, whose only gate was a grep inside a
-plan) and both gained a test.
+Plan: 3 of 4 done · branch `gsd/phase-16-independent-critic` off clean main (PR #10 merged), unpushed
+Status: Wave 3 complete — the record now says what the code does. **ADR-0010** (`docs/adr/0010-judge-rederived-for-an-independent-critic.md`, `Accepted — supersedes ADR-0005`, `**Source:**` not `Promoted from:`) re-derives the judge on four legs: the **different job** stands alone (critic gates drafts against notes inline; judge grades finished answers against question+rubric retrospectively, and its verdicts are the recording refusal gate and every keyless CI run's replayed assertions); the **critic-stronger-than-writer** stance is quoted verbatim and attributed to Hesam as HIS position, not an inference; **independence is re-targeted to judge ≠ WRITER** with `test_evals.py:464` surviving untouched, and **judge == critic is recorded as an ACCEPTANCE** — both `claude-opus-5` in production, so verdicts are independent of the writer's model and NOT of the critic's family; and **"stronger" is demoted to a preference** for the judge, surviving as a *reason* only for the critic. Structured-verdict half carried forward in an ADR-0007-shaped section. Mechanics exact: 0005 `1 1` against **main**, 0002 zero-diff, both index rows, counting prose → **eight of ten / two supersessions**. README limitation **DELETED** (grep first; the only load-bearing fact survives at `:32`), residual states reality in one sentence, v1.1 list gains 16. `graders.py`'s docstring and `DESIGN.md:74` fixed. **Two more gates had no probe** — the ADR the record-mode line names, and the docstring above the `:464` pin that no grep in the plan, research or VALIDATION could see.
 
 Progress: [█████████░] 88% (15 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 16: [█████░░░░░] 2 of 4 plans — 16-01, 16-02 done
+Phase 16: [████████░░] 3 of 4 plans — 16-01, 16-02, 16-03 done
 
-**Suites after 16-02:** plain **690 / 65** (16-01 baseline 678/65, +12, zero new skips), armed
-**754 / 1** (baseline 742/1, +12), offline evals **41/41 keyless** with `CRITIC_MODEL`
-provably unset (`env -u`), `ruff` clean. Zero diffs in `evals/fixtures.py`, `evals/fixtures/`
-and `.github/workflows/ci.yml`.
+**Suites after 16-03:** plain **691 / 65** (16-02 baseline 690/65, +1, zero new skips), armed
+**755 / 1** (baseline 754/1, +1), offline evals **41/41 keyless** with `CRITIC_MODEL`
+provably unset (`env -u`), `ruff check .` clean. All three baselines were re-measured before
+any edit rather than carried from the prior summary. Zero diffs in `evals/fixtures.py`,
+`evals/fixtures/`, `.github/workflows/ci.yml` and `docs/adr/0002-separate-critic-node.md`.
 
 **Carry into execution:**
 - **USER DECISION (2026-08-10): `CRITIC_MODEL = 'claude-opus-5'`** — his rationale verbatim:
@@ -72,15 +61,23 @@ and `.github/workflows/ci.yml`.
   green on the full plain suite. The gate's docstring is now the phase's own claim boundary
   (the JUDGE is the uncompared role) and is pinned three ways, including a NEGATIVE pin on
   the dead sentence — 16-03's stale-prose sweep must not "restore" it.
-- **16-03 inherits an anti-vacuity lesson worth applying to its own greps:** a pin that runs
-  at the neutral default cannot see a mutation that produces the neutral default. The models
-  map pin passes whether the recorder writes `critic_model()` or `graph.MODEL`, because with
-  `CRITIC_MODEL` unset they are the same string. Ask of every 16-03 grep whether it can tell
-  the new text from the old.
-- ADR-0005 supersession is a status-line edit gated by git diff MAIN (working-tree diffs
-  are empty post-commit and pass vacuously). ADR-0002 zero-diff against main.
-- README: whole-file pass; the critic limitation DELETED (grep first for facts living only
-  in the deleted prose); Status list gains the entry.
+- ~~16-03 inherits an anti-vacuity lesson worth applying to its own greps~~ **APPLIED in
+  16-03, and the lesson generalised:** a grep finds the phrasings it was given. The dead
+  premise also lived as "-- the same limitation the in-graph critic already has", which no
+  grep in the plan, the research or VALIDATION could see. It was found by reading the
+  neighbourhood of a site the grep DID find.
+- ~~ADR-0005 supersession is a status-line edit gated by git diff MAIN~~ **DONE in 16-03**
+  (`1 1` against main; 0002 zero-diff). The gate is now **permanent**: a test holds both
+  halves of the supersession, because the plan's `git diff` gate stops running when the plan
+  closes.
+- ~~README: whole-file pass; the critic limitation DELETED~~ **DONE in 16-03.** The pass also
+  caught what the plan did not name: **`663 tests` at README:15 and :179 → 690**, falsified by
+  this phase's own waves 1–2. The `$0.14` transcript figures (README:75, :115) are pre-flip
+  measurements and were deliberately left — **16-04's live run produces the real post-flip
+  number, and that is when to replace them.**
+- **ADR-0010 describes a production config that does not exist until 16-04.** The record says
+  "production pins `CRITIC_MODEL`" in the present tense throughout, and `fly.toml` has no such
+  entry yet. If the cutover does not land, the record's tense is the thing to fix.
 - Wave 4 is the CUTOVER, on **Opus**, per the USER DECISION above — `CRITIC_MODEL =
   'claude-opus-5'` in fly.toml [env] with a value pin in test_deploy_config.py in the SAME
   commit, then merge → deploy from main → Phase 14's booked smoke → one Opus-critic
@@ -88,18 +85,19 @@ and `.github/workflows/ci.yml`.
   is unit-test-only, for the undated-row arithmetic. (This bullet previously said the
   opposite: a pre-decision line naming a haiku live run and "the production flip is NOT
   this phase's". Corrected in 16-01; it was a landmine for the wave-4 executor.)
-- **ADR-0010 (16-03) inherits two things 16-02 recorded rather than decided:** the collision
-  line's exact wording (`note: … both run on <model> … accepted, recorded in ADR-0010`) is
-  now pinned by a test that forbids "misconfig"/"error"/"invalid" and requires "accepted"
-  and "deployed" — the ADR must be the record that line points at. And the model-aware
-  reservation is rejected for the SECOND time, now with a test that reds if someone builds
-  it; that rejection belongs in 0010's consequences.
+- ~~ADR-0010 (16-03) inherits two things 16-02 recorded rather than decided~~ **DONE in
+  16-03:** the collision line's ADR now exists and the rejected model-aware reservation is in
+  0010's consequences. The loop is closed by a test — `..._points_at_a_record_that_exists` —
+  because three tests pinned the *string* `ADR-0010` and nothing checked it resolved. Probe:
+  delete the record and all four collision tests stay **green**.
 - **The committed fixture will grade STALE after the cutover**, in any environment that sets
   `CRITIC_MODEL` — by design, and the re-record stays deferred to the full 40-case run. CI
   and keyless contexts never set it, so 41/41 is unaffected. Do not "fix" that verdict.
 - Local PG on :54329 (LC_ALL=C to restart). Phase-entry baselines: plain 663/65, armed
   727/1, offline evals 41/41 keyless. **After 16-01: plain 678/65, armed 742/1, evals 41/41.
-  After 16-02: plain 690/65, armed 754/1, evals 41/41.**
+  After 16-02: plain 690/65, armed 754/1, evals 41/41. After 16-03: plain 691/65, armed
+  755/1, evals 41/41.** The README's own test count now reads **690** (the passing count, the
+  established convention) — 16-04 must bump it again if the cutover adds a test.
 
 ## Performance Metrics
 
@@ -120,7 +118,7 @@ and `.github/workflows/ci.yml`.
 | 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
 | 15 | 6 of 6 (15-01 … 15-06) | 306min | 51min |
-| 16 | 2 of 4 (16-01, 16-02) | 85min | 43min |
+| 16 | 3 of 4 (16-01, 16-02, 16-03) | 120min | 40min |
 
 **Recent Trend:**
 
@@ -138,6 +136,11 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 16-03]: **A grep inventory finds the phrasings it was given.** The dead premise ("the critic shares the writer's model") was grep-audited three times — in RESEARCH Finding 6, in the plan, and in VALIDATION — and all three missed the docstring above the `:464` independence pin, which ended "-- the same limitation the in-graph critic already has". No search for the canonical phrasing could see it. It was found by reading the neighbourhood of a site the grep DID find. **The corollary for every future doc-correctness sweep: the grep locates the neighbourhoods, it does not enumerate the sentences.**
+- [Phase 16-03]: **When an operator-facing message names a document, something must check the document exists.** Three tests from 16-02 pin the string `"ADR-0010"` inside the stderr line an operator reads while deciding whether to trust a recording — and nothing checked it resolved to a record. Measured, not assumed: rename the record away and **all four collision tests stay green**. A dangling pointer in an operator message spends the reader's trust and then their time. The new test also holds the second half of the supersession (0005's status line agrees), which converts the one-line-diff gate from a command inside a closing plan into something the suite runs — the same lesson 16-02 drew about the reservation prose, applied to the artefact this plan created.
+- [Phase 16-03]: **ADR-0010 records TWO positions, and both are the user's, not the record's deductions.** The critic-stronger-than-writer stance is quoted verbatim and attributed by name and date, with the note that the research recommended the opposite (defer the flip) — so a later reader cannot mistake it for a conclusion the evidence forced. And **judge == critic is an ACCEPTANCE, not an oversight**: production runs both on `claude-opus-5` deliberately, so a recorded verdict is independent of the WRITER's model and **not** independent of the critic's family. That is the honest narrowing of ADR-0005's independence claim, stated in the record rather than discovered by whoever first noticed two model names were the same string.
+- [Phase 16-03]: **"Eight of the ten records", not the plan's "nine of ten".** The plan asked for the counting prose to become "nine of ten" *and* "two supersessions" in the same instruction; with 0006 and 0005 both superseded, eight of ten remain `Accepted`. **Fifth phase family in a row where a plan's stated arithmetic was a claim to check rather than a spec to satisfy** (13-05, 14-02, 15-03, 16-02, now here).
+- [Phase 16-03]: **A whole-file pass means counting.** The README's "663 tests" at lines 15 and 179 was falsified by this phase's own waves 1 and 2 (+15, +12 → 690), and neither site is in Limitations, the ADR trail or the evals section — nothing in the plan, research or validation matrix pointed at either. Also corrected: the stack line naming one model where production runs two. Deliberately **not** corrected: the `$0.14` figures in the REPL transcript and the SSE example, which are output from a real pre-flip run — replacing a measurement with an estimate ($0.18) would invent a run that never happened. 16-04's live verification produces the real number.
 - [Phase 16-02]: **A pin that runs at the neutral default cannot see a mutation that produces the neutral default.** The models-map pin asserts the recorder writes `{"pipeline", "judge", "critic"}` — and passes whether the recorder writes `critic_model()` or `graph.MODEL`, because the suite runs with `CRITIC_MODEL` unset and the two are then the same string. The mutation it misses is the one that matters: every fixture recorded from an operator's shell would name the wrong critic, and the gate reading them would compare a lie against the truth. Only an env-driven twin discriminates (probe 5 reds it alone). **Same family as 15-01's aliasing capture and 13-05's FrozenQueryEmbedder — the neutral default is a blind spot, not a safe default, for the test that runs under it.**
 - [Phase 16-02]: **The gate DOES compare the critic now — the 15-03/15-06 "do not restate the folklore" instruction is superseded.** `grade_fixture_current` reads `models.get("critic") or models["pipeline"]` against `graph.critic_model()`. The backfill is honest because the one committed fixture was recorded at `225b06b`, before `call_model` had a `model` parameter at all, so its critic ran on `graph.MODEL` by construction. Falsy (absent, null, `""`) reads as pre-16 at the gate for the same reason `critic_model()` reads a blank `CRITIC_MODEL` as unset. **ADR-0009's cannot-catch line is now history, not current fact; ADR-0010 (16-03) is where the change enters the record — ADR-0009 is not edited.**
 - [Phase 16-02]: **When an operator-facing line fires on the configuration the operator chose, word it as a property statement.** Judge and critic will both be `claude-opus-5` in production, deliberately, so the record-mode line fires on every real record run. It names the shared model, says the verdicts stay independent of the WRITER's model and are not independent of the critic's, and points at ADR-0010 — and a test forbids "misconfig"/"error"/"invalid" while requiring "accepted" and "deployed". A line that calls the operator's own decision a mistake, every run, teaches them to skip the line.
