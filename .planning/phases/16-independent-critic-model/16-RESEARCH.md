@@ -674,7 +674,12 @@ recorder. No framework installs.
 | A2 | Typical critic call ≈ 4K in / ≤1K out (derived from prompt shapes + max_tokens, not measured per-node) | Finding 3 | Reservation threshold numbers shift ±30%; conclusion (flat + documented threshold) is robust to that |
 | A3 | The scratch live demonstration at ~$0.15–0.19 is acceptable spend (mirrors Phase 13's scratch-leg precedent) | Environment | Defer the live leg; plans state which happened — CONTEXT explicitly allows either |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All three resolved by the plans: Q1 → DESIGN.md:74 gets a one-line forward reference
+(16-03 Task 2). Q2 → backfill semantics; re-record deferred to the full record run
+(16-02). Q3 → yes, the stderr collision warning ships (16-02 Task 3).
+
 
 1. **Does DESIGN.md:74 get a forward-link edit?** The ADR README says DESIGN "stays as
    it is," but Phase 10 edited DESIGN where verifiably false, and after this phase the
