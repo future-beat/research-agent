@@ -198,6 +198,43 @@ def test_the_database_url_is_not_committed(fly):
     )
 
 
+# The critic's model, pinned the same way as the backend pins above: a VALUE
+# read off the parsed [env] table. `CRITIC_MODEL` present but set to the
+# writer's model is exactly the arrangement ADR-0010 supersedes, so presence
+# proves nothing.
+CRITIC_MODEL_PIN = "claude-opus-5"
+
+
+def test_the_critic_model_pin_is_intact(fly):
+    """The deployed critic runs on Opus, and `fly.toml` is the only thing
+    saying so.
+
+    `graph.critic_model()` reads an absent or blank `CRITIC_MODEL` as `MODEL`
+    -- a deliberately neutral default, which is what keeps CI, the suite and
+    the keyless evals unaffected by phase 16. The cost of that neutrality is
+    that losing this key fails **open**, not closed like the backend pins
+    below: the critic quietly reverts to the writer's model, the revision loop
+    keeps working, `/health` reports ok, Fly's check passes, and the only trace
+    on the wire is a smaller number in the demo's cost line. Nothing else in
+    the tree would notice, which is the quiet-misconfiguration class this file
+    exists for.
+
+    A key does not have to be deleted on purpose to disappear. Fly's tooling
+    has regenerated this file from the web UI's defaults twice (`fly.toml`'s
+    header names both incidents), and a regenerated `[env]` carries the
+    variables Fly knows about.
+    """
+    env = fly.get("env", {})
+    assert env.get("CRITIC_MODEL") == CRITIC_MODEL_PIN, (
+        f"fly.toml's [env] must pin CRITIC_MODEL to {CRITIC_MODEL_PIN!r} "
+        f"(found {env.get('CRITIC_MODEL')!r}). Unpinned or reverted, the "
+        "deployed critic silently runs on the writer's model again -- the "
+        "shared-model arrangement docs/adr/0010-... supersedes -- and every "
+        "check in this repository stays green while it happens, because the "
+        "code default for an absent CRITIC_MODEL is the writer's model."
+    )
+
+
 def test_the_runbook_names_no_unsupported_command():
     """`fly.toml`'s footer is a runbook, and a runbook is followed under time
     pressure by someone who is not reading critically.

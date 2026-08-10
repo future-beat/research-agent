@@ -31,12 +31,37 @@ primary_region = 'syd'
 
 [env]
   AGENT_MAX_RUN_COST_USD = '1.00'
-  # Demo guardrails. The per-run cap above bounds one runaway run; these bound
-  # the bill for a URL anyone can reach. The session read/delete tree is closed
-  # by SESSIONS_TOKEN, set as a secret (`fly secrets set`, never here -- this
-  # file is committed). DEMO_TOKEN would close writes entirely, but it fronts
-  # the demo's own POST /research/stream, so setting it on this app 401s every
-  # anonymous visitor; leave it unset.
+  # The critic runs on a MORE CAPABLE model than the writer, which runs on
+  # claude-sonnet-5. That is a design position, not a tuning knob --
+  # docs/adr/0010-judge-rederived-for-an-independent-critic.md records it and
+  # the reasoning: a gate no stronger than the thing it gates waves through the
+  # mistakes it would have made itself.
+  #
+  # Committed, unlike SESSIONS_TOKEN and DATABASE_URL, which are secrets and
+  # live in `fly secrets set`. A model name is configuration and discloses
+  # nothing, and the stance is only visible if it is written down where the
+  # deploy reads it.
+  #
+  # The code default is NEUTRAL: graph.critic_model() reads an absent or blank
+  # CRITIC_MODEL as MODEL, so CI, the test suite, the offline evals and every
+  # keyless context run the critic on the writer's model exactly as before.
+  # This line is the whole flip, and the deployed service is the only thing
+  # that sees it.
+  #
+  # Which is also why deleting it fails OPEN, unlike the backend pins below:
+  # the critic silently reverts to the writer's model, the revision loop keeps
+  # working, /health stays ok, Fly's check passes, and the only trace is a
+  # smaller number in the demo's cost line. tests/test_deploy_config.py pins
+  # the VALUE for that reason -- and this file has been rewritten by Fly's
+  # tooling twice, which is how a key disappears with nobody deciding to
+  # remove it.
+  CRITIC_MODEL = 'claude-opus-5'
+  # Demo guardrails. The per-run cap above (AGENT_MAX_RUN_COST_USD) bounds one
+  # runaway run; these bound the bill for a URL anyone can reach. The session
+  # read/delete tree is closed by SESSIONS_TOKEN, set as a secret (`fly secrets
+  # set`, never here -- this file is committed). DEMO_TOKEN would close writes
+  # entirely, but it fronts the demo's own POST /research/stream, so setting it
+  # on this app 401s every anonymous visitor; leave it unset.
   DEMO_DAILY_USD_CAP = '5.00'
   DEMO_RATE_LIMIT_PER_HOUR = '10'
   LOG_FORMAT = 'json'
