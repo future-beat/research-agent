@@ -12,7 +12,7 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 705 tests
+backends, an eval harness that grades real recorded answers, and 721 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
@@ -152,7 +152,8 @@ The routing table *is* `supervisor_node`, in order:
 |---|---|
 | iteration or revision cap exceeded | END *(sets `forced_stop_reason`)* |
 | run cost over budget | END *(`budget_exceeded`)* |
-| follow-up with no prior notes | END *(`no_prior_research`)* |
+| follow-up with no prior notes | researcher *(traced `no_prior_research`)* |
+| follow-up whose notes don't cover it, one pass unspent | researcher *(traced `notes_insufficient`)* |
 | `topic_type` unset | classifier |
 | no research notes | researcher |
 | no draft | **author** |
@@ -161,8 +162,13 @@ The routing table *is* `supervisor_node`, in order:
 | otherwise — approved | END |
 
 **author** is the writer in research mode and the responder in follow-up mode.
-That substitution is the *only* thing `mode` changes; the caps, the critic hop
-and the revision loop are byte-identical in both.
+That substitution and the two follow-up rows are all `mode` changes; the caps,
+the critic hop and the revision loop are byte-identical in both. Those two rows
+sit *below* the caps and *above* the classifier deliberately: a capped or
+over-budget follow-up still ENDs with its own reason and never researches, and
+a follow-up never classifies a topic it already inherited. `no_prior_research`
+names a row that reaches, recorded on the supervisor's trace entry — it is not
+a stop reason.
 
 The classifier's label isn't cosmetic — it selects the researcher's strategy
 *and* the critic's rubric. A `technical` run gets hunted for numbers absent
@@ -177,7 +183,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 705 tests, ~30s, no API keys, no network
+pytest                    # 721 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
