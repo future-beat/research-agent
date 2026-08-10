@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: planned
-stopped_at: "Phase 16 planned and revised for the USER DECISION: critic runs on Opus, the production flip is in-phase, and wave 4 is the first deploy since v9 (carrying 13-16). Next: /gsd:execute-phase 16."
-last_updated: "2026-08-10T02:20:00.000Z"
-last_activity: "2026-08-10 — Phase 16 planned: CRITIC_MODEL with neutral default, four-site threading (attribution is a passed constant, NOT a response echo — the CONTEXT premise was false), fixture models map gains critic with backfill semantics, ADR-0010 supersedes 0005 with the judge rationale re-derived."
+status: executing
+stopped_at: "Phase 16 wave 1 complete (16-01): critic_model() and the four-site threading, 15 new tests, six mutation probes. Next: 16-02 (fixture gate + reservation docstring + collision warning)."
+last_updated: "2026-08-10T03:05:00.000Z"
+last_activity: "2026-08-10 — 16-01 executed: CRITIC_MODEL read per call, call_model resolves a keyword-only model once and uses it at the span, the API call, record() and the log line. Suites 678/65 plain, 742/1 armed, evals 41/41 keyless. All twenty pre-existing smoke tests stay green under every threading mutation — the new families are the entire coverage of the seam."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 33
-  percent: 69
+  completed_plans: 34
+  percent: 70
 ---
 
 # Project State
@@ -25,15 +25,22 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 16 of 17 (Independent critic model) — **PLANNED, not started**
-Plan: 0 of 4 · branch `gsd/phase-16-independent-critic` off clean main (PR #10 merged)
-Status: Planned and verified. Checker: 3 blockers (a wrong arithmetic constant $0.0055 vs
-$0.0060; pin updates split across commits leaving a knowingly-red suite; unmarked research
-resolutions) + 3 warnings (vacuous post-commit git-diff gates — now diff-against-main;
-a DESIGN grep criterion contradicting its own task; the armed suite unnamed) — all fixed.
+Phase: 16 of 17 (Independent critic model) — **EXECUTING**
+Plan: 1 of 4 done · branch `gsd/phase-16-independent-critic` off clean main (PR #10 merged), unpushed
+Status: Wave 1 complete. `graph.critic_model()` (graph.py:51) reads `CRITIC_MODEL` per call;
+`call_model` takes a keyword-only `model`, resolves it once, and uses it at all four naming
+sites (span :128, API :131, record :135, log :143); `critic_node` passes `model=critic_model()`
+at :447. 15 new tests across the four VALIDATION selectors (5/4/3/3, all `--collect-only`
+verified). Six mutation probes, not the plan's three — the span and log sites had no probe,
+and each added one reds exactly its own test. Under every threading mutation all twenty
+pre-existing smoke tests stay green: Pitfall 3 measured, not assumed.
 
 Progress: [█████████░] 88% (15 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 16: [░░░░░░░░░░] 0 of 4 plans — planned
+Phase 16: [██░░░░░░░░] 1 of 4 plans — 16-01 done
+
+**Suites after 16-01:** plain **678 / 65** (baseline 663/65, +15, zero new skips), armed
+**742 / 1** (baseline 727/1, +15), offline evals **41/41 keyless** with `CRITIC_MODEL`
+provably unset (`env -u`), `ruff` clean.
 
 **Carry into execution:**
 - **USER DECISION (2026-08-10): `CRITIC_MODEL = 'claude-opus-5'`** — his rationale verbatim:
@@ -44,13 +51,15 @@ Phase 16: [░░░░░░░░░░] 0 of 4 plans — planned
 - ADR-0010 records judge==critic as an ACCEPTANCE: the judge is independent of the writer
   and deliberately shares the critic's model. The collision warning fires on the chosen
   config and is worded as a fact, not an error.
-- Attribution is a PASSED CONSTANT (graph.py:103), not a response echo. Thread the model
-  through FOUR sites (:96 span, :99 API, :103 record, :111 log). The discriminator: an
-  unpriced CRITIC_MODEL fires pricing_unknown ONLY if the name reached record().
-- Neutral default must be proven byte-identical (full payload dict equality, fresh store
-  per run — a shared InMemoryStore makes run 2 differ for an unrelated reason).
-- Exact-cost tests use UNDATED rows only (opus $5/$25, haiku $1/$5); delta = $0.0060.
-  Sonnet is boundary-dated and forbidden in exact assertions.
+- ~~Attribution is a PASSED CONSTANT; thread the model through FOUR sites~~ **DONE in 16-01.**
+  `graph.critic_model()` exists and is 16-02's comparison target for the fixture gate.
+  Live line numbers: accessor :51, call_model :106, span :128, API :131, record :135,
+  log :143, `model=critic_model()` :447.
+- ~~Neutral default proven byte-identical~~ **DONE in 16-01** (full payload dict equality,
+  fresh store per run). It is also the CI guard: a workflow that exports CRITIC_MODEL now
+  reds `test_critic_model_accessor_unset_is_byte_identical_to_setting_it`.
+- Exact-cost tests use UNDATED rows only (opus $5/$25, haiku $1/$5); delta = $0.0060 —
+  asserted in 16-01 and passing. Sonnet is boundary-dated and forbidden in exact assertions.
 - Fixture gate: backfill (models.get("critic") or models["pipeline"]); pins at
   test_evals.py:2062 and :1648-1656 are updated IN THE SAME COMMIT as the changes that
   break them (checker blocker).
@@ -58,10 +67,15 @@ Phase 16: [░░░░░░░░░░] 0 of 4 plans — planned
   are empty post-commit and pass vacuously). ADR-0002 zero-diff against main.
 - README: whole-file pass; the critic limitation DELETED (grep first for facts living only
   in the deleted prose); Status list gains the entry.
-- Wave 4: one live run with CRITIC_MODEL=claude-haiku-4-5 (~$0.15–0.25, $0.40 ceiling)
-  authorised; production flip is NOT this phase's.
-- Local PG on :54329 (LC_ALL=C to restart). Baselines: plain 663/65, armed 727/1,
-  offline evals 41/41 keyless.
+- Wave 4 is the CUTOVER, on **Opus**, per the USER DECISION above — `CRITIC_MODEL =
+  'claude-opus-5'` in fly.toml [env] with a value pin in test_deploy_config.py in the SAME
+  commit, then merge → deploy from main → Phase 14's booked smoke → one Opus-critic
+  verification run (~$0.18, ceiling $0.40). **Haiku appears nowhere in the live leg** — it
+  is unit-test-only, for the undated-row arithmetic. (This bullet previously said the
+  opposite: a pre-decision line naming a haiku live run and "the production flip is NOT
+  this phase's". Corrected in 16-01; it was a landmine for the wave-4 executor.)
+- Local PG on :54329 (LC_ALL=C to restart). Phase-entry baselines: plain 663/65, armed
+  727/1, offline evals 41/41 keyless. **After 16-01: plain 678/65, armed 742/1, evals 41/41.**
 
 ## Performance Metrics
 
