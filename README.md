@@ -10,10 +10,15 @@ until every claim is grounded. Watch the critic push back — that's the part
 worth seeing.
 
 A production service, not a notebook: bounded loops, per-run cost accounting,
-a spend cap, swappable Postgres/pgvector backends, an eval harness, and 663
-tests that run with no API keys.
+a spend cap that survives concurrency and multiple machines, per-caller
+identity with owned and expiring sessions, swappable Postgres/pgvector
+backends, an eval harness that grades real recorded answers, and 663 tests
+that run with no API keys.
 
-**Stack:** Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
+It runs on two machines against Supabase Postgres, and a stranger following
+the demo link never signs up for anything.
+
+**Stack:** Python (3.14 in CI and the image) · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
 
 ---
 
@@ -24,10 +29,21 @@ tests that run with no API keys.
 - [x] **3 — Conversation & resilience.** Follow-ups over prior notes; pluggable stores; per-node retry with jittered backoff.
 - [x] **4 — Service.** FastAPI, blocking and SSE, sessions that survive a restart.
 - [x] **5 — Cost & observability.** Date-aware price table, spend cap as a routing rule, JSON logs, `/metrics`.
-- [x] **6 — Evals.** Twelve-case golden set, deterministic graders plus an LLM judge on a stronger model. Found a real bug on its first run.
+- [x] **6 — Evals.** Golden set with deterministic graders plus an LLM judge on a stronger model. Found a real bug on its first run. *(Twelve cases then; forty now — see 15.)*
 - [x] **7 — Ship it.** Two-stage Dockerfile, non-root, healthchecked. CI runs lint, tests, evals, and a container smoke test.
 - [x] **8 — Stateless.** Postgres and pgvector behind the existing interfaces. One contract suite proves every backend agrees.
-- [x] **9 — Demo & guardrails.** Streaming demo page, rolling spend cap, per-visitor rate limit, optional token.
+- [x] **9 — Demo & guardrails.** Streaming demo page, rolling spend cap, per-visitor rate limit, optional token. *(Limits key on identity rather than visitor IP now — see 12.)*
+
+**v1.1 — closing the limitations list.** Each entry below closes something the
+README used to list as a known gap, or reverses a design decision on purpose.
+
+- [x] **10 — Architectural record.** Nine numbered ADRs under `docs/adr/`, each with a status. Every later reversal supersedes a record instead of quietly contradicting prose.
+- [x] **10.5 — Session endpoints closed.** The session read and delete routes were reachable by anyone; found by mapping the codebase, confirmed against production, fixed and redeployed.
+- [x] **11 — Multi-machine state.** `DATABASE_URL` points at Supabase Postgres; one pooled connection set per machine; two machines serving one shared session store.
+- [x] **12 — Identity, ownership, bounded stores.** An auto-issued signed cookie — no signup, no wall. Sessions and notes belong to a caller and expire after seven days; rate limits key on identity; the spend cap reserves against in-flight runs so concurrency can't overshoot it.
+- [x] **13 — Embedding migration.** Two commands: copy a corpus (recall provably unchanged) or re-embed it at a new model and dimension (recall changes, and the change is measured). Cost quoted before spending.
+- [x] **14 — Real cost accounting.** A negotiated discount and the `inference_geo` multiplier feed cost, applied at one choke point; Voyage embedding spend is counted for the first time; `/pricing` shows which multipliers are in effect and what the next rate window is.
+- [x] **15 — Answer-quality evals.** Forty golden cases, and real recorded answers graded deterministically, keylessly, free on every push. What that can and cannot claim is written down rather than implied.
 
 ---
 
@@ -66,8 +82,10 @@ uvicorn research_agent.service:app --port 8000   # demo at localhost:8000
 ```
 
 Extras split so you install what you run: the base package is the agent
-alone, `[service]` adds FastAPI and the Postgres driver, `[dev]` adds pytest
-and ruff. A worker that imports the graph never pulls in a web server.
+alone, `[service]` adds FastAPI and the Postgres driver and pool, `[dev]` adds
+pytest, ruff and Chroma — the shared store-contract suite runs a Chroma arm, so
+it has to reach CI, while a SQLite/JSON deploy installing `[service]` alone
+never pulls it. A worker that imports the graph never pulls in a web server.
 
 ---
 
