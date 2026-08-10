@@ -11,11 +11,17 @@ classification, and two run modes sharing one graph.
 
     followup mode (a question about the run you just got):
         supervisor -> responder -> critic -> approved? END : responder (capped)
+                   -> researcher, once, when the notes cannot answer
+                      -> responder -> critic -> ...
 
-Follow-ups skip classification and search entirely: the grounding source is
-the previous run's research notes, already on disk. The critic loop is reused
-untouched, so an answer to a follow-up is fact-checked exactly as hard as the
-report it's about.
+Follow-ups never classify -- they inherit the topic type of the run they are
+about. They answer from that run's notes; and when those notes cannot cover
+the question, the responder says so and that signal ROUTES the turn to the
+researcher for exactly one pass, which enlarges the note set rather than
+replacing it. The window in between produces no answer at all, and the critic
+loop is reused untouched on either path -- so an answer to a follow-up is
+fact-checked exactly as hard as the report it's about, and the one thing a
+follow-up still cannot do is answer from the model's own knowledge.
 
 Requires: pip install langgraph anthropic voyageai numpy
 Requires: ANTHROPIC_API_KEY and VOYAGE_API_KEY in your environment
@@ -45,6 +51,10 @@ MAX_REVISIONS = 2
 # At the original 8 it never did -- a critic stuck rejecting reported
 # "max_iterations_exceeded", which reads like an internal fault rather than
 # the truth, which is that the draft never got grounded. Found by the evals.
+# A follow-up that reaches lands on the same worst case rather than a longer
+# one: its insufficiency signal and the pass that signal buys take the two
+# turns the classifier and the researcher take in research mode, so ten is
+# still the ceiling and the revision cap is still what fires first.
 MAX_ITERATIONS = 2 * (MAX_REVISIONS + 2) + 4  # 12: reachable, with headroom
 
 
@@ -167,6 +177,14 @@ class AgentState(TypedDict):
     approved: bool
     reviewed: bool
     revision_count: int
+    # followup mode: the responder found the notes could not answer the
+    # question, and the supervisor has not acted on that yet. Set by the
+    # responder, consumed (and cleared) by the supervisor when it routes.
+    notes_insufficient: bool
+    # followup mode: this turn has already had its one research pass. Both
+    # reach rows set it; the insufficiency row reads it, which is what bounds
+    # a follow-up to one pass and stops research -> insufficient -> research.
+    followup_research_done: bool
     forced_stop_reason: str
     next_step: str
     iteration: int
@@ -197,6 +215,11 @@ def initial_state(task: str, owner: str = "") -> AgentState:
         "approved": False,
         "reviewed": False,
         "revision_count": 0,
+        # Both reach flags are per RUN, and a follow-up turn is a run -- so
+        # `followup_state` resets them for free by building on this, and a new
+        # turn gets a fresh pass allowance the way it gets a fresh budget.
+        "notes_insufficient": False,
+        "followup_research_done": False,
         "forced_stop_reason": "",
         "next_step": "",
         "iteration": 0,
@@ -330,7 +353,18 @@ def researcher_node(state: AgentState) -> AgentState:
             }],
         )
         notes = _text(response)
-        state["research_notes"] = notes
+        # Append, never replace. In research mode `existing` is always empty
+        # here -- the supervisor only routes to this node when it is -- so the
+        # branch exists for the follow-up pass, where replacing would swap the
+        # session's note set for this pass's findings instead of enlarging it.
+        # Nothing would go red: the critic grades the draft against whatever
+        # `research_notes` holds, so the earlier turns would just quietly lose
+        # the ground they were standing on.
+        existing = state["research_notes"]
+        state["research_notes"] = f"{existing}\n\n{notes}" if existing else notes
+        # The stored note keeps only what this pass found, prefixed with the
+        # task -- which in follow-up mode is the follow-up question, so the
+        # note says which turn went and got it.
         store.add(f"[{state['task']}] {notes}", owner=state["owner"])
 
     # Nothing embedded means nothing to bill: a store backed by a fake embedder
@@ -391,19 +425,47 @@ def _conversation_block(state: AgentState) -> str:
     return f"\n\nEarlier follow-up questions in this conversation:\n{turns}"
 
 
+INSUFFICIENCY_SENTINEL = "INSUFFICIENT:"
+
+
 @retry_node("responder")
 def responder_node(state: AgentState) -> AgentState:
-    """Answer a follow-up question from the previous run's notes and report.
+    """Answer a follow-up question from the notes -- or say they cannot.
 
-    Structurally this is the writer's twin -- it writes into state["draft"] so
-    the critic can grade it with the same rubric -- but it never searches. If
-    the notes don't cover the question, saying so is the correct answer; that
-    honesty is what the critic is there to enforce.
+    Structurally this is the writer's twin: it writes into state["draft"] so
+    the critic grades an answer with the same rubric it grades a report with.
+    It has exactly two alternatives, and neither of them is guessing:
+
+    1. answer from the notes and the report, or
+    2. signal that the notes do not cover the question.
+
+    Before this turn has spent its research pass, (2) is the sentinel below --
+    a flag, not a draft. It ROUTES: the supervisor sends the turn to the
+    researcher, and the window between the signal and the new notes produces
+    no answer at all. After the pass it is prose -- "the research didn't cover
+    that" is the honest answer once looking has been tried, and it ships as a
+    draft the critic reviews like any other.
+
+    So this node no longer "never searches"; what it never does is answer from
+    the model's own knowledge, which was always the property that mattered.
     """
     is_revision = bool(state["critic_feedback"])
     feedback_block = (
         f"\n\nPrevious critic feedback to address:\n{state['critic_feedback']}"
         if is_revision else ""
+    )
+    # ONE boolean for both the prompt branch and the parse below. Gating them
+    # separately is the bug that writes itself: a parse that outlives its
+    # prompt turns a stray post-research "INSUFFICIENT:" -- text the model was
+    # never asked for -- into a routing input.
+    pre_research = not state["followup_research_done"]
+    gap_instruction = (
+        f"If the notes do not cover what was asked, respond with exactly "
+        f"'{INSUFFICIENCY_SENTINEL} ' followed by one line naming what is "
+        f"missing. Never answer from your own knowledge."
+        if pre_research else
+        "If the notes do not cover what was asked, say plainly "
+        "that the research didn't cover it rather than guessing."
     )
     response = call_model(
         state,
@@ -420,13 +482,25 @@ def responder_node(state: AgentState) -> AgentState:
                 f"The user is now asking a follow-up question: {state['task']}\n\n"
                 f"Answer it directly and concisely, using only the research notes "
                 f"and the report above. Do not introduce facts from your own "
-                f"knowledge. If the notes do not cover what was asked, say plainly "
-                f"that the research didn't cover it rather than guessing."
+                f"knowledge. {gap_instruction}"
                 f"{feedback_block}"
             ),
         }],
     )
     answer = _text(response)
+
+    if pre_research and answer.strip().startswith(INSUFFICIENCY_SENTINEL):
+        # The signal sets a flag and does nothing else. `draft` is left
+        # untouched -- the sentinel text is never a draft, so it reaches
+        # neither the critic nor the caller -- and `reviewed`, `revision_count`
+        # and the usual trace entry are all skipped, because no answer was
+        # produced to review, revise or measure. Parsed by fixed prefix, which
+        # is exactly how `approved` is read off the critic; the supervisor
+        # still routes on plain state (ADR-0001).
+        state["notes_insufficient"] = True
+        state["trace"].append({"node": "responder", "insufficient": True})
+        return state
+
     state["draft"] = answer
     state["reviewed"] = False
     if is_revision:
@@ -473,13 +547,22 @@ def supervisor_node(state: AgentState) -> AgentState:
     """The routing table. Plain Python over state -- no model call decides what
     runs next, which is what makes the control flow deterministic and testable.
 
-    The only thing `mode` changes is which node produces the text: the writer
-    (from web research) or the responder (from notes already gathered). The
-    caps, the critic hop, and the revision loop are identical either way.
+    `mode` changes which node produces the text -- the writer (from web
+    research) or the responder (from notes already gathered) -- and, since
+    Phase 17, gates the two rows that can send a follow-up to the researcher.
+    The caps, the critic hop, and the revision loop are identical either way,
+    and the caps sit above everything: a follow-up that reaches for new
+    information is still a run under the same guardrails, so a capped or
+    over-budget one ENDs with its own honest reason and never researches.
     """
     state["iteration"] += 1
     author = "responder" if state["mode"] == "followup" else "writer"
     budget = usage_accounting.max_run_cost_usd()
+    # Why this turn is being sent to the researcher, when it is a follow-up.
+    # Folded into the one trace entry below rather than appended separately:
+    # `/sessions/{id}/trace` is the surface of record, and one supervisor
+    # entry per decision is what makes it readable.
+    followup_research = ""
 
     if state["iteration"] > MAX_ITERATIONS:
         state["next_step"] = "done"
@@ -495,11 +578,36 @@ def supervisor_node(state: AgentState) -> AgentState:
         state["next_step"] = "done"
         state["forced_stop_reason"] = "budget_exceeded"
     elif state["mode"] == "followup" and not state["research_notes"]:
-        # A follow-up with nothing to follow up on. Stopping beats silently
-        # answering from the model's own knowledge, which is the one thing
-        # this whole pipeline exists to prevent.
-        state["next_step"] = "done"
-        state["forced_stop_reason"] = "no_prior_research"
+        # A follow-up with nothing to follow up on. This row used to END the
+        # run: refusing beat silently answering from the model's own
+        # knowledge, which is the one thing this whole pipeline exists to
+        # prevent. That is still true of answering -- it was never an argument
+        # against going and getting notes first, which is the honest move and
+        # is what this row does now. The guarantee that replaces "a follow-up
+        # never searches" is the window: nothing ships until the researcher
+        # has gathered and the critic has reviewed, so there is still no path
+        # from an unanswerable question to an unreviewed answer.
+        #
+        # The row stays HERE, above the classifier row, and that position is
+        # load-bearing: it is what keeps "a follow-up never classifies" a
+        # property of the table rather than of how `followup_state` happens to
+        # be built.
+        state["next_step"] = "researcher"
+        state["followup_research_done"] = True
+        followup_research = "no_prior_research"
+    elif (
+        state["mode"] == "followup"
+        and state["notes_insufficient"]
+        and not state["followup_research_done"]
+    ):
+        # Notes exist but the responder said they do not cover the question.
+        # One pass, and the flag is what bounds it: a post-research
+        # insufficiency signal cannot buy a second one, so a follow-up can
+        # never loop research -> insufficient -> research.
+        state["next_step"] = "researcher"
+        state["followup_research_done"] = True
+        state["notes_insufficient"] = False
+        followup_research = "notes_insufficient"
     elif not state["topic_type"]:
         state["next_step"] = "classifier"
     elif not state["research_notes"]:
@@ -513,7 +621,15 @@ def supervisor_node(state: AgentState) -> AgentState:
     else:
         state["next_step"] = "done"
 
-    state["trace"].append({"node": "supervisor", "routed_to": state["next_step"]})
+    decision = {"node": "supervisor", "routed_to": state["next_step"]}
+    if followup_research:
+        # `no_prior_research` used to be a forced stop reason. It is this
+        # instead now: not "the run gave up", but "this is why the follow-up
+        # went looking". Without it on the record, a reach the design intended
+        # and a reach caused by a routing row moving by accident look
+        # identical, and both look green.
+        decision["followup_research"] = followup_research
+    state["trace"].append(decision)
 
     if state["next_step"] == "done":
         log.info(

@@ -107,7 +107,23 @@ class ScriptedClient:
     def __init__(self, case: Case):
         self.case = case
         self.verdicts = list(case.critic_verdicts)
-        self.answers = [fu.answer for fu in case.followups]
+        # Researcher outputs, popped in the order the graph asks for them: the
+        # session's own pass first, then one output per follow-up that reaches
+        # for more. A single `case.notes` for every call would let a follow-up
+        # "find" the notes it already had, so a grounded-answer-after-research
+        # case would have nothing new to ground on and would pass for the
+        # wrong reason.
+        self.researcher_notes = [case.notes] + [
+            fu.research_notes for fu in case.followups if fu.research_notes
+        ]
+        # A follow-up that signals insufficiency speaks twice -- the sentinel
+        # first, the post-research answer second -- so the responder's outputs
+        # interleave rather than being one per turn.
+        self.answers: list[str] = []
+        for fu in case.followups:
+            if fu.insufficiency:
+                self.answers.append(fu.insufficiency)
+            self.answers.append(fu.answer)
         self.calls: list[str] = []
         self.messages = self
 
@@ -117,7 +133,12 @@ class ScriptedClient:
         if "Respond with exactly one word" in prompt:
             node, text, searches = "classifier", self.case.topic_label, 0
         elif "Search the web" in prompt:
-            node, text, searches = "researcher", self.case.notes, 2
+            node = "researcher"
+            # Exhaustion falls back rather than raising, the `verdicts` idiom:
+            # an unscripted extra call is something the graders should catch
+            # and describe, not something that ends the run with a traceback.
+            text = self.researcher_notes.pop(0) if self.researcher_notes else self.case.notes
+            searches = 2
         elif "follow-up question" in prompt:
             node = "responder"
             text = self.answers.pop(0) if self.answers else "(no scripted answer)"

@@ -571,6 +571,15 @@ the cutover. A fully-revised run makes at most 3 critic calls and can reach
 on the typical run, `AGENT_MAX_RUN_COST_USD` bounds the tail per run, and
 settlement replaces the estimate with the real figure at run end.
 
+**Follow-ups joined the research cost class in Phase 17, and the reservation
+still did not move.** A follow-up whose notes cannot answer the question now
+runs one research pass before answering, so those turns cost like a research
+run (**~$0.21**) rather than the pennies a notes-only answer costs. That is a
+class of run crossing into the estimate's own case, not a case the estimate
+misses: **$0.20** was always sized on the typical run, both `/ask` routes
+already reserve, and settlement replaces the estimate with the real figure at
+run end. No resize ships with the reversal.
+
 **The threshold that will actually break it is not the critic.** From
 **2026-09-01** Sonnet 5's introductory window closes and the standard rate
 alone lifts a typical *unchanged* run to **~$0.21–0.22**. Raise

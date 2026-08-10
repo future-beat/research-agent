@@ -2538,7 +2538,9 @@ def test_page_copy_and_dom_present():
     )
     # The follow-up placeholder is now set from two places (a completed run and
     # a resume) and must stay one string.
-    assert page.count("Follow up on that — answered from its notes, no new search") == 1
+    assert page.count(
+        "Follow up on that — from its notes, or a fresh search if they fall short"
+    ) == 1
 
     # The side-effect-free renderer exists and `result()` goes through it, so a
     # stored turn cannot pick up result()'s fabricated cost and revision count.

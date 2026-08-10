@@ -7,6 +7,7 @@ the fields the supervisor reads, and a run terminates.
 """
 
 import logging
+import pathlib
 from contextlib import contextmanager
 
 import pytest
@@ -57,8 +58,14 @@ class FakeClient:
     "reject, then approve" and watch the revision loop run.
     """
 
-    def __init__(self, critic_verdicts=("APPROVED",)):
+    def __init__(self, critic_verdicts=("APPROVED",), responder_answers=()):
         self.critic_verdicts = list(critic_verdicts)
+        # Consumed one per responder call, the `critic_verdicts` idiom. A
+        # follow-up that signals insufficiency speaks twice in one turn -- the
+        # sentinel, then the answer built from the enlarged notes -- so a
+        # single fixed reply cannot script the path this phase adds. Empty
+        # means "behave exactly as before".
+        self.responder_answers = list(responder_answers)
         self.calls = []
         # The whole request payload per call, not just the prompt. The fakes
         # ignore `model`, which is exactly why nothing here could catch a
@@ -77,7 +84,10 @@ class FakeClient:
             text = "FACTS: the sky scatters blue light."
         elif "follow-up question" in prompt:
             node = "responder"
-            text = "ANSWER: because of Rayleigh scattering."
+            text = (
+                self.responder_answers.pop(0) if self.responder_answers
+                else "ANSWER: because of Rayleigh scattering."
+            )
         elif "Does the" in prompt:
             node = "critic"
             text = self.critic_verdicts.pop(0) if self.critic_verdicts else "APPROVED"
@@ -96,8 +106,8 @@ class FakeClient:
 
 @pytest.fixture
 def fake_client(monkeypatch):
-    def install(critic_verdicts=("APPROVED",)):
-        client = FakeClient(critic_verdicts)
+    def install(critic_verdicts=("APPROVED",), responder_answers=()):
+        client = FakeClient(critic_verdicts, responder_answers)
         monkeypatch.setattr(graph, "client", lambda: client)
         graph.set_memory(InMemoryStore(embedder=FakeEmbedder()))
         return client
@@ -198,16 +208,271 @@ def test_second_followup_sees_the_first_exchange(fake_client):
     assert "ANSWER: because of Rayleigh scattering." in prompt
 
 
-def test_followup_without_prior_research_makes_no_api_calls(fake_client):
-    """Refusing costs nothing; answering ungrounded would cost the user's trust."""
+def test_a_followup_with_no_prior_notes_researches_instead_of_refusing(fake_client):
+    """The reversal, through the compiled graph (Phase 17, path 1).
+
+    This run used to make zero API calls and end `no_prior_research`: refusing
+    cost nothing, and answering ungrounded would have cost the user's trust.
+    The second half still holds -- what changed is that a third option exists.
+    The follow-up now goes and gets notes, drafts from them, and the critic
+    checks the draft, which is the same grounding contract a research run has.
+    No answer ships that the critic has not reviewed.
+    """
     client = fake_client()
     empty = initial_state("why is the sky blue?")
     empty.update({"mode": "followup", "topic_type": "general"})
 
     result = app.invoke(empty)
 
-    assert client.calls == []
-    assert result["forced_stop_reason"] == "no_prior_research"
+    assert client.nodes_called() == ["researcher", "responder", "critic"]
+    assert result["forced_stop_reason"] == ""
+    assert result["draft"]
+    assert result["approved"] is True
+
+
+SENTINEL_NOTES = "PRIOR NOTES MUST SURVIVE"
+
+
+def test_notes_append_not_replace_on_a_followup_pass(fake_client):
+    """A follow-up's research pass ENLARGES the session's note set.
+
+    `state["research_notes"] = notes` was a REPLACE. On a follow-up that
+    silently discards everything the session already gathered -- and nothing
+    goes red, because the critic grades the draft against whatever notes it is
+    handed, so a swapped note set reads exactly like an enlarged one. The
+    prior notes have to survive verbatim, as a prefix, or every earlier turn
+    in the conversation quietly loses its grounding.
+    """
+    fake_client()
+    prior = initial_state("why is the sky blue?")
+    prior.update({
+        "topic_type": "technical",
+        "research_notes": SENTINEL_NOTES,
+        "draft": "the report",
+    })
+    s = followup_state(prior, "and what about at sunset?")
+
+    result = graph.researcher_node(s)
+
+    assert result["research_notes"].startswith(SENTINEL_NOTES)
+    assert "FACTS: the sky scatters blue light." in result["research_notes"]
+
+
+def test_a_followup_pass_files_its_notes_under_the_followup_question(fake_client):
+    """SC-2 attribution, with no schema change: the note store has no session
+    or turn column, but the stored text is prefixed with the task -- and in
+    follow-up mode the task IS the follow-up question. So the note says which
+    turn went and got it, and `owner` says whose it is."""
+    fake_client()
+    prior = initial_state("why is the sky blue?")
+    prior.update({
+        "topic_type": "technical",
+        "research_notes": SENTINEL_NOTES,
+        "draft": "the report",
+    })
+
+    graph.researcher_node(followup_state(prior, "and what about at sunset?"))
+
+    newest = graph.memory().entries[-1]["text"]
+    assert newest.startswith("[and what about at sunset?] ")
+    assert SENTINEL_NOTES not in newest  # the note is what this pass found
+
+
+# --------------------------------------------------------------------------
+# Path 2: the notes exist but don't cover the question (Phase 17)
+# --------------------------------------------------------------------------
+
+RESEARCHER_FINDING = "FACTS: the sky scatters blue light."
+SENTINEL_REPLY = "INSUFFICIENT: the notes name no such figure"
+
+
+def _followup_over_notes(question="what does lock_timeout default to?"):
+    """A follow-up turn whose session already has notes -- so row 4 (no prior
+    notes) cannot fire and only the responder's own signal can start a pass."""
+    prior = initial_state("postgres locking defaults")
+    prior.update({
+        "topic_type": "technical",
+        "research_notes": SENTINEL_NOTES,
+        "draft": "the report",
+    })
+    return followup_state(prior, question)
+
+
+def _nodes(result):
+    return [e["node"] for e in result["trace"]]
+
+
+def test_insufficiency_signal_routes_to_researcher_and_ships_no_answer(fake_client):
+    """Path 2 end to end: the signal ROUTES, it never generates.
+
+    The window between "these notes don't cover it" and "new notes arrive"
+    produces no answer at all. The sentinel is a flag's origin, not a draft:
+    it never reaches the critic and it never reaches the caller. What ships is
+    written from the enlarged note set and reviewed like any other answer.
+    """
+    client = fake_client(responder_answers=[
+        SENTINEL_REPLY, "a grounded answer from the enlarged notes",
+    ])
+
+    result = app.invoke(_followup_over_notes())
+
+    assert result["draft"] == "a grounded answer from the enlarged notes"
+    assert SENTINEL_REPLY not in result["draft"]
+    assert _nodes(result) == [
+        "supervisor", "responder",    # the signal
+        "supervisor", "researcher",   # the one pass it buys
+        "supervisor", "responder",    # the answer, from the enlarged notes
+        "supervisor", "critic",
+        "supervisor",
+    ]
+    # The signalling pass produced no answer: it reports insufficiency and
+    # nothing else. An `answer_length` here would mean a draft was written.
+    signal = [e for e in result["trace"] if e["node"] == "responder"][0]
+    assert signal == {"node": "responder", "insufficient": True}
+    assert "answer_length" not in signal
+    # The pass enlarged the note set rather than swapping it, so the answer is
+    # grounded in everything the session has, not only in what this pass found.
+    assert result["research_notes"].startswith(SENTINEL_NOTES)
+    assert RESEARCHER_FINDING in result["research_notes"]
+    assert client.nodes_called().count("researcher") == 1
+
+
+def test_one_pass_bound_ships_the_honest_refusal_with_the_attempt(fake_client):
+    """The other half of the bound: one pass, then the honest tail ships.
+
+    If the enlarged notes still don't cover the question, "the research didn't
+    cover that" is the correct answer -- and now it ships as a critic-reviewed
+    draft WITH the attempt visible in the trace, which is the difference
+    between a refusal that looked before it spoke and one that didn't.
+    """
+    client = fake_client(responder_answers=[
+        SENTINEL_REPLY, "The research didn't cover the default value.",
+    ])
+
+    result = app.invoke(_followup_over_notes())
+
+    assert result["draft"] == "The research didn't cover the default value."
+    assert result["approved"] is True
+    assert result["forced_stop_reason"] == ""
+    assert client.nodes_called().count("researcher") == 1
+    reaches = [e["followup_research"] for e in result["trace"] if "followup_research" in e]
+    assert reaches == ["notes_insufficient"]
+
+
+def test_one_pass_bound_post_research_sentinel_is_an_ordinary_draft(fake_client):
+    """The leak gate. The parse is gated on the SAME condition as the prompt.
+
+    After the pass, the prompt no longer asks for a sentinel -- so a reply that
+    starts with one is just text the model produced, and it is treated as an
+    ordinary draft for the critic to judge. A parse that outlived its prompt
+    would read routing input out of a response nobody asked for.
+    """
+    client = fake_client(responder_answers=[
+        SENTINEL_REPLY, "INSUFFICIENT: still nothing about lock_timeout",
+    ])
+
+    result = app.invoke(_followup_over_notes())
+
+    assert result["draft"] == "INSUFFICIENT: still nothing about lock_timeout"
+    assert result["reviewed"] is True                  # the critic saw it
+    assert "critic" in client.nodes_called()
+    assert result["notes_insufficient"] is False       # nothing re-flagged
+    assert client.nodes_called().count("researcher") == 1  # and no second pass
+
+
+def test_the_sentinel_is_asked_for_only_before_the_pass(fake_client):
+    """The prompt half of the identical gating.
+
+    The parse only ever reads a sentinel out of a response the prompt asked
+    for. That is a claim about two branches at once, and only the prompts can
+    show the first of them: before the pass the responder is told to signal,
+    after it the wording is the pre-Phase-17 one verbatim, because by then
+    saying so plainly IS the answer.
+    """
+    client = fake_client(responder_answers=[
+        SENTINEL_REPLY, "a grounded answer from the enlarged notes",
+    ])
+
+    app.invoke(_followup_over_notes())
+
+    before, after = [p for node, p in client.calls if node == "responder"]
+    assert "INSUFFICIENT: " in before
+    assert "say plainly" not in before
+    assert "say plainly that the research didn't cover it" in after
+    assert "INSUFFICIENT" not in after
+    # And the line the eval harness dispatches the responder on survives both
+    # branches -- rewriting it would make every scripted follow-up case fall
+    # through to the writer's reply.
+    assert "follow-up question" in before
+    assert "follow-up question" in after
+
+
+def source_of(module) -> str:
+    return pathlib.Path(module.__file__).read_text()
+
+
+def test_no_prior_research_redefined_out_of_the_stop_vocabulary():
+    """The redefinition, as a property of the shipped sources.
+
+    `no_prior_research` stopped being a reason a run gives up and became a
+    reason a follow-up went looking. A redefinition nobody checks is a rename
+    that leaves the old meaning behind in whatever surface was not swept, and
+    the REPL is the surface where a user would read it: it used to print "no
+    prior research to answer from -- run a research question first" for a run
+    that now researches.
+
+    Reading source text is a blunt instrument, and that bluntness is the point
+    of a vocabulary gate: it cannot be satisfied by anything except the word
+    being gone.
+    """
+    from research_agent import chat  # noqa: PLC0415 - keeps the REPL's import cost local
+
+    chat_source = source_of(chat)
+    assert "no_prior_research" not in chat_source
+    assert "no new web search" not in chat_source
+    assert "no prior research" not in chat_source
+
+    # In the graph the name survives on purpose, and exactly once outside a
+    # comment: the value the supervisor writes onto its own trace entry when
+    # row 4 sends a follow-up with nothing behind it to the researcher. The
+    # comment above that row states the redefinition and is excluded here, the
+    # grep-gate hygiene rule -- a gate that counts prose can be satisfied by
+    # deleting prose.
+    #
+    # The three assertions are one conjunction over that single occurrence --
+    # it is not a stop, it IS the trace value, and there is exactly one of it
+    # -- so any mutation reds at least one of them and assertion order decides
+    # which one reports. The strongest claim goes first, because it is the one
+    # whose failure message should name the regression.
+    code = "\n".join(
+        line for line in source_of(graph).splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert 'forced_stop_reason"] = "no_prior_research' not in code
+    assert 'followup_research = "no_prior_research"' in code
+    assert code.count("no_prior_research") == 1, [
+        line for line in code.splitlines() if "no_prior_research" in line
+    ]
+
+
+def test_grounding_survives_followup_research(fake_client):
+    """SC-3: no path ships an answer the critic has not reviewed.
+
+    The reach adds a node to the front of the follow-up path; it does not move
+    the critic hop, which stays the last thing between the responder and the
+    caller.
+    """
+    fake_client(responder_answers=[
+        SENTINEL_REPLY, "a grounded answer from the enlarged notes",
+    ])
+
+    result = app.invoke(_followup_over_notes())
+
+    workers = [n for n in _nodes(result) if n != "supervisor"]
+    assert workers == ["responder", "researcher", "responder", "critic"]
+    assert workers.index("critic") == len(workers) - 1  # the last word is the critic's
+    assert result["reviewed"] is True
+    assert result["approved"] is True
 
 
 def test_the_researcher_stores_what_it_finds(fake_client):

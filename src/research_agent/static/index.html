@@ -152,8 +152,10 @@ const form = document.getElementById("ask");
 const input = document.getElementById("q");
 const go = document.getElementById("go");
 
-// The pipeline, in the order the supervisor routes through it. Follow-ups
-// only use the last two -- which is the point of follow-ups.
+// The pipeline, in the order the supervisor routes through it. A follow-up
+// starts at the responder and adds a researcher stage when its notes can't
+// answer -- so these labels need no follow-up special case: the node events
+// arrive the same way on either kind of turn.
 const LABELS = {
   classifier: "classifying the topic",
   researcher: "searching the web",
@@ -162,7 +164,7 @@ const LABELS = {
   critic: "fact-checking against the notes",
 };
 
-const FOLLOWUP_PLACEHOLDER = "Follow up on that — answered from its notes, no new search";
+const FOLLOWUP_PLACEHOLDER = "Follow up on that — from its notes, or a fresh search if they fall short";
 const MAX_SESSION_ROWS = 10;   // a demo, not an archive: no pagination
 
 let session = null;   // set once a research run completes
