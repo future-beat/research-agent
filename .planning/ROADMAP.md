@@ -330,7 +330,13 @@ Plans:
   4. `no_prior_research` is explicitly redefined or retired; it is not left dangling as a reachable-but-meaningless stop reason.
   5. Spend cap, iteration cap, and revision cap all still bound the expanded path, and a forced stop still reports honestly.
   6. The routing change lives in the supervisor. `service.py` still holds no routing logic.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 17-01-PLAN.md — Eval/grader mechanics first (expectation-keyed bounded-research grading, ScriptedClient pop-lists, preview topology) — zero behavior change, keeps every wave green
+- [ ] 17-02-PLAN.md — Path 1: row 4 flips to researcher in place, append-not-replace (red-first), eight precedence pairs with mutations observed red, path-1 golden case flip
+- [ ] 17-03-PLAN.md — Path 2: the INSUFFICIENT sentinel + one-pass bound, three path-2 golden flips (A1 honored), no_prior_research vocabulary sweep in code
+- [ ] 17-04-PLAN.md — ADR-0011 supersedes ADR-0003, README whole-file pass (limitation DELETED, nine-list closed), demo copy + pin, live closing checkpoint (record-or-defer)
 
 **Notes for discuss-phase:**
 - **Reversal — the strongest in the set. Supersedes the ADR promoted from DEC-04.** README marks the current behaviour "By design." DESIGN.md calls the guarantee this removes "the single failure mode this whole pipeline exists to prevent."
