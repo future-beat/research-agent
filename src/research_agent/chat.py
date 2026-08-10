@@ -124,14 +124,13 @@ def print_result(state: dict) -> None:
     print(state["draft"] or _dim("(nothing produced)"))
 
     if state["forced_stop_reason"]:
+        # One line for every reason. The special case that used to live here
+        # explained a follow-up that stopped because it had no notes behind
+        # it; since Phase 17 that turn goes and researches instead, so every
+        # stop left is a guardrail, and a guardrail says what it is.
         reason = state["forced_stop_reason"]
-        note = (
-            "  note: no prior research to answer from -- run a research question first"
-            if reason == "no_prior_research"
-            else f"  note: stopped by guardrail ({reason}) -- this was not critic-approved"
-        )
         print()
-        print(_dim(note))
+        print(_dim(f"  note: stopped by guardrail ({reason}) -- this was not critic-approved"))
 
     print()
     print(
@@ -150,7 +149,8 @@ Type a research question and press Enter. Each run does a full pass:
 classify -> web search -> draft -> fact-check (with up to
 {max_rev} revisions if the critic pushes back).
 
-  /ask <q>  follow up on the last run using its notes -- no new web search.
+  /ask <q>  follow up on the last run. Answered from that run's notes, or --
+            when they can't cover it -- from one fresh search first.
             Chains: each /ask sees the earlier ones.
   /help     this message
   /memory   how many notes are in the vector store, and which backend

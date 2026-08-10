@@ -11,11 +11,17 @@ classification, and two run modes sharing one graph.
 
     followup mode (a question about the run you just got):
         supervisor -> responder -> critic -> approved? END : responder (capped)
+                   -> researcher, once, when the notes cannot answer
+                      -> responder -> critic -> ...
 
-Follow-ups skip classification and search entirely: the grounding source is
-the previous run's research notes, already on disk. The critic loop is reused
-untouched, so an answer to a follow-up is fact-checked exactly as hard as the
-report it's about.
+Follow-ups never classify -- they inherit the topic type of the run they are
+about. They answer from that run's notes; and when those notes cannot cover
+the question, the responder says so and that signal ROUTES the turn to the
+researcher for exactly one pass, which enlarges the note set rather than
+replacing it. The window in between produces no answer at all, and the critic
+loop is reused untouched on either path -- so an answer to a follow-up is
+fact-checked exactly as hard as the report it's about, and the one thing a
+follow-up still cannot do is answer from the model's own knowledge.
 
 Requires: pip install langgraph anthropic voyageai numpy
 Requires: ANTHROPIC_API_KEY and VOYAGE_API_KEY in your environment
@@ -45,6 +51,10 @@ MAX_REVISIONS = 2
 # At the original 8 it never did -- a critic stuck rejecting reported
 # "max_iterations_exceeded", which reads like an internal fault rather than
 # the truth, which is that the draft never got grounded. Found by the evals.
+# A follow-up that reaches lands on the same worst case rather than a longer
+# one: its insufficiency signal and the pass that signal buys take the two
+# turns the classifier and the researcher take in research mode, so ten is
+# still the ceiling and the revision cap is still what fires first.
 MAX_ITERATIONS = 2 * (MAX_REVISIONS + 2) + 4  # 12: reachable, with headroom
 
 

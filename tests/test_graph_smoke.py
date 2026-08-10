@@ -7,6 +7,7 @@ the fields the supervisor reads, and a run terminates.
 """
 
 import logging
+import pathlib
 from contextlib import contextmanager
 
 import pytest
@@ -404,6 +405,54 @@ def test_the_sentinel_is_asked_for_only_before_the_pass(fake_client):
     # through to the writer's reply.
     assert "follow-up question" in before
     assert "follow-up question" in after
+
+
+def source_of(module) -> str:
+    return pathlib.Path(module.__file__).read_text()
+
+
+def test_no_prior_research_redefined_out_of_the_stop_vocabulary():
+    """The redefinition, as a property of the shipped sources.
+
+    `no_prior_research` stopped being a reason a run gives up and became a
+    reason a follow-up went looking. A redefinition nobody checks is a rename
+    that leaves the old meaning behind in whatever surface was not swept, and
+    the REPL is the surface where a user would read it: it used to print "no
+    prior research to answer from -- run a research question first" for a run
+    that now researches.
+
+    Reading source text is a blunt instrument, and that bluntness is the point
+    of a vocabulary gate: it cannot be satisfied by anything except the word
+    being gone.
+    """
+    from research_agent import chat  # noqa: PLC0415 - keeps the REPL's import cost local
+
+    chat_source = source_of(chat)
+    assert "no_prior_research" not in chat_source
+    assert "no new web search" not in chat_source
+    assert "no prior research" not in chat_source
+
+    # In the graph the name survives on purpose, and exactly once outside a
+    # comment: the value the supervisor writes onto its own trace entry when
+    # row 4 sends a follow-up with nothing behind it to the researcher. The
+    # comment above that row states the redefinition and is excluded here, the
+    # grep-gate hygiene rule -- a gate that counts prose can be satisfied by
+    # deleting prose.
+    #
+    # The three assertions are one conjunction over that single occurrence --
+    # it is not a stop, it IS the trace value, and there is exactly one of it
+    # -- so any mutation reds at least one of them and assertion order decides
+    # which one reports. The strongest claim goes first, because it is the one
+    # whose failure message should name the regression.
+    code = "\n".join(
+        line for line in source_of(graph).splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert 'forced_stop_reason"] = "no_prior_research' not in code
+    assert 'followup_research = "no_prior_research"' in code
+    assert code.count("no_prior_research") == 1, [
+        line for line in code.splitlines() if "no_prior_research" in line
+    ]
 
 
 def test_grounding_survives_followup_research(fake_client):

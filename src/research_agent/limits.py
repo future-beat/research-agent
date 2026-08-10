@@ -142,6 +142,15 @@ def reserved_run_usd() -> float:
     cost the moment the run ends -- so an over-run makes the daily cap fire
     slightly late, never not at all.
 
+    Phase 17 moves a class of run across the line rather than moving the line:
+    a follow-up that cannot answer from its notes now runs a research pass, so
+    those turns cost like a research run (~$0.21) instead of the pennies a
+    notes-only answer costs. The reservation is deliberately NOT resized for
+    it -- $0.20 was always the typical-run estimate and this makes follow-ups
+    typical runs, which is the case it was sized on. What changes is how often
+    the tail is reached, and `settle()` still replaces the estimate with real
+    cost the moment the run ends.
+
     The threshold that actually breaks this default has nothing to do with the
     critic: from **2026-09-01** the Sonnet 5 introductory window closes and the
     standard rate alone lifts a typical unchanged run to ~$0.21-0.22. Raise
