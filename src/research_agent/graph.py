@@ -23,6 +23,7 @@ Requires: ANTHROPIC_API_KEY and VOYAGE_API_KEY in your environment
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from typing import Literal, TypedDict
@@ -45,6 +46,27 @@ MAX_REVISIONS = 2
 # "max_iterations_exceeded", which reads like an internal fault rather than
 # the truth, which is that the draft never got grounded. Found by the evals.
 MAX_ITERATIONS = 2 * (MAX_REVISIONS + 2) + 4  # 12: reachable, with headroom
+
+
+def critic_model() -> str:
+    """The model the critic runs on. `CRITIC_MODEL` unset or blank means the
+    writer's model -- a neutral default, so shipping the capability changes
+    nothing until an operator sets the variable.
+
+    Read on every call rather than cached in a module constant, the
+    `sessions_token()` idiom from limits.py: a module-scope read would freeze
+    the value at import, so an operator changing configuration would not
+    change what the process does, and tests could not flip it with
+    monkeypatch.setenv.
+
+    No validation past strip-or-default. An unknown-but-real model must be
+    allowed -- being able to point the critic at any model is the feature.
+    A model with no price row is `pricing_unknown`'s job (DEC-12), not this
+    accessor's: the run is costed as a floor and says so, rather than being
+    refused by a whitelist that would need maintaining against every release.
+    """
+    return os.environ.get("CRITIC_MODEL", "").strip() or MODEL
+
 
 log = get_logger()
 
@@ -81,7 +103,7 @@ def _text(response) -> str:
     return "".join(block.text for block in response.content if block.type == "text")
 
 
-def call_model(state: AgentState, node: str, **kwargs):
+def call_model(state: AgentState, node: str, *, model: str | None = None, **kwargs):
     """Every model call in this system goes through here.
 
     One choke point for the three things you need per call in production:
@@ -90,17 +112,27 @@ def call_model(state: AgentState, node: str, **kwargs):
 
     Usage is folded into `state["usage"]` before the response is returned, so
     the supervisor sees the true running cost on its very next hop.
+
+    `model` is keyword-only and defaults to the writer's model, so a node that
+    does not care stays exactly as it was. The name it resolves to is used at
+    all four sites below -- the span, the API call, the cost record, and the
+    log line. Threading three of them and leaving the fourth reading `MODEL`
+    is the silent-misbilling bug: an Opus critic recorded as Sonnet
+    under-reports every critic call 2.5x, with no error anywhere. Cost
+    attribution here is a *passed constant*, not something read back off the
+    response -- `CallUsage.from_response` never looks at `response.model`.
     """
+    model = model or MODEL
     started = time.perf_counter()
     with span(
-        f"node.{node}", run_id=state.get("run_id", ""), node=node, model=MODEL,
+        f"node.{node}", run_id=state.get("run_id", ""), node=node, model=model,
         mode=state.get("mode", ""),
     ):
-        response = client().messages.create(model=MODEL, **kwargs)
+        response = client().messages.create(model=model, **kwargs)
 
     elapsed_ms = (time.perf_counter() - started) * 1000
     call = usage_accounting.CallUsage.from_response(response)
-    cost = usage_accounting.record(state["usage"], call, MODEL)
+    cost = usage_accounting.record(state["usage"], call, model)
 
     log.info(
         "model call",
@@ -108,7 +140,7 @@ def call_model(state: AgentState, node: str, **kwargs):
             "event": "model_call",
             "run_id": state.get("run_id", ""),
             "node": node,
-            "model": MODEL,
+            "model": model,
             "duration_ms": round(elapsed_ms, 1),
             "input_tokens": call.input_tokens,
             "output_tokens": call.output_tokens,
@@ -412,6 +444,7 @@ def critic_node(state: AgentState) -> AgentState:
     response = call_model(
         state,
         "critic",
+        model=critic_model(),
         max_tokens=2000,
         thinking={"type": "adaptive"},
         output_config={"effort": "medium"},
