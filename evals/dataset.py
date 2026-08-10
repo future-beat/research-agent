@@ -57,12 +57,30 @@ class Followup:
     # says so -- graders check that it neither guesses nor stays silent.
     answerable: bool = True
     expect_approved: bool = True
-    # The guardrail this turn is expected to hit *instead of* answering, by
-    # name -- today only "no_prior_research", the stop a follow-up takes when
-    # there are no notes behind it. Set, an honest stop is a pass and the
-    # missing critic is not a failure; unset (every existing case), any forced
-    # stop on a follow-up is a red.
+    # The guardrail this turn is expected to hit *instead of* answering, named
+    # rather than merely expected: any stop the graph can force on a follow-up
+    # turn ("budget_exceeded", "max_revisions_exceeded", ...). Asserted per
+    # turn and not per case, because a chain can stop at any link. Set, an
+    # honest stop is a pass and the missing critic is not a failure; unset,
+    # any forced stop on a follow-up is a red.
     expect_forced_stop: str | None = None
+    # Whether this turn is expected to reach for new information: exactly one
+    # research pass, and still no classification. `expect_research=False`
+    # means the notes on disk are expected to carry the turn and any
+    # researcher visit is a red -- the property Phase 17 keeps, scoped to the
+    # cases it is true of. Graded by `grade_followup_research_bounded`.
+    expect_research: bool = False
+
+    # -- offline script ---------------------------------------------------
+    # The `INSUFFICIENT: ...` line the responder emits *before* the research
+    # pass, authored here rather than synthesised, so the script stays
+    # readable as a transcript. Empty for turns whose notes suffice and for
+    # turns routed straight to the researcher (no responder speaks first).
+    insufficiency: str = ""
+    # What the researcher finds on the pass this turn triggers -- the notes
+    # that did not exist when the session started. Empty when no pass is
+    # triggered.
+    research_notes: str = ""
     answer: str = ""  # offline script
 
 

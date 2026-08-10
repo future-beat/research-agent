@@ -509,6 +509,79 @@ def test_the_scripted_client_dispatches_on_the_real_prompts():
     assert client.calls == ["classifier", "researcher", "writer", "critic", "writer", "critic"]
 
 
+# A follow-up that reaches for new information asks the scripted client for
+# two things no pre-Phase-17 case ever asked for: a *second*, different
+# researcher output, and two responder outputs in one turn (the sentinel, then
+# the answer written from what the pass found).
+
+
+def scripted(client: ScriptedClient, prompt: str) -> str:
+    return client.create(messages=[{"role": "user", "content": prompt}]).content[0].text
+
+
+SEARCH_PROMPT = "Search the web for what this question needs."
+RESPOND_PROMPT = "Answer the follow-up question from the notes below."
+
+
+def reaching_case() -> Case:
+    return Case(
+        id="reach-probe",
+        task="how much did it cost?",
+        why="the scripting mechanics a reaching follow-up needs",
+        notes="FACTS: the session's own notes.",
+        report="# Cost\n\nThe session's own notes.",
+        followups=(
+            Followup(
+                question="and the 2027 figure?",
+                expect_research=True,
+                insufficiency="INSUFFICIENT: the notes do not carry a 2027 figure",
+                research_notes="FACTS: the 2027 figure is $4.2bn.",
+                answer="The 2027 figure is $4.2bn.",
+            ),
+        ),
+    )
+
+
+def test_scripted_client_gives_each_researcher_call_its_own_notes():
+    """Without this, a reaching follow-up's research pass "finds" the notes it
+    already had, and a grounded-answer case passes on the wrong grounding."""
+    client = ScriptedClient(reaching_case())
+
+    assert scripted(client, SEARCH_PROMPT) == "FACTS: the session's own notes."
+    assert scripted(client, SEARCH_PROMPT) == "FACTS: the 2027 figure is $4.2bn."
+
+
+def test_scripted_client_interleaves_the_insufficiency_signal_before_the_answer():
+    """One follow-up turn, two responder calls: the gap signal is a routing
+    message, and the answer comes only after the pass it triggered."""
+    client = ScriptedClient(reaching_case())
+
+    assert scripted(client, RESPOND_PROMPT).startswith("INSUFFICIENT:")
+    assert scripted(client, RESPOND_PROMPT) == "The 2027 figure is $4.2bn."
+
+
+def test_scripted_client_falls_back_when_the_researcher_script_runs_out():
+    """Exhaustion is the `verdicts` idiom: an unscripted extra pass is
+    something the graders should describe, not a traceback that ends the run
+    before anything can be graded."""
+    client = ScriptedClient(reaching_case())
+    scripted(client, SEARCH_PROMPT)
+    scripted(client, SEARCH_PROMPT)
+
+    assert scripted(client, SEARCH_PROMPT) == "FACTS: the session's own notes."
+
+
+def test_scripted_client_scripts_a_case_without_the_new_fields_as_before():
+    """The backward-compatibility claim as a property, not a diff: a case that
+    sets none of the reach fields gets exactly one researcher output and one
+    responder output per follow-up, which is the pre-Phase-17 script."""
+    case = by_id("followups-chain")
+    client = ScriptedClient(case)
+
+    assert client.researcher_notes == [case.notes]
+    assert client.answers == [fu.answer for fu in case.followups]
+
+
 def test_the_hash_embedder_is_deterministic_and_shaped_right():
     embedder = HashEmbedder()
     assert embedder.embed_query("langgraph state graph") == embedder.embed_query(
