@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: executing
-stopped_at: "Phase 16 wave 1 complete (16-01): critic_model() and the four-site threading, 15 new tests, six mutation probes. Next: 16-02 (fixture gate + reservation docstring + collision warning)."
-last_updated: "2026-08-10T03:05:00.000Z"
-last_activity: "2026-08-10 — 16-01 executed: CRITIC_MODEL read per call, call_model resolves a keyword-only model once and uses it at the span, the API call, record() and the log line. Suites 678/65 plain, 742/1 armed, evals 41/41 keyless. All twenty pre-existing smoke tests stay green under every threading mutation — the new families are the entire coverage of the seam."
+stopped_at: "Phase 16 wave 2 complete (16-02): the staleness gate compares the critic with backfill, the recorder writes the entry, the collision line states a fact, the reservation threshold is documented and pinned. Next: 16-03 (ADR-0010 + stale prose + README)."
+last_updated: "2026-08-10T04:00:00.000Z"
+last_activity: "2026-08-10 — 16-02 executed: grade_fixture_current grades pipeline AND critic (backfill, falsy read as absent), record_case_to_fixture writes the third role, record_suite states the judge/critic relation once per run, reserved_run_usd documents the Opus-critic and 2026-09-01 thresholds without becoming model-aware. Suites 690/65 plain, 754/1 armed, evals 41/41 keyless. Fifteen mutation probes where the plan named two; two of this wave's gates had no probe at all and both gained a test."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 34
+  completed_plans: 35
   percent: 70
 ---
 
@@ -26,21 +26,28 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 16 of 17 (Independent critic model) — **EXECUTING**
-Plan: 1 of 4 done · branch `gsd/phase-16-independent-critic` off clean main (PR #10 merged), unpushed
-Status: Wave 1 complete. `graph.critic_model()` (graph.py:51) reads `CRITIC_MODEL` per call;
-`call_model` takes a keyword-only `model`, resolves it once, and uses it at all four naming
-sites (span :128, API :131, record :135, log :143); `critic_node` passes `model=critic_model()`
-at :447. 15 new tests across the four VALIDATION selectors (5/4/3/3, all `--collect-only`
-verified). Six mutation probes, not the plan's three — the span and log sites had no probe,
-and each added one reds exactly its own test. Under every threading mutation all twenty
-pre-existing smoke tests stay green: Pitfall 3 measured, not assumed.
+Plan: 2 of 4 done · branch `gsd/phase-16-independent-critic` off clean main (PR #10 merged), unpushed
+Status: Wave 2 complete. `grade_fixture_current` (harness.py:331) grades TWO roles — pipeline
+against `graph.MODEL`, critic against `graph.critic_model()` — backfilling a missing or blank
+`critic` key to the pipeline model, which is honest because the one committed fixture was
+recorded when the code had no critic seam. `record_case_to_fixture` writes the third entry
+from `critic_model()` (:557), so absence keeps meaning pre-16. `record_suite` states the
+judge/critic relation once per run on stderr, worded as a fact because it fires on the chosen
+production config. `reserved_run_usd`'s docstring carries the thresholds; its body is
+untouched and `limits.py` still imports neither `usage` nor `graph`. 12 new tests
+(`fixture_critic_gate` 5, `judge_critic_collision_warning` 4, `reservation_threshold` 2, plus
+the recorder's env-driven twin), all `--collect-only` verified against the whole `tests/` tree.
+**Fifteen mutation probes where the plan named two**; two gates had no probe at all (the new
+stderr site's None-judge guard, and the reservation prose, whose only gate was a grep inside a
+plan) and both gained a test.
 
 Progress: [█████████░] 88% (15 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 16: [██░░░░░░░░] 1 of 4 plans — 16-01 done
+Phase 16: [█████░░░░░] 2 of 4 plans — 16-01, 16-02 done
 
-**Suites after 16-01:** plain **678 / 65** (baseline 663/65, +15, zero new skips), armed
-**742 / 1** (baseline 727/1, +15), offline evals **41/41 keyless** with `CRITIC_MODEL`
-provably unset (`env -u`), `ruff` clean.
+**Suites after 16-02:** plain **690 / 65** (16-01 baseline 678/65, +12, zero new skips), armed
+**754 / 1** (baseline 742/1, +12), offline evals **41/41 keyless** with `CRITIC_MODEL`
+provably unset (`env -u`), `ruff` clean. Zero diffs in `evals/fixtures.py`, `evals/fixtures/`
+and `.github/workflows/ci.yml`.
 
 **Carry into execution:**
 - **USER DECISION (2026-08-10): `CRITIC_MODEL = 'claude-opus-5'`** — his rationale verbatim:
@@ -60,9 +67,16 @@ provably unset (`env -u`), `ruff` clean.
   reds `test_critic_model_accessor_unset_is_byte_identical_to_setting_it`.
 - Exact-cost tests use UNDATED rows only (opus $5/$25, haiku $1/$5); delta = $0.0060 —
   asserted in 16-01 and passing. Sonnet is boundary-dated and forbidden in exact assertions.
-- Fixture gate: backfill (models.get("critic") or models["pipeline"]); pins at
-  test_evals.py:2062 and :1648-1656 are updated IN THE SAME COMMIT as the changes that
-  break them (checker blocker).
+- ~~Fixture gate: backfill; pins updated in the same commit~~ **DONE in 16-02.** Both pins
+  moved in `edca5bd` alongside the changes that break them; every commit on this branch is
+  green on the full plain suite. The gate's docstring is now the phase's own claim boundary
+  (the JUDGE is the uncompared role) and is pinned three ways, including a NEGATIVE pin on
+  the dead sentence — 16-03's stale-prose sweep must not "restore" it.
+- **16-03 inherits an anti-vacuity lesson worth applying to its own greps:** a pin that runs
+  at the neutral default cannot see a mutation that produces the neutral default. The models
+  map pin passes whether the recorder writes `critic_model()` or `graph.MODEL`, because with
+  `CRITIC_MODEL` unset they are the same string. Ask of every 16-03 grep whether it can tell
+  the new text from the old.
 - ADR-0005 supersession is a status-line edit gated by git diff MAIN (working-tree diffs
   are empty post-commit and pass vacuously). ADR-0002 zero-diff against main.
 - README: whole-file pass; the critic limitation DELETED (grep first for facts living only
@@ -74,8 +88,18 @@ provably unset (`env -u`), `ruff` clean.
   is unit-test-only, for the undated-row arithmetic. (This bullet previously said the
   opposite: a pre-decision line naming a haiku live run and "the production flip is NOT
   this phase's". Corrected in 16-01; it was a landmine for the wave-4 executor.)
+- **ADR-0010 (16-03) inherits two things 16-02 recorded rather than decided:** the collision
+  line's exact wording (`note: … both run on <model> … accepted, recorded in ADR-0010`) is
+  now pinned by a test that forbids "misconfig"/"error"/"invalid" and requires "accepted"
+  and "deployed" — the ADR must be the record that line points at. And the model-aware
+  reservation is rejected for the SECOND time, now with a test that reds if someone builds
+  it; that rejection belongs in 0010's consequences.
+- **The committed fixture will grade STALE after the cutover**, in any environment that sets
+  `CRITIC_MODEL` — by design, and the re-record stays deferred to the full 40-case run. CI
+  and keyless contexts never set it, so 41/41 is unaffected. Do not "fix" that verdict.
 - Local PG on :54329 (LC_ALL=C to restart). Phase-entry baselines: plain 663/65, armed
-  727/1, offline evals 41/41 keyless. **After 16-01: plain 678/65, armed 742/1, evals 41/41.**
+  727/1, offline evals 41/41 keyless. **After 16-01: plain 678/65, armed 742/1, evals 41/41.
+  After 16-02: plain 690/65, armed 754/1, evals 41/41.**
 
 ## Performance Metrics
 
@@ -96,6 +120,7 @@ provably unset (`env -u`), `ruff` clean.
 | 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
 | 15 | 6 of 6 (15-01 … 15-06) | 306min | 51min |
+| 16 | 2 of 4 (16-01, 16-02) | 85min | 43min |
 
 **Recent Trend:**
 
@@ -113,6 +138,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 16-02]: **A pin that runs at the neutral default cannot see a mutation that produces the neutral default.** The models-map pin asserts the recorder writes `{"pipeline", "judge", "critic"}` — and passes whether the recorder writes `critic_model()` or `graph.MODEL`, because the suite runs with `CRITIC_MODEL` unset and the two are then the same string. The mutation it misses is the one that matters: every fixture recorded from an operator's shell would name the wrong critic, and the gate reading them would compare a lie against the truth. Only an env-driven twin discriminates (probe 5 reds it alone). **Same family as 15-01's aliasing capture and 13-05's FrozenQueryEmbedder — the neutral default is a blind spot, not a safe default, for the test that runs under it.**
+- [Phase 16-02]: **The gate DOES compare the critic now — the 15-03/15-06 "do not restate the folklore" instruction is superseded.** `grade_fixture_current` reads `models.get("critic") or models["pipeline"]` against `graph.critic_model()`. The backfill is honest because the one committed fixture was recorded at `225b06b`, before `call_model` had a `model` parameter at all, so its critic ran on `graph.MODEL` by construction. Falsy (absent, null, `""`) reads as pre-16 at the gate for the same reason `critic_model()` reads a blank `CRITIC_MODEL` as unset. **ADR-0009's cannot-catch line is now history, not current fact; ADR-0010 (16-03) is where the change enters the record — ADR-0009 is not edited.**
+- [Phase 16-02]: **When an operator-facing line fires on the configuration the operator chose, word it as a property statement.** Judge and critic will both be `claude-opus-5` in production, deliberately, so the record-mode line fires on every real record run. It names the shared model, says the verdicts stay independent of the WRITER's model and are not independent of the critic's, and points at ADR-0010 — and a test forbids "misconfig"/"error"/"invalid" while requiring "accepted" and "deployed". A line that calls the operator's own decision a mistake, every run, teaches them to skip the line.
+- [Phase 16-02]: **Documented-not-enforced prose deserves a content pin, or it is enforced by nothing.** VALIDATION's gate for the reservation threshold was "grep gate + prose review" — a command inside a plan, which nothing runs again once the plan closes. It now has two tests: one pinning the four facts (`CRITIC_MODEL`/`claude-opus-5`, `$0.18` typical, `$0.28` revised tail, `2026-09-01`, raise to `$0.30`) and one pinning that `reserved_run_usd` did NOT become model-aware, by grepping `limits.py`'s own source for a `usage`/`graph` import. The model-aware alternative has now been rejected twice and reds a test if built.
 - [Phase 15-06]: **The full 40-case record run is DEFERRED, explicitly, and that is a recorded fact of the phase rather than a silence.** The machinery is proven end to end by one paid case; the dataset is ready; the command is one line. Fixtures exist for **1 of 40**, the README says so, and the replay leg grades whatever exists — zero-or-few fixtures is the honest pre-recording state, pinned by its own test. The quote is **$16.51** today and **$21.06** from 2026-09-01, so the only time-sensitive argument for recording is the Sonnet window closing on 2026-08-31.
 - [Phase 15-06]: **An estimate can be an upper bound in total and a 35% under-quote in the half that matters.** The calibration previewed $0.2950 and cost $0.2427, which reads as conservative. Decomposed: the pipeline was assumed at $0.1800 and measured at $0.2427; the total only looked safe because the judge assumption was generous. Constants corrected by the rule "raise what the measurement exceeded, keep what it did not", with the still-unmeasured ones (follow-up, judge) labelled in the file. **Check an aggregate's components before trusting its direction.**
 - [Phase 15-06]: **Grounding is role-blind, and only a real recording could show it.** Containment is a set test and normalisation deliberately erases the form that carried a figure's role, so `4.0` in an aside about "the earlier 3.x/4.0 model generations" grounds a draft restating a `$2` price as `$4` — a fabricated price, green. Not fixed: closing it means positional or role-aware grounding, a much larger surface with false positives of its own. Recorded in the grader's docstring, in ADR-0009's cannot-catch column, and pinned by a test asserting BOTH directions — a green alone would pass equally against a grounding grader that had stopped working. Mutation: dropping the `"." in digits` marker reds that test and **nothing else in the file**, so the rule had shipped ungated.
