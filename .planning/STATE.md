@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: executing
-stopped_at: "Phase 16 wave 3 complete (16-03): ADR-0010 supersedes ADR-0005 with the four-leg re-derivation, the user's verbatim rationale and the judge==critic acceptance; every live document that stated the dead premise is fixed and the README limitation is deleted. Next: 16-04 (the CUTOVER — fly.toml [env] CRITIC_MODEL=claude-opus-5, merge, deploy, smoke)."
+status: phase-complete
+stopped_at: "Phase 16 COMPLETE — Fly release v10 live, critic on claude-opus-5, verified on the wire. Next: /gsd:plan-phase 17 (the last, and the deepest reversal)."
 last_updated: "2026-08-10T04:25:00.000Z"
-last_activity: "2026-08-10 — 16-03 executed: ADR-0010 written (different job stands alone; Hesam's critic-stronger rationale quoted verbatim; judge==critic recorded as an ACCEPTANCE, the honest narrowing of ADR-0005's independence claim; 'stronger' demoted to a preference for the judge), 0005 superseded by a one-line status edit gated against main, 0002 zero-diff, the index's counting prose corrected to eight-of-ten. README limitation DELETED with the grep audit run first; graders.py and DESIGN.md:74 fixed. Two gates had no probe: the ADR the record-mode line points at, and the docstring above the :464 pin that no grep could see. Suites 691/65 plain, 755/1 armed, evals 41/41 keyless."
+last_activity: "2026-08-10 — Phase 16 shipped as release v10, the first deploy since v9, carrying phases 13-16. Live logs show critic model=claude-opus-5 cost=0.021855 while classifier/researcher/writer stayed on claude-sonnet-5. Phase 14 booked smoke passed: embedding_usd 5.3e-05 non-zero in production."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -25,79 +25,32 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 16 of 17 (Independent critic model) — **EXECUTING**
-Plan: 3 of 4 done · branch `gsd/phase-16-independent-critic` off clean main (PR #10 merged), unpushed
-Status: Wave 3 complete — the record now says what the code does. **ADR-0010** (`docs/adr/0010-judge-rederived-for-an-independent-critic.md`, `Accepted — supersedes ADR-0005`, `**Source:**` not `Promoted from:`) re-derives the judge on four legs: the **different job** stands alone (critic gates drafts against notes inline; judge grades finished answers against question+rubric retrospectively, and its verdicts are the recording refusal gate and every keyless CI run's replayed assertions); the **critic-stronger-than-writer** stance is quoted verbatim and attributed to Hesam as HIS position, not an inference; **independence is re-targeted to judge ≠ WRITER** with `test_evals.py:464` surviving untouched, and **judge == critic is recorded as an ACCEPTANCE** — both `claude-opus-5` in production, so verdicts are independent of the writer's model and NOT of the critic's family; and **"stronger" is demoted to a preference** for the judge, surviving as a *reason* only for the critic. Structured-verdict half carried forward in an ADR-0007-shaped section. Mechanics exact: 0005 `1 1` against **main**, 0002 zero-diff, both index rows, counting prose → **eight of ten / two supersessions**. README limitation **DELETED** (grep first; the only load-bearing fact survives at `:32`), residual states reality in one sentence, v1.1 list gains 16. `graders.py`'s docstring and `DESIGN.md:74` fixed. **Two more gates had no probe** — the ADR the record-mode line names, and the docstring above the `:464` pin that no grep in the plan, research or VALIDATION could see.
+Phase: 16 of 17 (Independent critic model) — **COMPLETE, deployed as v10**
+Plan: 4 of 4 · PR #12 merged · cutover run from merged main 2026-08-10
+Status: Complete. The critic runs on claude-opus-5 in production, proven on the wire.
 
-Progress: [█████████░] 88% (15 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 16: [████████░░] 3 of 4 plans — 16-01, 16-02, 16-03 done
+Progress: [█████████░] 94% (16 of 17 phases complete + hotfix; v1.0 shipped)
 
-**Suites after 16-03:** plain **691 / 65** (16-02 baseline 690/65, +1, zero new skips), armed
-**755 / 1** (baseline 754/1, +1), offline evals **41/41 keyless** with `CRITIC_MODEL`
-provably unset (`env -u`), `ruff check .` clean. All three baselines were re-measured before
-any edit rather than carried from the prior summary. Zero diffs in `evals/fixtures.py`,
-`evals/fixtures/`, `.github/workflows/ci.yml` and `docs/adr/0002-separate-critic-node.md`.
+**Live evidence (fly logs, release v10):**
+```
+classifier   model=claude-sonnet-5   cost=0.000354
+researcher   model=claude-sonnet-5   cost=0.173144
+writer       model=claude-sonnet-5   cost=0.013910
+critic       model=claude-opus-5     cost=0.021855
+```
 
-**Carry into execution:**
-- **USER DECISION (2026-08-10): `CRITIC_MODEL = 'claude-opus-5'`** — his rationale verbatim:
-  "it has to be more capable than the writer's model." Production pins it in fly.toml [env];
-  code default stays neutral (unset → writer). The wave-4 deploy is the FIRST since v9 and
-  carries phases 13–16 — merge the PR first, deploy from main, run Phase 14's booked smoke,
-  then the Opus-critic verification (~$0.18, ceiling $0.40).
-- ADR-0010 records judge==critic as an ACCEPTANCE: the judge is independent of the writer
-  and deliberately shares the critic's model. The collision warning fires on the chosen
-  config and is worded as a fact, not an error.
-- ~~Attribution is a PASSED CONSTANT; thread the model through FOUR sites~~ **DONE in 16-01.**
-  `graph.critic_model()` exists and is 16-02's comparison target for the fixture gate.
-  Live line numbers: accessor :51, call_model :106, span :128, API :131, record :135,
-  log :143, `model=critic_model()` :447.
-- ~~Neutral default proven byte-identical~~ **DONE in 16-01** (full payload dict equality,
-  fresh store per run). It is also the CI guard: a workflow that exports CRITIC_MODEL now
-  reds `test_critic_model_accessor_unset_is_byte_identical_to_setting_it`.
-- Exact-cost tests use UNDATED rows only (opus $5/$25, haiku $1/$5); delta = $0.0060 —
-  asserted in 16-01 and passing. Sonnet is boundary-dated and forbidden in exact assertions.
-- ~~Fixture gate: backfill; pins updated in the same commit~~ **DONE in 16-02.** Both pins
-  moved in `edca5bd` alongside the changes that break them; every commit on this branch is
-  green on the full plain suite. The gate's docstring is now the phase's own claim boundary
-  (the JUDGE is the uncompared role) and is pinned three ways, including a NEGATIVE pin on
-  the dead sentence — 16-03's stale-prose sweep must not "restore" it.
-- ~~16-03 inherits an anti-vacuity lesson worth applying to its own greps~~ **APPLIED in
-  16-03, and the lesson generalised:** a grep finds the phrasings it was given. The dead
-  premise also lived as "-- the same limitation the in-graph critic already has", which no
-  grep in the plan, the research or VALIDATION could see. It was found by reading the
-  neighbourhood of a site the grep DID find.
-- ~~ADR-0005 supersession is a status-line edit gated by git diff MAIN~~ **DONE in 16-03**
-  (`1 1` against main; 0002 zero-diff). The gate is now **permanent**: a test holds both
-  halves of the supersession, because the plan's `git diff` gate stops running when the plan
-  closes.
-- ~~README: whole-file pass; the critic limitation DELETED~~ **DONE in 16-03.** The pass also
-  caught what the plan did not name: **`663 tests` at README:15 and :179 → 690**, falsified by
-  this phase's own waves 1–2. The `$0.14` transcript figures (README:75, :115) are pre-flip
-  measurements and were deliberately left — **16-04's live run produces the real post-flip
-  number, and that is when to replace them.**
-- **ADR-0010 describes a production config that does not exist until 16-04.** The record says
-  "production pins `CRITIC_MODEL`" in the present tense throughout, and `fly.toml` has no such
-  entry yet. If the cutover does not land, the record's tense is the thing to fix.
-- Wave 4 is the CUTOVER, on **Opus**, per the USER DECISION above — `CRITIC_MODEL =
-  'claude-opus-5'` in fly.toml [env] with a value pin in test_deploy_config.py in the SAME
-  commit, then merge → deploy from main → Phase 14's booked smoke → one Opus-critic
-  verification run (~$0.18, ceiling $0.40). **Haiku appears nowhere in the live leg** — it
-  is unit-test-only, for the undated-row arithmetic. (This bullet previously said the
-  opposite: a pre-decision line naming a haiku live run and "the production flip is NOT
-  this phase's". Corrected in 16-01; it was a landmine for the wave-4 executor.)
-- ~~ADR-0010 (16-03) inherits two things 16-02 recorded rather than decided~~ **DONE in
-  16-03:** the collision line's ADR now exists and the rejected model-aware reservation is in
-  0010's consequences. The loop is closed by a test — `..._points_at_a_record_that_exists` —
-  because three tests pinned the *string* `ADR-0010` and nothing checked it resolved. Probe:
-  delete the record and all four collision tests stay **green**.
-- **The committed fixture will grade STALE after the cutover**, in any environment that sets
-  `CRITIC_MODEL` — by design, and the re-record stays deferred to the full 40-case run. CI
-  and keyless contexts never set it, so 41/41 is unaffected. Do not "fix" that verdict.
-- Local PG on :54329 (LC_ALL=C to restart). Phase-entry baselines: plain 663/65, armed
-  727/1, offline evals 41/41 keyless. **After 16-01: plain 678/65, armed 742/1, evals 41/41.
-  After 16-02: plain 690/65, armed 754/1, evals 41/41. After 16-03: plain 691/65, armed
-  755/1, evals 41/41.** The README's own test count now reads **690** (the passing count, the
-  established convention) — 16-04 must bump it again if the cutover adds a test.
+**Carry into Phase 17 (the last phase, and the deepest reversal):**
+- The Opus critic costs ~$0.022 of a ~$0.21 run — a ~12% increase, not a doubling. The
+  researcher node dominates at $0.173. The $0.20 reservation is now marginally under a
+  typical run; the 2026-09-01 Sonnet boundary will push it further. Documented, not resized.
+- The recorded eval fixture grades STALE wherever CRITIC_MODEL is set — the Phase 15 gate
+  working as designed. CI is keyless so unaffected. Re-record deferred to the full run.
+- Phase 17 reverses ADR-0003 (no_prior_research) — the deepest reversal in the milestone,
+  retiring what DESIGN.md calls "the single failure mode this whole pipeline exists to
+  prevent". Phase 15 built the before/after measure: the golden set now HAS
+  no_prior_research cases (baseline was 0).
+- Deploys are manual; deploy only from merged main. Local PG on :54329 (LC_ALL=C).
+  Baselines: plain 692/65, armed 756/1, offline evals 41/41 keyless.
 
 ## Performance Metrics
 
