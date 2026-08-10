@@ -459,7 +459,7 @@ def test_judge_raises_on_an_unparseable_verdict():
 
 def test_the_judge_runs_on_a_different_model_than_the_pipeline():
     """A judge sharing the writer's model inherits the blind spots it exists
-    to find -- the same limitation the in-graph critic already has."""
+    to find. This is the independence ADR-0010 keeps: judge != WRITER."""
 
     assert G.JUDGE_MODEL != graph.MODEL
 
