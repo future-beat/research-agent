@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
-status: in-progress
-stopped_at: "Completed 14-03-PLAN.md — the final wave of Phase 14 (/pricing multipliers + nullable windows.next + Voyage row + dual-provider 501, /metrics embedding aggregates contract-tested across both backends, README line 204 and OPERATIONS rewritten). All 3 plans executed. Branch gsd/phase-14-real-cost-accounting, NOT pushed — the user opens the PR. Next: /gsd:verify-work for Phase 14."
-last_updated: "2026-08-09T11:20:00.000Z"
-last_activity: "2026-08-09 — Phase 14 wave 3 executed, phase complete: usage.window_for/next_window make window resolution askable at fixed dates; /pricing gained multipliers-in-effect, current + NULLABLE next window and the Voyage row, with the 501 arm now covering both providers; /metrics breaks out embedding_tokens/requests/usd, proven identical across SQLite and Postgres through test_store_contract.py's parameterised fixture (NOT test_metrics.py, which is SQLite-only); README's list-price limitation and OPERATIONS' env table + ~1.33 reservation note rewritten. Five mutations (K, N, L, L′, M) all red by the intended route; the two prose gates recorded as honest green with the reason. No new ADR (extension of DEC-12, not a reversal); ships with the next deploy. Suite 563/65 plain, 627/1 armed."
+status: in_progress
+stopped_at: "Completed 15-06-PLAN.md — ADR-0009, the README claim rewrite, the first real recording ($0.2427), and the explicit deferral of the full 40-case run. PHASE 15 IS COMPLETE (6/6) on gsd/phase-15-answer-quality-evals, unpushed. Next: open the phase PR, then Phase 16 (independent critic model)."
+last_updated: "2026-08-10T02:20:00.000Z"
+last_activity: "2026-08-10 — Phase 15 waves 5 and 6 executed; the phase is complete. Wave 5 shipped the `--record` CLI and its runtime cost preview. Wave 6 recorded ADR-0009 (the replacement guarantee for DEC-20's scope), rewrote the README limitation that had survived four waves, and made the recorder's FIRST LIVE EXECUTION: `technical-figures` recorded for a measured $0.2427 against a $0.2950 preview, committed, and replaying green keyless — offline is now 41/41. Three findings only a real run could produce: the preview's pipeline assumption was a 35% under-quote hidden by a generous judge assumption (corrected; full run $12.78 → $16.51); a CLI test passed only because the fixtures directory was empty; and grounding has a role-blind collision (`4.0` in a note grounds a fabricated `$4` price), now pinned and in the ADR. The full 40-case run is explicitly DEFERRED. Suites 663/65 plain, 727/1 armed."
 progress:
   total_phases: 19
   completed_phases: 9
   total_plans: 12
-  completed_plans: 27
-  percent: 64
+  completed_plans: 33
+  percent: 69
 ---
 
 # Project State
@@ -25,76 +25,71 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 14 of 17 (Real cost accounting) — **EXECUTED, awaiting verify + PR**
-Plan: 3 of 3 complete · branch `gsd/phase-14-real-cost-accounting` off clean main (PR #7 merged),
-**not pushed** — the user opens the PR.
-Status: All three waves in. `discount × geo` applies at `CallUsage.cost_usd` and at no other
-site in `src/` (`service.py` now references the two readers but only to DISPLAY them, confirmed
-on the diff); Voyage embedding spend reaches the usage dict, the runs table, `spend_since` and
-now `/metrics`' own line items; `/pricing` reports the multipliers in effect, the current and
-next windows with `next` nullable from day one, and the Voyage row, and 501s for an unpriced
-model from **either** provider. Fifteen mutations across the three waves, every one red by the
-intended route; every `-k` selector confirmed to collect before being trusted.
+Phase: 15 of 17 (Answer-quality evals) — **COMPLETE (6/6), awaiting verify + PR**
+Plan: 6 of 6 complete · branch `gsd/phase-15-answer-quality-evals` off clean main (PR #8 merged), unpushed
+Status: All six waves executed. The recorder mechanism, the grading vocabulary, the replay
+wiring, the 40-case benchmark, the `--record` CLI with its runtime cost preview, and now
+**a real recording and the record that says what it is worth**. `technical-figures` was
+recorded against the live API on 2026-08-10 for a measured **$0.2427**, committed as
+`evals/fixtures/technical-figures.json`, and it replays green keylessly — the offline run is
+**41/41** and the shipped caveat now prints `recorded 2026-08-10 on claude-sonnet-5
+(225b06b, 0 days ago) — that grades what the pipeline said then, not what the current model
+would say`. ADR-0009 records what may and may not be claimed, per grader and for the
+staleness gate itself. **The full 40-case record run is explicitly DEFERRED** — an operator
+spend decision (~$16.51 now, ~$21.06 from 2026-09-01), stated in the SUMMARY, VALIDATION,
+ROADMAP, REQUIREMENTS and the README, which says fixtures exist for 1 of 40. Suites 663/65
+plain, 727/1 armed, `ruff` clean, `.github/workflows/ci.yml` untouched across the phase.
 
 Progress: [████████░░] 82% (14 of 17 phases complete + hotfix; v1.0 shipped)
-Phase 14: [██████████] 3 of 3 plans — 14-01, 14-02, 14-03 complete
+Phase 15: [██████████] 6 of 6 plans — 15-01 … 15-06 complete
 
-**Carry into execution:**
-- ~~Multipliers at ONE choke point~~ **DONE (14-01), proven downstream-complete (14-02),
-  re-gated after the display site landed (14-03).**
-  `grep -rln "cost_discount_factor()\|inference_geo_multiplier()" src/research_agent/` now
-  returns **exactly `usage.py` + `service.py`**, and in `service.py` both call results appear
-  only as values in the returned `/pricing` payload (lines 921–922) — no arithmetic. The
-  behavioural guarantee remains 14-02's e2e ratio gate.
-- ~~`/pricing` and `/metrics` surface~~ **DONE (14-03).** `windows.next` is nullable from day
-  one (pinned at `date(2026, 9, 1)` and `date(2030, 1, 1)`), no assertion in `test_usage.py`
-  or `test_service.py` consults today's date, and `test_payload_additive_for_deployed_consumers`
-  names every pre-phase key explicitly — mutation M (rename `total_usd`) reds it.
-- ~~README line 204~~ **DONE (14-03).** Rewritten: approximation-not-invoice, the telemetry
-  caveat with the 0-token example, and four named exclusions. OPERATIONS carries both env
-  vars, the hybrid geo semantics and the ~1.33 note; `limits.py` is docstring-only.
-- **No new ADR for Phase 14, deliberately** — a pure extension of DEC-12, not a reversal, so
-  `docs/adr/README.md`'s supersession convention has nothing to apply to. Recorded in
-  14-03-SUMMARY rather than left silent.
-- **A plan's file list can contradict its own action text.** 14-03 pointed
-  `test_metrics_includes_embedding_spend` at `tests/test_metrics.py` (one SQLite fixture, no
-  parameterisation) while asking for the both-backends idiom. It went to
-  `tests/test_store_contract.py`, where the parameterised `runs` fixture is; following the
-  file list would have produced a green gate over an untested Postgres coercion path.
-- ~~Hybrid geo~~ **DONE (14-01).** `CallUsage.inference_geo` is captured with the file's
-  defensive `getattr`; `""`/`"global"` → 1.0, `"us"` → the env rate, anything else raises
-  into `pricing_unknown`. Nothing yet *reports* which geo was observed — /pricing (14-03)
-  shows the configured rate only, and the runs table still has no geo column.
-- ~~Voyage `total_tokens` is discarded at the wrapper~~ **DONE (14-02).** Captured via
-  `usage.report_embedding` (no-op without a meter) → `embedding_meter()` in
-  `researcher_node` → `record_embedding`. **NEITHER multiplier applies to it** — pinned by
-  an identical-under-`0.5`-and-`2.0` assertion, not by prose. Zero-token responses record
-  honestly (mutation O red on `pricing_unknown`).
-- ~~RunRecord schema migration~~ **DONE (14-02).** Three columns, both idioms, both proven
-  against a table that predates them AND has a row in it, with the columns' absence asserted
-  first. `grep -c "ADD COLUMN IF NOT EXISTS embedding" metrics.py` = 3, `PRAGMA
-  table_info(runs)` = 1.
-- **A prose gate is honest-green by construction, and the reason must be recorded.** For a
-  content-presence grep on documentation, the gate IS the content change — deleting the
-  sentence to watch it red tests `grep`, not the document. What makes it non-vacuous is a
-  measured baseline of **zero** before the edit (11-03's lesson); all five prose gates this
-  phase had one.
-- **A ratio test is invariant under the mutation it looks like it catches.** 14-01's
-  boundary test asserts the absolute cost as well as the 1.5× ratio, because 18/12 is 1.5
-  whether or not the discount was applied to both sides.
-- **Never `git checkout --` a file to revert a mutation while uncommitted work sits on it**
-  (12-06 logged this; 14-02 repeated it and lost the wave's `memory.py` edits, caught
-  immediately by two red tests). Copy the file to the scratchpad and restore from there.
-- **No deploy this phase; it ships with the next one** — now written into `docs/OPERATIONS.md`
-  as the chosen option, not merely planned. At neutral defaults the deployed numbers do not
-  move, and the runs-table migration is idempotent under `ensure_schema`'s advisory lock. The
-  post-deploy smoke (one demo run → non-zero `cost.embedding_usd`, `/pricing` windows) is
-  booked to whenever that deploy happens.
-- Local PG on :54329 running, and its `runs` table is left in the MIGRATED state by
-  `test_runrecord_schema_migrates_a_column_dropped_pg_table` — that is deliberate.
-  Baselines now: plain **563/65**, armed **627/1** (were 553/64 and 616/1; +10/+11, one new
-  skip, which is `test_metrics_includes_embedding_spend[postgres]` under the store-contract
-  file's standard `_skip_without_postgres` idiom).
+**Carry into Phase 16 (independent critic model):**
+- **The staleness gate will NOT fire on your change, and that is written down.**
+  `grade_fixture_current` compares `fixture["models"]["pipeline"]` against `graph.MODEL` — the
+  writer/researcher model — and nothing else. Making the critic's model independently
+  configurable leaves every recording green with only the printed date hinting that it
+  describes an older pipeline. Closing it needs three things TOGETHER: a per-node entry in the
+  fixture's `models` map, the gate extended to compare it, and the fixtures re-recorded. The
+  map is a map precisely so that is additive. Stated in the gate's docstring, asserted by a
+  test, and in ADR-0009's own cannot-catch section.
+- **Re-recording is not free and not automatic.** One fixture exists. The full 40-case run
+  quotes **$16.51** today and **$21.06** from 2026-09-01 (Sonnet 5's introductory window
+  closes 2026-08-31); `python -m evals --record --yes` is the command, and it previews before
+  it spends. If Phase 16 changes `graph.MODEL`, the one existing fixture goes red and must be
+  re-recorded or deleted — a red replay exits 1 regardless of the pass rate.
+- **DEC-22 was deliberately NOT pre-empted.** ADR-0009 says one thing about the judge: its
+  verdicts are recorded as fixture metadata and replayed as fixed data. The judge's rationale
+  is Phase 16's to re-derive.
+- **`case_pins` over-fits its recording by design.** Re-recording without re-reading the pins
+  leaves assertions about a run that no longer exists. Seven cases pin something today.
+
+**Measured facts to carry (do not re-derive):**
+- Suites: plain **663/65**, armed (local PG :54329) **727/1**. Offline evals **41/41** keyless,
+  exit 0 at `--min-pass-rate 0.9`. `tests/test_evals.py` **147**.
+- Local PG on :54329 is a Homebrew PG 17.10 cluster in the scratchpad started with `LC_ALL=C`
+  (without it the postmaster dies with "became multithreaded during startup"); `docker` is not
+  installed on this machine.
+- A research turn on the real API, cheapest topology (4 calls, 0 revisions): **71,333 input /
+  5,000 output tokens, 5 web searches, $0.2427**, fixture 10 KB. The preview constants were
+  corrected to that measurement and say which of them are still unmeasured (follow-up, judge).
+- **Grounding is role-blind, measured.** `4.0` in the notes ("the earlier 3.x/4.0 model
+  generations") normalises to `4` and grounds a draft restating a `$2` price as `$4`. Green.
+  The same recording reds on 73.3% → 81.9% and 1M → 3M. Pinned by
+  `test_quality_grader_grounding_cannot_see_a_figure_reused_in_another_role`, which asserts
+  both directions so it cannot pass against a grounding grader that has stopped working.
+- **The quality thresholds have now met exactly one real report** and were not moved:
+  coverage 75% against a 0.4 floor, 2,594 chars against a 200–8000 range, grounding clean
+  across 28 extracted figures. One sample, comfortable margins — not validation across the
+  taxonomy.
+- **A test can be green because a directory is empty.** `test_cli_exits_nonzero_when_the_threshold_is_not_met`
+  passed for five waves only because `evals/fixtures/` had nothing in it; the first committed
+  fixture ran the replay-merge line for the first time and it failed with `KeyError: 'cases'`.
+  Every test that reads `FIXTURES_DIR` now redirects it, and that is load-bearing rather than
+  hygiene.
+- Replay still maps fixture turns to `case.followups` **by index**; turn COUNT is checked,
+  question text is not. Deferred through three waves — still open.
+- `--min-pass-rate 0.9` governs 40 behavioural cases: four reds is 90% and exits 0. The replay
+  leg cannot hide (all-must-pass); the behavioural leg can.
 
 ## Performance Metrics
 
@@ -114,6 +109,7 @@ Phase 14: [██████████] 3 of 3 plans — 14-01, 14-02, 14-03 
 | 12 | 6 of 6 (12-01 … 12-06; 12-06 Task 4 deferred) | 195min | 33min |
 | 13 | 5 of 5 (13-01 … 13-05) | 253min | 51min |
 | 14 | 3 of 3 (14-01, 14-02, 14-03) | 84min | 28min |
+| 15 | 6 of 6 (15-01 … 15-06) | 306min | 51min |
 
 **Recent Trend:**
 
@@ -131,6 +127,35 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 15-06]: **The full 40-case record run is DEFERRED, explicitly, and that is a recorded fact of the phase rather than a silence.** The machinery is proven end to end by one paid case; the dataset is ready; the command is one line. Fixtures exist for **1 of 40**, the README says so, and the replay leg grades whatever exists — zero-or-few fixtures is the honest pre-recording state, pinned by its own test. The quote is **$16.51** today and **$21.06** from 2026-09-01, so the only time-sensitive argument for recording is the Sonnet window closing on 2026-08-31.
+- [Phase 15-06]: **An estimate can be an upper bound in total and a 35% under-quote in the half that matters.** The calibration previewed $0.2950 and cost $0.2427, which reads as conservative. Decomposed: the pipeline was assumed at $0.1800 and measured at $0.2427; the total only looked safe because the judge assumption was generous. Constants corrected by the rule "raise what the measurement exceeded, keep what it did not", with the still-unmeasured ones (follow-up, judge) labelled in the file. **Check an aggregate's components before trusting its direction.**
+- [Phase 15-06]: **Grounding is role-blind, and only a real recording could show it.** Containment is a set test and normalisation deliberately erases the form that carried a figure's role, so `4.0` in an aside about "the earlier 3.x/4.0 model generations" grounds a draft restating a `$2` price as `$4` — a fabricated price, green. Not fixed: closing it means positional or role-aware grounding, a much larger surface with false positives of its own. Recorded in the grader's docstring, in ADR-0009's cannot-catch column, and pinned by a test asserting BOTH directions — a green alone would pass equally against a grounding grader that had stopped working. Mutation: dropping the `"." in digits` marker reds that test and **nothing else in the file**, so the rule had shipped ungated.
+- [Phase 15-06]: **A test can be green because a directory is empty.** `test_cli_exits_nonzero_when_the_threshold_is_not_met` stubbed `run_suite` with a dict missing the `cases` key the real function always returns; the CLI's replay-merge line had never executed in it, because `evals/fixtures/` was empty. The first committed fixture turned it red with `KeyError: 'cases'` — a fact about the fake, not the CLI. Fixed by matching the contract AND redirecting `FIXTURES_DIR`, without which the recorded case's green replay silently recomputes the summary this test exists to assert.
+- [Phase 15-06]: **ADR-0009 gives the staleness gate its own cannot-catch line, because it deserves one as much as the rubrics do.** `fixture_current` compares `models["pipeline"]` to `graph.MODEL` and nothing else, so Phase 16's independently configurable critic will not fire it. Do not restate the folklore that this gate catches Phase 16.
+- [Phase 15-06]: **A plan-stated grep baseline was wrong for the fifth time in the phase family.** The plan's README gate (`twelve live cases are a smoke test`, baseline 1) measured **0** — wave 4 had already removed the clause. The honest gate is on the claim itself (`Offline evals can't measure answer quality`, baseline 1 → 0). Measured before trusted, and recorded as a vacuous gate in 15-VALIDATION.
+- [Phase 15-05]: **The record preview is priced at run time, never hardcoded** — the one dollar figure in `evals/__main__.py` is a comment explaining the estimate's origin, and the quote re-prices itself when `usage.py`'s effective-dated tables move. The basis line states how many cases are measured versus assumed, so an operator can see what the number rests on.
+- [Phase 15-03]: **A rate gate and an all-must-pass gate are different gates, and a leg whose every red the rate absorbs is decorative.** `summarise`'s `ok` is a pass rate and nothing else (harness.py:291-318): errored results never move it, and 12 green behavioural + 1 red replay = 92.3% ≥ 90% ⇒ exit 0. Under a rate-only verdict a model mismatch, a hand-edited verdict, a broken fixture and an orphaned fixture would each print FAIL and pass the build. The replay leg is therefore all-must-pass at the exit code while the behavioural leg stays rate-governed, and **one test proves both halves**: report `pass_rate` ≥ 0.9 AND `ok is True` AND return code 1. Under the mutation it fails on `assert 0 == 1` with both rate assertions passing.
+- [Phase 15-03]: **The headline verdict must follow the exit code, not the pass rate.** The first real run against a stale recording printed `PASS 13/14 cases (93% vs 90% required)` and exited 1. A run that prints PASS at the top and fails the build teaches people to read neither — the same decorative-gate failure, in presentation form. The rate line stays; the mark in front of it is now the exit code.
+- [Phase 15-03]: **A guard against a silent SKIP cannot be observed through code that never skips.** Every fixture path produces exactly one CaseResult, so the vacuous-replay guard (`matched` vs `graded`) is unfalsifiable against the shipped loop; it defends a *future* edit. The test stubs `_replay_fixtures` to return nothing with two fixtures on disk — a guard proven against a simulated future, stated as such in its docstring rather than dressed up as a live gate. Third wave running where the question "can this test discriminate?" changed the test.
+- [Phase 15-03]: **Clock-independence is pinned by an OLD recording, not by two identical runs.** "Replay twice and compare" is invariant under an age gate. `test_replay_never_reads_the_clock_for_a_verdict` replays a fixture dated 2019 against a fresh one and compares grades *including details*, so both an age gate and an age leaking into a reason go red.
+- [Phase 15-03]: **The staleness gate names which model it compares, because Phase 16 moves a different one.** `grade_fixture_current` reads `models["pipeline"]` against `graph.MODEL` — the writer/researcher model — and its "Cannot catch:" line says a critic-model change will NOT fire it, so recordings would stay green with only the printed date hinting staleness, until the `models` map grows a per-node entry, the gate compares it, and the fixtures are re-recorded. Do not restate the folklore that this gate catches Phase 16.
+- [Phase 15-03]: **A fixture captured from the scripted client cannot replay green, and wave 2's calibration table said so in advance.** The captured research draft is 171 chars (floor 200) and covers 17% of the question's terms (floor 40%). The plan's tests assumed a green replay off a scripted capture; the helper writes a report-shaped draft over the recorded state instead, with the measured numbers in a comment. **A plan's stated arithmetic is a claim to check.**
+- [Phase 15-04]: **Authored test data is a corpus, and writing it as stubs is how a threshold gets moved.** Wave 3 measured that a scripted-client capture fails structure (171 chars vs 200) and coverage (17% vs 40%). The 28 new reports were therefore written to report length — 326-392 chars, restating the question's terms — and audited against all four RECORDED_GRADERS before commit: existing 12 clear the floors 0/12 and 6/12, new 28 clear both **27/28** (the miss is the budget-stopped case whose writer never runs). Neither threshold was moved; wave 6 now calibrates against evidence instead of against stubs.
+- [Phase 15-04]: **An accommodation must read WHICH guardrail fired, not merely that one did.** The three forced-stop accommodations share one predicate that compares the reason. `bool(state['forced_stop_reason'])` is green against every test the plan listed, and absolves a follow-up that was meant to stop for `no_prior_research` and blew the budget instead. Two tests were added for exactly that discrimination.
+- [Phase 15-04]: **`len(grades) == len(REGISTRY)` shrinks in step with the registry it checks.** The no-prior case's harness test passed with `grade_followup_forced_stop` deleted from `FOLLOWUP_GRADERS`, because both sides of the assertion moved together; only wave 2's registry test caught it. Assert the grader's NAME. Fourth wave running where the assertion that looked like the gate was not the gate.
+- [Phase 15-04]: **A test fixture whose recall depends on a per-process hash salt is a coin toss.** `HashEmbedder` buckets on `hash(word)`, Python salts string hashing per process, and recall has a 0.3 floor. Measured across 60 seeds: a 7-word-overlap seed recalls 60/60, a 1-word one 17/60. The heavy-overlap rule is written into `Case.seeded_notes` itself and asserted by a dataset pin, so a marginal seed cannot land silently and flake for somebody else.
+- [Phase 15-04]: **Dataset pins count case properties, never a parallel stratum list kept beside the data.** A second list is a second source of truth, and the copy that drifts is the one nobody runs. Minimums rather than exact counts keep the +/-2 rebalance freedom — with the consequence, observed by mutation, that a floor with one case of slack tolerates a single reclassification and only reds on the second.
+- [Phase 15-02]: **A design detail with no test that can distinguish it from its absence is not a guard — twice in two waves now.** The refusal grader counts the follow-up's own question as a source, so an answer may repeat a figure the asker supplied. Deleting that rule broke nothing: the dataset's scripted refusal quotes no figure at all, so every test in the file was invariant under the change. Fixed by a refusal that echoes the question's year ("didn't cover Gartner's 2027 forecast"). Same family as 15-01's aliasing capture, 13-05's `FrozenQueryEmbedder`, 14-01's ratio assertion.
+- [Phase 15-02]: **Currency is a marker, not noise to strip.** The plan (and RESEARCH's sketch) stripped `$` and then dropped bare integers ≤ 10 as prose counts; composed, those rules are blind to every dollar figure under $10 — including the `$2/$10 per MTok` the flagship grounding case is about, so a draft quietly saying `$3/$9` grades green. A number carrying a unit (currency, percent, scale word, decimal point) is kept whatever its size; `$2,000` still normalises to `2000`. **A plan's stated rule is a claim to check by composing it with the plan's other stated rules.**
+- [Phase 15-02]: **A registry test must fail in both directions.** A grader dropped from `RECORDED_GRADERS` runs on nothing; a grader defined and never registered is a check that never ran. The test discovers quality graders by name *or* by claim-boundary docstring and asserts set equality with the registries, so both mutations red.
+- [Phase 15-02]: **Normalise the FORM of a figure before comparing it, or the grounding rule fails honest answers for paraphrase and gets ignored.** `1M` ≡ `1 million` ≡ `1,000,000`; `5%` ≡ `5 percent`; an ISO date also emits its year so notes dated `2026-08-31` ground "in 2026" while an invented exact date stays ungrounded. Still blind to spelled-out figures ("one million"), which is documented as a known false positive rather than solved.
+- [Phase 15-02]: **Thresholds that have never met real output are guesses, and are recorded as such rather than tuned against stubs.** `COVERAGE_THRESHOLD` 0.4 and `REPORT_MIN_CHARS` 200 fail 6/12 and 12/12 of the scripted reports — which are two-sentence routing stubs, not reports. Both kept unchanged, both named constants with the calibration comment; wave 6's recording is where they get evidence.
+- [Phase 15-01]: **A guard whose failure mode the real dependency cannot produce is not a guard.** `state=dict(state)` in `run_case` was covered by a test asserting distinct `id()`s and distinct drafts per turn — which cannot fail, because `graph.app.invoke` returns a fresh dict per call, so an alias and a copy are indistinguishable through the real graph. The mutation `state=state` passed the entire capture suite. Fixed by faking a driver that reuses one dict; an aliasing capture then records the last turn's answer for every turn — a fixture that looks complete and is one answer repeated. Same family as 13-05's `FrozenQueryEmbedder` and 14-01's ratio assertion.
+- [Phase 15-01]: **Record a MAP of role → model, never a flat model string, when a later phase will make one role's model configurable independently of another's.** Phase 16 moves the critic's model without touching `graph.MODEL`, so a fixture stamped with one `"model"` string would keep matching the staleness gate afterwards and the recordings would go stale invisibly — a gate that cannot fire is worse than none, because it is believed. `models` requires `pipeline` and `judge` and accepts further roles without a schema bump; pinned by a test that round-trips a three-role map **and** asserts no top-level `"model"` key exists to be read by mistake.
+- [Phase 15-01]: **The recorder's refusal is what makes replay's recorded-verdict assertion a gate rather than a restatement.** `write_fixture` refuses on a run error or any failed grade — deterministic or judge, one code path — so a fixture in the repo could not have been recorded red. A red replay therefore means a hand-edit, a `force`d write (stamped `forced: true`), or a real regression. A refused write is also asserted to leave **no file**.
+- [Phase 15-01]: **Judge verdicts are recorded; deterministic grades are not.** Deterministic graders are pure functions of the recorded state and replay recomputes them, so storing them would create a second source of truth that can disagree with the state it came from. Judge verdicts cannot be recomputed without spending money — which is exactly why they are metadata.
+- [Phase 15-01]: **`True == 1`, so a bool must be excluded explicitly from an int field's validation.** A fixture carrying `schema_version: true` passes the `!= SCHEMA_VERSION` comparison and would otherwise load. `load_fixture` rejects bools out of `schema_version` and `pipeline_cost_usd`.
+- [Phase 15-01]: **The recorder is a seam in `run_case`, not a second driver** — budget scoping, per-case memory isolation, follow-up chaining and error isolation are already correct there, and a parallel recording loop would drift from the shipped graph in exactly the way the harness exists to prevent. `capture_state` defaults off, so every existing caller is unchanged; the whole diff to the default path is one conditional expression evaluating to `None`.
 - [Ingest]: Zero ADRs existed at ingest — all 23 architectural decisions are soft/revisable. Nothing is LOCKED.
 - [Phase 10, approved 2026-08-04]: Promote five load-bearing decisions (DEC-01, DEC-02, DEC-04, DEC-14, DEC-22) to numbered ADRs before any reversal lands.
 - [Milestone scope, approved]: All nine README Limitations items are in scope for v1.1.

@@ -6,8 +6,11 @@ back. Two modes:
 
     offline   a scripted client stands in for the API. Free, deterministic,
               CI-safe. Grades the pipeline -- routing, guardrails, honesty --
-              and the graders themselves. It cannot grade model quality,
-              because the model output is authored in the dataset.
+              and the graders themselves. The scripted output is authored in
+              the dataset, so nothing about the current model's quality can be
+              read from it; `replay_case` grades the answers a real run once
+              gave (committed fixtures), which is a claim about what the
+              pipeline said then, not what it would say now.
 
     live      real API, real web search, plus judge graders on a stronger
               model. This is the one that measures quality; it costs money
@@ -21,9 +24,11 @@ from __future__ import annotations
 
 import contextlib
 import os
+import pathlib
 import time
 from dataclasses import dataclass, field
 
+from evals import fixtures as F
 from evals import graders as G
 from evals.dataset import APPROVED, Case, Followup
 from research_agent import graph
@@ -138,6 +143,11 @@ class TurnResult:
     grades: list[G.Grade] = field(default_factory=list)
     cost_usd: float = 0.0
     duration_ms: float = 0.0
+    # The turn's final AgentState, kept only when recording (see
+    # `run_case(capture_state=True)`). Deliberately absent from `as_dict`:
+    # states are tens of KB each and the report is read by humans and CI, so
+    # a recorded state's home is its fixture file, not the report.
+    state: dict | None = None
 
     @property
     def passed(self) -> bool:
@@ -232,12 +242,21 @@ def run_case(
     client_factory,
     memory_factory,
     judge: G.Judge | None = None,
+    capture_state: bool = False,
 ) -> CaseResult:
     """Run one golden case end to end and grade every turn.
 
     Each case gets its own memory store: recall across cases would make
     results depend on dataset ordering, which is the kind of flakiness that
     trains people to ignore a failing suite.
+
+    `capture_state` keeps each turn's final state instead of discarding it,
+    which is all a recorder needs. It is a seam here rather than a separate
+    recording pipeline because everything else a recorder wants -- budget
+    scoping, per-case memory, follow-up chaining, error isolation -- is
+    already correct in this function, and a parallel driver would drift from
+    the shipped graph in exactly the way this harness exists to prevent.
+    Off, which is every caller but the recorder, nothing changes.
     """
     result = CaseResult(case_id=case.id, why=case.why)
     previous_client = graph._client
@@ -245,7 +264,18 @@ def run_case(
 
     try:
         graph._client = client_factory(case)
-        graph.set_memory(memory_factory())
+        # Bound rather than passed straight through, because a case may want
+        # to put something in its store before the graph reads it.
+        store = memory_factory()
+        graph.set_memory(store)
+        for note in case.seeded_notes:
+            # Owner "" is the identity this harness runs as, so a seeded note
+            # is recallable by this run and by nothing else -- the store is
+            # built per case, so there is no other run to leak into. See the
+            # heavy-overlap authoring rule on `Case.seeded_notes`: a note that
+            # shares little vocabulary with the task may not clear the recall
+            # floor, and a seed that is never recalled tests nothing.
+            store.add(note, owner="")
 
         with _budget(case.budget_usd):
             started = time.perf_counter()
@@ -258,6 +288,9 @@ def run_case(
                     grades=_grade_research(case, state, judge),
                     cost_usd=state["usage"]["cost_usd"],
                     duration_ms=elapsed,
+                    # Copied at append time so a later turn cannot alias an
+                    # earlier one's record.
+                    state=dict(state) if capture_state else None,
                 )
             )
 
@@ -271,6 +304,7 @@ def run_case(
                         grades=_grade_followup(case, fu, state, judge),
                         cost_usd=state["usage"]["cost_usd"],
                         duration_ms=elapsed,
+                        state=dict(state) if capture_state else None,
                     )
                 )
 
@@ -281,6 +315,300 @@ def run_case(
         graph.set_memory(previous_memory)
 
     return result
+
+
+# --------------------------------------------------------------------------
+# Replaying one recorded case
+#
+# A fixture is a run that already happened. Replay grades it with exactly the
+# vocabulary a live run is graded with -- the same deterministic graders over
+# the same state dicts -- plus the two things only a recording can be asked:
+# is it still current, and do the verdicts it was recorded with still hold.
+# No client, no memory, no network, no key, no spend.
+# --------------------------------------------------------------------------
+
+
+def grade_fixture_current(fixture: dict) -> G.Grade:
+    """The recording must have been made on the model this tree runs.
+
+    This is the deterministic staleness gate, and the only one there is: age
+    prints in the caveat but never grades, because a grader that fails on the
+    calendar makes the same commit pass in August and fail in October.
+    `models.pipeline` against `graph.MODEL` fires exactly when a code change
+    invalidates the recordings, and never otherwise.
+
+    Cannot catch: a change to any model this map does not compare. It reads
+    `models["pipeline"]` against `graph.MODEL` -- the writer/researcher model --
+    and nothing else. Phase 16 makes the CRITIC's model configurable
+    INDEPENDENTLY of `graph.MODEL` (ROADMAP, Phase 16 SC-1), so a critic-model
+    change will NOT fire this gate: the recordings would stay green with only
+    the printed recording date hinting that they describe an older pipeline.
+    Closing that needs three things together -- a per-node entry in the
+    fixture's `models` map, this gate extended to compare it, and the fixtures
+    re-recorded. The map exists precisely so that extension is additive rather
+    than a schema bump.
+
+    It lives here rather than in graders.py so that graders.py never imports
+    the graph: the quality rubrics are pure functions of a recorded state, and
+    a gate that reads the running code is a different kind of check.
+    """
+    name = "fixture_current"
+    recorded = fixture.get("models", {}).get("pipeline")
+    if recorded == graph.MODEL:
+        return G.Grade(name, True, f"recorded on {recorded}, which is what this tree runs")
+    return G.Grade(
+        name,
+        False,
+        f"recorded on {recorded!r} but this tree runs {graph.MODEL!r} -- "
+        "the recording describes a pipeline that no longer exists; re-record",
+    )
+
+
+def _recorded_judge_grades(turn: dict) -> list[G.Grade]:
+    """The judge verdicts this turn was recorded with, replayed as gates.
+
+    They are fixed data now, so `judged` is False: nothing was asked of a
+    model to produce these. The recorder refuses to write a fixture whose own
+    grades failed, so a red here means a hand-edited file or a `--force`d
+    recording -- both worth a red, and both worth a non-zero exit.
+    """
+    grades = []
+    for entry in turn["judge"]:
+        detail = entry.get("detail") or entry.get("reason") or ""
+        grades.append(
+            G.Grade(f"recorded_{entry['grader']}", bool(entry["passed"]), detail, judged=False)
+        )
+    return grades
+
+
+def replay_case(case: Case, fixture: dict) -> CaseResult:
+    """Grade a recorded run: the behavioural graders, the quality graders, the
+    staleness gate, and the recorded judge verdicts.
+
+    The case ids are suffixed `@recorded` so the printout and the report can
+    never confuse the replay leg with the behavioural one -- they grade the
+    same case for different reasons and can disagree.
+
+    Malformed input is isolated the way `run_case` isolates a crashing case:
+    into `result.error`, loud and red, rather than ending the run. A recorded
+    state missing a key some grader reads is exactly the shape of the bug that
+    would otherwise grade vacuously green.
+    """
+    result = CaseResult(case_id=f"{case.id}@recorded", why=case.why)
+
+    turns = fixture.get("turns", [])
+    expected = 1 + len(case.followups)
+    if len(turns) != expected:
+        result.error = (
+            f"fixture records {len(turns)} turn(s) but case {case.id!r} has {expected} "
+            f"(research + {len(case.followups)} follow-up(s)) -- the dataset moved "
+            "under the recording; re-record"
+        )
+        return result
+
+    try:
+        model_gate = grade_fixture_current(fixture)
+        for index, turn in enumerate(turns):
+            state = turn["state"]
+            if index == 0:
+                grades = [grader(case, state) for grader in G.DETERMINISTIC_GRADERS]
+                grades += [grader(case, state) for grader in G.RECORDED_GRADERS]
+                grades.append(model_gate)
+            else:
+                fu = case.followups[index - 1]
+                grades = [grader(case, fu, state) for grader in G.FOLLOWUP_GRADERS]
+                grades += [grader(case, fu, state) for grader in G.RECORDED_FOLLOWUP_GRADERS]
+            grades += _recorded_judge_grades(turn)
+            result.turns.append(TurnResult(label=turn["label"], grades=grades))
+    except Exception as exc:  # noqa: BLE001 - one bad fixture shouldn't end the suite
+        result.error = f"{type(exc).__name__}: {exc}"
+
+    return result
+
+
+# --------------------------------------------------------------------------
+# Recording: the one leg that spends money
+#
+# A recording is `run_case` with the state kept, graded by a real judge, and
+# written through the writer that refuses anything the graders failed. There is
+# no second driver: the recorder is the same function the live suite runs, with
+# `capture_state=True`, because a parallel loop would drift from the shipped
+# graph in exactly the way this harness exists to prevent.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class RecordOutcome:
+    """What became of one case's recording: a file, or a stated refusal."""
+
+    case_id: str
+    result: CaseResult
+    path: pathlib.Path | None = None
+    refusal: str = ""
+
+    @property
+    def written(self) -> bool:
+        return self.path is not None
+
+    @property
+    def cost_usd(self) -> float:
+        return self.result.cost_usd
+
+    def as_dict(self) -> dict:
+        return {
+            "case_id": self.case_id,
+            "written": self.written,
+            "path": str(self.path) if self.path else None,
+            "refusal": self.refusal,
+            "cost_usd": round(self.cost_usd, 6),
+        }
+
+
+def record_case_to_fixture(
+    case: Case,
+    *,
+    client_factory,
+    memory_factory,
+    judge: G.Judge | None,
+    force: bool = False,
+    directory: pathlib.Path | None = None,
+) -> RecordOutcome:
+    """Run one case for real, keep its states, and write the fixture.
+
+    The judge is MANDATORY, and this is the only place that can enforce it: its
+    verdicts are the fixture's metadata *and* the refusal gate, so a judgeless
+    recording would commit answers that nothing ever graded and then replay
+    them forever as evidence of quality. A missing judge is a programming
+    error, not a case-level failure, so it raises rather than becoming an
+    outcome -- there is nothing here worth continuing a paid loop for.
+
+    A refusal is NOT an exception: `write_fixture` declining a recording whose
+    own grades failed is the system working, one case among forty, and the
+    remaining thirty-nine are still worth their money.
+    """
+    if judge is None:
+        raise ValueError(
+            "record mode requires a judge -- a fixture's recorded verdicts are both "
+            "its metadata and the gate that lets replay assert anything about "
+            "quality; there is no judgeless recording"
+        )
+
+    result = run_case(
+        case,
+        client_factory=client_factory,
+        memory_factory=memory_factory,
+        judge=judge,
+        capture_state=True,
+    )
+    outcome = RecordOutcome(case_id=case.id, result=result)
+
+    try:
+        fixture = F.build_fixture(
+            case.id,
+            result,
+            # A map, never a flat string: Phase 16 moves one of these models
+            # without moving the other, and a recording that cannot say which
+            # is which goes stale invisibly.
+            models={"pipeline": graph.MODEL, "judge": judge.model},
+        )
+        outcome.path = F.write_fixture(fixture, result, force=force, directory=directory)
+    except F.FixtureError as exc:
+        outcome.refusal = str(exc)
+
+    return outcome
+
+
+def _per_case_memory(memory_factory):
+    """Wrap a memory factory so a shared store cannot survive the loop.
+
+    Pitfall 5: a record run inherits the operator's laptop. If `DATABASE_URL`
+    is set and the recorder reaches for the persistent store, every case
+    recalls the previous ones' notes -- and worse, the operator's real notes --
+    which makes the recordings unreproducible and quietly poisons what a
+    grounding grader is grading. `live_memory_factory` is the right factory;
+    this checks the property rather than the identity, because the property is
+    what matters and a test needs to be able to pass a fake.
+    """
+    seen: list = []
+
+    def per_case():
+        store = memory_factory()
+        # Two failures, two messages, deliberately. A factory that always hands
+        # back the persistent store trips the second check too (on its second
+        # call), which is how a single shared message ends up unprovable: no
+        # realistic factory can tell the two clauses apart, so the first one
+        # looks like a guard while being decorative. Distinct messages make the
+        # distinction observable, and the diagnosis is the point -- "you reached
+        # for the process's store" and "you reused a store" are different bugs
+        # with different fixes.
+        if store is graph._memory:
+            raise RuntimeError(
+                "record mode was handed the process's own memory store. A recording "
+                "that recalls the operator's real notes is not reproducible, and "
+                "those notes end up inside a committed fixture."
+            )
+        if any(store is previous for previous in seen):
+            raise RuntimeError(
+                "record mode requires a fresh store per case: this factory handed "
+                "back a store a previous case already used. Cross-case recall makes "
+                "a recording depend on the order the dataset happens to be in."
+            )
+        seen.append(store)
+        return store
+
+    return per_case
+
+
+def record_suite(
+    cases,
+    *,
+    client_factory,
+    memory_factory,
+    judge: G.Judge | None,
+    force: bool = False,
+    directory: pathlib.Path | None = None,
+    min_pass_rate: float = 0.9,
+    on_outcome=None,
+) -> dict:
+    """Record every selected case. One fixture per case that earned one.
+
+    A refused case does not stop the loop, and the report says which were
+    refused and why: stopping would waste the spend already made on the cases
+    behind it, and hiding it would commit a partial recording set that looks
+    complete.
+    """
+    guarded = _per_case_memory(memory_factory)
+    # Before anything is spent, not after: a factory that hands out one shared
+    # store would poison all forty recordings, and finding that out on case
+    # forty costs forty cases' worth of money.
+    guarded()
+    guarded()
+
+    outcomes: list[RecordOutcome] = []
+    for case in cases:
+        outcome = record_case_to_fixture(
+            case,
+            client_factory=client_factory,
+            memory_factory=guarded,
+            judge=judge,
+            force=force,
+            directory=directory,
+        )
+        outcomes.append(outcome)
+        if on_outcome:
+            on_outcome(outcome)
+
+    results = [o.result for o in outcomes]
+    return {
+        "mode": "record",
+        "model": graph.MODEL,
+        "judge_model": judge.model if judge else None,
+        "judge_calls": judge.calls if judge else 0,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "cases": [r.as_dict() for r in results],
+        "summary": summarise(results, min_pass_rate),
+        "recordings": [o.as_dict() for o in outcomes],
+    }
 
 
 # --------------------------------------------------------------------------
