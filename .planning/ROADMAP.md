@@ -58,7 +58,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 14: Real cost accounting** - Discounts and `inference_geo` so reported cost approximates the invoice
 - [ ] **Phase 15: Answer-quality evals** - Quality becomes measurable without billing every push; the live set outgrows a smoke test
 - [x] **Phase 16: Independent critic model** - The critic stops sharing the writer's model, and the eval-judge rationale is re-derived
-- [ ] **Phase 17: Follow-ups that can reach for new information** - An unsupported follow-up triggers research instead of refusing
+- [x] **Phase 17: Follow-ups that can reach for new information** - An unsupported follow-up triggers research instead of refusing
 
 ## Phase Details
 
