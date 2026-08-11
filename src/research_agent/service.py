@@ -273,12 +273,32 @@ def _execute(
     `limits_store` is here for one reason: this function owns both terminal
     paths, so it is the only place a reservation can be settled on every one of
     them. Settling in the handler would miss the failure arm.
+
+    The `try` covers persistence and recording, not just the graph -- the shape
+    `_stream` already had, and for the same reason. The graph is not the only
+    thing here that can raise: `on_complete` writes to the session store and
+    `metrics.record` writes to the runs table, and Phase 11 gave those writes
+    only the checkout-level retry. Left outside, a write failure after a
+    finished run raised straight past the ledger, so that run's real cost never
+    reached `runs` and `spend_since` -- the daily cap's only input -- stayed
+    blind to it permanently. The leaked reservation self-healed at the
+    staleness cutoff; the missing row never did.
     """
     started = time.perf_counter()
+    final_state = state
     try:
         final_state = graph.app.invoke(state)
+        duration_ms = (time.perf_counter() - started) * 1000
+        session_id = on_complete(final_state)
+        metrics.record(
+            RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
+        )
     except BaseException as exc:
-        metrics.record(_failed_record(state, exc, started))
+        # `final_state`, not `state`: cost lives in `state["usage"]`, so a run
+        # that finished and then failed to persist is worth its real spend to
+        # the cap. Recording the pre-invoke state would put the row in the
+        # table with cost 0.00 -- present, and just as blind.
+        metrics.record(_failed_record(final_state, exc, started))
         limits.settle(limits_store, state.get("run_id", ""))
         log.warning(
             "run failed",
@@ -291,11 +311,6 @@ def _execute(
         )
         raise (_http_error(exc) or exc) from exc
 
-    duration_ms = (time.perf_counter() - started) * 1000
-    session_id = on_complete(final_state)
-    metrics.record(
-        RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
-    )
     # Immediately after the record, never before it: the estimate stops
     # counting against the cap only once the real cost is in the table, or the
     # spend briefly disappears from both.
@@ -340,7 +355,11 @@ def _stream(
     except Exception as exc:  # noqa: BLE001 - the stream must terminate cleanly
         # Headers are long gone by now, so an exception here would otherwise
         # look to the client like a truncated stream rather than a failure.
-        metrics.record(_failed_record(state, exc, started))
+        # `final_state or state`: if the graph finished and the persistence
+        # write is what failed, the run's real cost is in `final_state["usage"]`
+        # and the cap should see it. `state` is the fallback for a graph that
+        # never yielded, where there is no cost to lose.
+        metrics.record(_failed_record(final_state or state, exc, started))
         # THE ARM THAT IS EASY TO FORGET. A stream that fails still holds a
         # reservation, and this is the only place it can be released -- the
         # handler's own except never sees this exception, because the SSE
