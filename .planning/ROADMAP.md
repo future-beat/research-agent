@@ -24,7 +24,7 @@ green CI, a README a stranger can skim. Surface tidiness is part of the delivera
 
 ## Milestones
 
-- ✅ **v1.0 Production pipeline** — Phases 1–9 (shipped, plus post-Phase-9 housekeeping)
+- ✅ **v1.0 Production pipeline** — Phases 1–9 (shipped, plus post-Phase-9 housekeeping). Pre-GSD; record remastered 2026-08-12. → [archive](milestones/v1.0-ROADMAP.md) · [requirements](milestones/v1.0-REQUIREMENTS.md)
 - ✅ **v1.1 Closing the limitations list** — Phases 10–17 + the inserted 10.5, **shipped 2026-08-11** (Fly v12). All nine limitations the v1.0 README listed are closed; six were deliberate reversals, each superseding a numbered ADR. → [archive](milestones/v1.1-ROADMAP.md) · [requirements](milestones/v1.1-REQUIREMENTS.md) · [audit](v1.1-MILESTONE-AUDIT.md)
 - **Next milestone: not yet defined** — start with `/gsd:new-milestone`
 
@@ -38,6 +38,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 <details>
 <summary>✅ v1.0 Production pipeline (Phases 1–9) — SHIPPED</summary>
+
+Full remastered detail in [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md);
+per-phase records (SUMMARY + retroactive VALIDATION, reconstructed 2026-08-12 and labeled
+as such) in `.planning/phases/01-*` … `09.1-*`.
 
 - [x] **Phase 1: Core loop** - Supervisor pattern with deterministic Python routing
 - [x] **Phase 2: Memory** - Voyage embeddings, cosine recall with a relevance floor, persisted
@@ -76,6 +80,11 @@ Full detail in [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 
 <details>
 <summary>✅ v1.0 phase details (Phases 1–9)</summary>
+
+> Remastered 2026-08-12: each phase below now has a reconstructed record —
+> `NN-SUMMARY.md` and a retroactive `NN-VALIDATION.md` — under
+> `.planning/phases/<NN-slug>/`, and the milestone is archived in
+> [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md).
 
 ### Phase 1: Core loop
 **Goal**: A question routes through a supervisor to workers and returns a grounded report
@@ -138,7 +147,7 @@ Full detail in [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
-| v1.0 Production pipeline | 1–9 (+9.1) | — | Complete | pre-GSD |
+| v1.0 Production pipeline | 1–9 (+9.1) | — | Complete | pre-GSD; remastered 2026-08-12 |
 | v1.1 Closing the limitations list | 10–17 (+10.5) | 43/43 | **Complete** | 2026-08-11, Fly v12 |
 
 **Next:** no milestone defined. `/gsd:new-milestone` starts the questioning → research →

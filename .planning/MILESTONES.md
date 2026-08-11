@@ -48,7 +48,9 @@ re-targeted rather than banked.
   outside `.planning/`)
 - ~24,000 lines of Python across `src/`, `tests/`, `evals/`
 - 9 phases · 43 plans · ~118 tasks
-- Tests 436 → **737** passing with no API keys (**801** with Postgres armed); offline evals 12 → **41** cases
+- Tests **364 → 737** passing with no API keys (**801** with Postgres armed); offline evals 12 → **41** cases
+  *(baseline corrected at the v1.0 remaster, 2026-08-12: this line previously opened at 436, which does not
+  reproduce from `5c01b3e` — the closing v1.0 suite re-runs at 364 passed / 28 skipped keyless)*
 - 251 commits · 8 days (2026-08-04 → 2026-08-11)
 - Fly releases **v4 → v12**; 9 merged PRs (#4–#17)
 
@@ -70,12 +72,21 @@ introductory pricing window closes.
 
 ---
 
-## v1.0 Production pipeline (Shipped: pre-GSD)
+## v1.0 Production pipeline (Shipped: pre-GSD, closing commit `5c01b3e` 2026-08-02)
 
 **Delivered:** A supervisor-routed multi-agent research pipeline, packaged and operated as a
 production service — live at `research-agent.fly.dev`.
 
-**Phases completed:** 1–9, plus post-Phase-9 package reorganisation (pre-GSD; no plan artifacts)
+**Phases completed:** 1–9, plus the 9.1 package reorganisation. Pre-GSD: no plan artifacts
+existed at execution time. **Record remastered 2026-08-12** — per-phase SUMMARY and
+retroactive VALIDATION files under `.planning/phases/01-*` … `09.1-*`, each labeled
+reconstructed, with the closing suite re-measured (364 passed / 28 skipped keyless).
+
+**Archive:** [`v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md) ·
+[`v1.0-REQUIREMENTS.md`](milestones/v1.0-REQUIREMENTS.md)
+
+**Stats:** 23 commits · 5 days (2026-07-29 → 2026-08-02) · 44 files, 10,317 insertions ·
+tests 0 → 364 keyless · Fly releases v1 → v3
 
 **Key accomplishments:**
 

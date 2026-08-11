@@ -40,6 +40,7 @@ and a test pins the relationship.
 
 - Nothing here was tested at execution time; the criteria above are enforced by tests
   written in Phases 3–6 and hardened through v1.1.
-- The routing table validated here had seven rows; today's has ten (spend cap row from
-  Phase 5, two follow-up research rows from Phase 17). The measurements above are of
-  today's table, which subsumes — not reproduces — the Phase 1 shape.
+- The routing table validated here had seven rows; today's has ten (the budget row from
+  Phase 5, the two follow-up rows introduced in Phase 3 and reshaped into research
+  reaches by Phase 17). The measurements above are of today's table, which subsumes —
+  not reproduces — the Phase 1 shape.

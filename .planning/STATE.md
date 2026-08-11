@@ -5,7 +5,7 @@ milestone_name: Closing the limitations list
 status: milestone-complete
 stopped_at: "MILESTONE v1.1 COMPLETE. Phase 17 shipped as release v11 and proven on the wire: a follow-up researched instead of refusing, answered from the new notes, and declined to fill the remaining gap from parametric knowledge. All nine README limitations closed."
 last_updated: "2026-08-10T22:15:00.000Z"
-last_activity: "2026-08-11 — Phase 17 live check passed on release v11. Node sequence responder→researcher→responder→critic with trace followup_research: notes_insufficient; forced_stop_reason empty; notes appended not replaced (8 notes/7 sessions)."
+last_activity: "2026-08-12 — v1.0 remastered: phases 1–9 (+9.1) given reconstructed GSD records (SUMMARY + retroactive VALIDATION each, labeled as such), milestone archived to milestones/v1.0-{ROADMAP,REQUIREMENTS}.md. Closing suite re-measured at 5c01b3e: 364 passed / 28 skipped keyless — MILESTONES.md's 436 baseline corrected to 364."
 progress:
   total_phases: 19
   completed_phases: 9
@@ -29,6 +29,14 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 Phase: 17 of 17 (Follow-ups that can reach for new information) — **COMPLETE, live on v11**
 Progress: [██████████] 100% (17 of 17 phases + hotfix; v1.0 and v1.1 both shipped)
+
+**v1.0 remastered 2026-08-12.** The pre-GSD phases (1–9, plus 9.1) now carry the same
+record shape as v1.1: per-phase SUMMARY + retroactive VALIDATION under
+`.planning/phases/01-*` … `09.1-*`, and a milestone archive
+(`milestones/v1.0-ROADMAP.md`, `v1.0-REQUIREMENTS.md`). Every file is labeled
+reconstructed — no GSD step is claimed for a phase that predates GSD. The remaster
+re-ran the closing suite at `5c01b3e` (364 passed / 28 skipped keyless) and corrected
+MILESTONES.md's v1.1 test baseline from 436 to the measured 364.
 
 **The live proof (release v11, 2026-08-11):**
 ```
