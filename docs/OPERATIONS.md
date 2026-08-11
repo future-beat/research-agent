@@ -465,7 +465,7 @@ Environment variables:
 | `AGENT_RETRY_BASE_DELAY` · `AGENT_RETRY_MAX_DELAY` | Backoff bounds, seconds | `1.0` / `30.0` |
 | `DEMO_DAILY_USD_CAP` | Rolling 24h ceiling across all callers; `0` disables | `5.00` |
 | `DEMO_RATE_LIMIT_PER_HOUR` | Requests per **caller identity** (the signed cookie), not per IP; `0` disables | `10` |
-| `DEMO_RESERVED_RUN_USD` | What a starting run claims against the daily cap up front, settled to the real cost when it ends; `0` reserves nothing | `0.20` |
+| `DEMO_RESERVED_RUN_USD` | What a starting run claims against the daily cap up front, settled to the real cost when it ends; `0` reserves nothing | `0.30` |
 | `IDENTITY_SIGNING_SECRET` | Signs the anonymous caller-identity cookie. Set app-wide so a cookie minted by one machine verifies on the other; unset, each process invents an ephemeral one and identities don't survive a bounce | *(unset)* |
 | `DEMO_TOKEN` | When set, write endpoints need an `X-Demo-Token` header. Also accepted as a fallback for `SESSIONS_TOKEN` | *(unset)* |
 | `SESSIONS_TOKEN` | Operator credential, sent as `X-Demo-Token`: lists and deletes **every** owner's sessions. While unset, only the operator view is closed — callers still reach their own | *(unset)* |
@@ -539,16 +539,14 @@ caps, not tidiness: `COST_DISCOUNT_FACTOR=0` is a plausible typo and a plausible
 reading of "no discount", and honouring it would cost every run at $0.00, which
 a per-run or daily cap compared against $0.00 never fires on.
 
-**What this does to `DEMO_RESERVED_RUN_USD`: nothing, and here is the
-arithmetic.** A research run lands around **$0.15** against a **$0.20**
-reservation, so the reservation only becomes an *under*-estimate once the
-combined multiplier exceeds about **1.33** — unreachable at the published `1.1`
-with any discount at or below `1.0`. So this is a note, not a resize. A discount
-below `1.0` moves the wrong way to be a problem at all: it makes the reservation
-*more* conservative, so the cap binds slightly sooner during a burst and never
-overshoots. Revisit the default if a future pricing dimension pushes a typical
-run above $0.20 — raise `DEMO_RESERVED_RUN_USD` proportionally rather than
-adjusting anything else.
+**What this does to `DEMO_RESERVED_RUN_USD`.** A research run measures
+**$0.21–0.32** against a **$0.30** reservation, so a busy run at the top of that
+band is already at the estimate and the published `1.1` geo multiplier can carry
+it past — which is the by-design tail below, not a hole. A discount at or below
+`1.0` moves the other way and makes the reservation *more* conservative, so the
+cap binds slightly sooner during a burst and never overshoots. Revisit the
+default if a future pricing dimension pushes a typical run above $0.30 — raise
+`DEMO_RESERVED_RUN_USD` proportionally rather than adjusting anything else.
 
 `AGENT_MAX_RUN_COST_USD` now bounds **multiplied** cost, which is the correct
 semantics rather than a side effect: a discounted deployment gets more work per
@@ -563,28 +561,41 @@ critic that gates a draft is deliberately more capable than the writer that
 produced it** (ADR-0010). Every other node stays on `MODEL` (Sonnet 5); unset
 the variable and the critic goes back to `MODEL` with no other change.
 
-**What it costs, and why the reservation did not move.** A typical run — one
-critic call — goes from ~$0.15 to **~$0.18** against the **$0.20**
-`DEMO_RESERVED_RUN_USD`, so the estimate stays honest and no resize ships with
-the cutover. A fully-revised run makes at most 3 critic calls and can reach
-**~$0.28**, which is *outside* the estimate by design: the reservation is sized
-on the typical run, `AGENT_MAX_RUN_COST_USD` bounds the tail per run, and
-settlement replaces the estimate with the real figure at run end.
+**What it costs, and what finally moved the reservation.** The critic is a small
+part of the bill and was never the reason to resize: on the first live run after
+the cutover it was **$0.0219** of a **$0.2093** run — about 12% — while the
+researcher node alone was **$0.173**. Phase 17 then moved a whole class of run
+across the line rather than moving the line: a follow-up whose notes cannot
+answer the question now runs one research pass before answering, so those turns
+cost like a research run rather than the pennies a notes-only answer costs.
 
-**Follow-ups joined the research cost class in Phase 17, and the reservation
-still did not move.** A follow-up whose notes cannot answer the question now
-runs one research pass before answering, so those turns cost like a research
-run (**~$0.21**) rather than the pennies a notes-only answer costs. That is a
-class of run crossing into the estimate's own case, not a case the estimate
-misses: **$0.20** was always sized on the typical run, both `/ask` routes
-already reserve, and settlement replaces the estimate with the real figure at
-run end. No resize ships with the reversal.
+What actually moved the number was measuring the result of both. Two live runs:
 
-**The threshold that will actually break it is not the critic.** From
-**2026-09-01** Sonnet 5's introductory window closes and the standard rate
-alone lifts a typical *unchanged* run to **~$0.21–0.22**. Raise
-`DEMO_RESERVED_RUN_USD` when a threshold is crossed — that date, or pointing
-`CRITIC_MODEL` at something priced above Opus. **~$0.30** covers both.
+| When | Release | Run | Cost |
+|---|---|---|---|
+| 2026-08-10 | v10 | research, 1 critic call | **$0.2093** |
+| 2026-08-11 | v11 | research at 9 iterations | **$0.25–0.32** |
+
+So `DEMO_RESERVED_RUN_USD` **went from $0.20 to $0.30 on 2026-08-11**, by the
+rule already written here rather than by a new one. The literal triggers below
+had not fired; the condition they were proxies for — a typical run above the
+estimate — had, and a measurement outranks a proxy. A fully-revised run makes at
+most 3 critic calls and can reach **~$0.42**, which is *outside* the estimate by
+design: the reservation is sized on the typical run, `AGENT_MAX_RUN_COST_USD`
+bounds the tail per run, and settlement replaces the estimate with the real
+figure at run end.
+
+**Operationally, the resize costs concurrency and buys accuracy.** Against the
+default **$5.00** daily cap it is about 16 runs admitted at once instead of 25 —
+still far above what a demo sees, and now the cap counts in-flight spend at
+roughly what that spend turns out to be.
+
+**The next threshold is a date, not the critic.** From **2026-09-01** Sonnet 5's
+introductory window closes and the standard rate alone lifts a typical
+*unchanged* run by roughly a third again. Raise `DEMO_RESERVED_RUN_USD` when a
+threshold is crossed — that date, pointing `CRITIC_MODEL` at something priced
+above Opus, or another measurement putting a typical run above the estimate.
+**~$0.40** covers the date.
 
 **What is checked and what is not.** Pricing is: a `CRITIC_MODEL` with no row
 in the price table costs the run nothing and reports `pricing_unknown` on that

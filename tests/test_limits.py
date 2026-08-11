@@ -687,25 +687,34 @@ def test_status_never_reveals_the_token(monkeypatch):
 # --------------------------------------------------------------------------
 
 
-def test_reservation_threshold_stays_flat_and_model_unaware(monkeypatch):
-    """Phase 16 put the critic on its own model and production pins it to
-    claude-opus-5, which raises a typical run to ~$0.18. The reservation did
-    not move, and this pins that it cannot move by itself: `reserved_run_usd`
-    reads one env var and nothing else. It has been proposed twice that the
-    estimate become model-aware (`base + critic_premium()`); both times the
-    answer was no, because `limits.py` importing the price table and the graph
-    to sharpen an ADMISSION estimate -- when settlement is already real cost --
-    buys a dependency and nothing else."""
+def test_reservation_is_sized_on_measurement_and_stays_model_unaware(monkeypatch):
+    """The default is $0.30, and it cannot move by itself.
+
+    It was $0.20 through Phase 17, sized on an estimate. The v1.1 audit put it
+    against the milestone's own live runs -- $0.2093 on release v10, $0.25-0.32
+    on v11 -- and a typical run turned out to sit above the estimate rather
+    than under it, so the docstring's own rule fired and the default went to
+    the $0.30 that rule already named.
+
+    What did NOT change is what the function knows. It has been proposed twice
+    that the estimate become model-aware (`base + critic_premium()`), and twice
+    the answer was no: `limits.py` importing the price table and the graph to
+    sharpen an ADMISSION estimate -- when settlement is already real cost --
+    buys a dependency and nothing else. The resize is evidence for that, not
+    against it. What moved the number was a measurement, which is exactly what
+    settlement already reports; the critic was ~12% of the run that prompted
+    the check, and the researcher node was five times that."""
     monkeypatch.delenv("DEMO_RESERVED_RUN_USD", raising=False)
 
     monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
-    assert limits.reserved_run_usd() == 0.20
-    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
-    assert limits.reserved_run_usd() == 0.20
-
-    # The knob the docstring points at is the one that does move it.
-    monkeypatch.setenv("DEMO_RESERVED_RUN_USD", "0.30")
     assert limits.reserved_run_usd() == 0.30
+    monkeypatch.setenv("CRITIC_MODEL", "claude-haiku-4-5")
+    assert limits.reserved_run_usd() == 0.30
+
+    # The knob the docstring points at is the one that does move it. A value
+    # the default cannot also produce, or this asserts nothing.
+    monkeypatch.setenv("DEMO_RESERVED_RUN_USD", "0.45")
+    assert limits.reserved_run_usd() == 0.45
 
     source = pathlib.Path(limits.__file__).read_text()
     assert "from research_agent import usage" not in source
@@ -714,13 +723,15 @@ def test_reservation_threshold_stays_flat_and_model_unaware(monkeypatch):
 
 def test_reservation_threshold_docstring_names_what_would_break_it():
     """The reservation is documented, not enforced -- so the documentation is
-    the deliverable and deserves a gate of its own. It has to say three things
-    an operator cannot derive from the number `0.20`: what the deployed critic
-    costs, that the fully-revised tail is outside the estimate on purpose, and
-    that the date is what actually breaks it."""
+    the deliverable and deserves a gate of its own. It has to say four things
+    an operator cannot derive from the number `0.30`: what a run actually cost
+    when someone last looked, that the fully-revised tail is outside the
+    estimate on purpose, what date breaks it next, and what to raise it to."""
     doc = limits.reserved_run_usd.__doc__ or ""
 
     assert "CRITIC_MODEL" in doc and "claude-opus-5" in doc
-    assert "0.18" in doc and "0.28" in doc  # typical under, revised tail over
+    # The measured band, not an estimate -- both live figures are named.
+    assert "0.2093" in doc and "0.25-0.32" in doc
+    assert "0.42" in doc  # the revised tail, outside the estimate by design
     assert "2026-09-01" in doc  # the Sonnet boundary, which needs no critic
-    assert "0.30" in doc  # what to raise it to when a threshold is crossed
+    assert "0.40" in doc  # what to raise it to when that threshold is crossed
