@@ -18,6 +18,41 @@ that explains why each piece is the way it is.
 The pipeline never answers from model knowledge when it should be answering from
 research — and it is demonstrable to a stranger in one click.
 
+## Current State
+
+**Shipped: v1.1 "Closing the limitations list"** — 2026-08-11, Fly release **v12**, two machines
+in `syd` against Supabase Postgres. Live at `research-agent.fly.dev`.
+
+All nine limitations the v1.0 README listed are closed. Six were deliberate reversals, each
+superseding a numbered ADR rather than quietly contradicting prose — the reversal register the
+milestone opened with is now spent. `docs/adr/` holds 11 records, three of them superseded.
+
+737 tests pass with no API keys; 801 with Postgres armed. Offline evals grade 41 cases keylessly
+on every push, including one real recorded answer.
+
+**What is true now that was not at v1.0:** a stranger from a résumé link gets an auto-issued
+signed identity with no signup; sessions and notes belong to that caller and expire; the spend
+cap reserves against in-flight runs across both machines; the critic runs on a *more capable*
+model than the writer it gates; a follow-up whose notes cannot answer goes and researches
+instead of refusing; and reported cost is an approximation of the invoice rather than of the
+list price, with Voyage embedding spend counted for the first time.
+
+## Next Milestone Goals
+
+**None defined.** `/gsd:new-milestone` starts the questioning → research → requirements →
+roadmap chain. Carried forward as open items rather than requirements:
+
+- The full 40-case eval record run (~$16.51 now, ~$21 after 2026-09-01). Machinery proven by
+  one paid calibration case; recording the rest is an operator decision.
+- `/health` checks that API keys are *present*, not that they work — it stayed green through a
+  full revoked-key outage. Now listed in the README's Limitations.
+- No phase carries a `VERIFICATION.md`. The audit's P1, left open deliberately: writing them
+  after the fact would record a verification step that did not happen.
+- No CSP header on the demo page; `run_finished` carries no `session_id`; the `DATABASE_URL`
+  rollback path is documented but never exercised.
+- **2026-09-01** closes Sonnet 5's introductory pricing window. A typical unchanged run rises
+  roughly a third; `DEMO_RESERVED_RUN_USD` would go $0.30 → ~$0.40.
+
 ## Requirements
 
 ### Validated
@@ -35,20 +70,25 @@ research — and it is demonstrable to a stranger in one click.
 - ✓ Streaming demo page with rolling spend cap, per-visitor rate limit, optional token — Phase 9
 - ✓ `src/` package layout and a single consolidated `pyproject.toml` — post-Phase-9 housekeeping
 
+<!-- v1.1 — all nine README limitations, plus two found during planning. -->
+
+- ✓ Load-bearing architectural decisions exist as numbered ADRs with explicit status — Phase 10
+- ✓ The session read/delete routes are not reachable without credentials **on the deployed service** — Phase 10.5 *(found by codebase mapping, never in the Limitations list)*
+- ✓ More than one machine runs, sharing state over `DATABASE_URL` — Phase 11
+- ✓ Postgres access is pooled — Phase 11
+- ✓ The public demo identifies callers, not just rate-limits them — Phase 12 *(as an auto-issued **anonymous** identity: an auth wall a stranger will not click through destroys the demo's value)*
+- ✓ Notes are bounded; sessions have owners and expiry — Phase 12
+- ✓ Changing embedding model has a real migration path — Phase 13 *(two commands, not one: copy and re-embed answer different questions)*
+- ✓ Reported cost reflects discounts and `inference_geo`, not just list price — Phase 14 *(geo turned out to be response-observed, not an env declaration)*
+- ✓ Answer quality is measurable; the live eval set outgrows smoke-test size — Phase 15 *(1 of 40 answers recorded; the rest a priced, explicit deferral)*
+- ✓ The critic runs on a model independent of the writer — Phase 16 *(and more capable than it)*
+- ✓ Follow-ups can trigger new research instead of refusing — Phase 17
+
 ### Active
 
-<!-- Current milestone (v1.1). All nine items from README "## Limitations". -->
+<!-- No milestone defined. Run /gsd:new-milestone. -->
 
-- [ ] Load-bearing architectural decisions exist as numbered ADRs with explicit status
-- [ ] Follow-ups can trigger new research instead of refusing (REQ-followup-live-search)
-- [ ] The critic runs on a model independent of the writer (REQ-independent-critic-model)
-- [ ] Answer quality is measurable; the live eval set outgrows smoke-test size (REQ-offline-eval-quality)
-- [ ] Reported cost reflects discounts and `inference_geo`, not just list price (REQ-real-cost-accounting)
-- [ ] Notes are bounded; sessions have owners and expiry (REQ-store-lifecycle-and-ownership)
-- [ ] More than one machine runs, sharing state over `DATABASE_URL` (REQ-multi-machine-state)
-- [ ] Postgres access is pooled (REQ-connection-pool)
-- [ ] Changing embedding model has a real migration path (REQ-embedding-model-migration)
-- [ ] The public demo identifies callers, not just rate-limits them (REQ-demo-authentication)
+_None. v1.1 closed 2026-08-11._
 
 ### Out of Scope
 
@@ -68,11 +108,11 @@ research — and it is demonstrable to a stranger in one click.
 ## Context
 
 - Live at `research-agent.fly.dev`; repo `github.com/future-beat/research-agent`; MIT.
-- Stack: Python 3.10+ · LangGraph · Claude Sonnet 5 · Voyage embeddings · FastAPI ·
+- Stack: Python 3.14 (CI and image) · LangGraph · Claude Sonnet 5 with an **Opus 5 critic** · Voyage embeddings · FastAPI ·
   SQLite/Postgres+pgvector. Deployed on Fly.io (app `research-agent`, region `syd`,
   1GB volume at `/data`).
-- Phases 1–9 are complete and shipped. This milestone is net-new work, sourced entirely
-  from the README's `## Limitations` list.
+- Phases 1–9 shipped v1.0; phases 10–17 shipped v1.1, sourced entirely from the README's
+  `## Limitations` list. Both are archived under `.planning/milestones/`.
 - The planning intel was ingested from three documents (`README.md`, `docs/DESIGN.md`,
   `docs/OPERATIONS.md`), all classified `DOC`. Twenty-three architectural decisions were
   recovered, **none locked** — zero ADRs existed at ingest. Phase 10 changes that for the
@@ -82,9 +122,8 @@ research — and it is demonstrable to a stranger in one click.
 - Verified as of 2026-08-04: deploys are **manual** (`fly deploy -a research-agent`), not
   run through Fly's GitHub integration — `fly releases -a research-agent` shows 3 releases,
   all from the owner's personal account. `docs/OPERATIONS.md` says otherwise and is wrong.
-- Verified as of 2026-08-04: the live release is 3 commits behind `main` (missing the
-  README restructure, the `src/` reorganisation, and its bugfix). Functionally healthy —
-  `/`, `/health`, `/demo`, `/metrics` all return 200 — but the deployed tree differs from `main`.
+- The drift Phase 10 existed to remove: deploys now run from merged `main` only, and every
+  release since v4 is recorded in its phase SUMMARY with the evidence it was verified by.
 - War stories worth preserving in the docs: the unreachable revision cap the evals caught
   on run one; the `Decimal` that would have 500'd `/metrics`; the boot deadlock from eager
   DDL; the silent `internal_port` merge.
@@ -118,17 +157,20 @@ research — and it is demonstrable to a stranger in one click.
 | Routing is a deterministic Python state machine, never an LLM call | Control flow identical every run and testable with no API keys | ✓ Good |
 | Critic is a separate node given notes as sole source of truth | One model drafting and self-assessing "reliably produces 'looks good to me'" | ✓ Good |
 | Every loop bounded; forced stops reported honestly | A silent unapproved draft is worse than no draft | ✓ Good |
-| Follow-ups stop with `no_prior_research` rather than answering from model knowledge | "The single failure mode this whole pipeline exists to prevent" | ⚠️ Revisit — REQ-followup-live-search reverses this |
+| ~~Follow-ups stop with `no_prior_research`~~ → an unsupported follow-up **researches**, one pass | Grounding was never "no new search" — it is "no answer from parametric knowledge", and refusing to search was the enforcement, not the guarantee | ✗ Reversed — [ADR-0011](../docs/adr/0011-followups-reach-for-new-information.md) supersedes 0003 |
 | Spend cap is a routing rule, not a wrapper | One more row in the same routing table, same `forced_stop_reason` machinery | ✓ Good |
 | Prices effective-dated; unpriced models report `pricing_unknown`, never zero | A cost control that fails open without saying so is worse than none | ✓ Good |
 | Failed runs stay in the metrics denominator; zero-denominator rates return `null` | "No runs yet" and "nothing was approved" are different facts | ✓ Good |
 | Sessions persist completed runs in SQLite, not LangGraph's checkpointer | Different feature, different failure model; avoids coupling schema to LangGraph | ✓ Good |
 | One `DATABASE_URL` moves sessions, metrics, and notes together | The real failure is setting one flag and forgetting another | ✓ Good |
 | Nothing constructed at import time; service boots degraded and self-heals | Eager DDL made `/health`'s degraded reporting unreachable by definition | ✓ Good |
-| Eval judge on Opus 5 against a Sonnet 5 pipeline | The in-graph critic shares the writer's model, so a same-model judge inherits its blind spots | ⚠️ Revisit — premise falsified by REQ-independent-critic-model |
-| Migration copies embeddings rather than re-embedding | Re-embedding would change recall at the same moment infrastructure changes — two suspects, no way to separate them | ⚠️ Revisit — tension with REQ-embedding-model-migration |
-| Offline evals grade the pipeline only, with the caveat printed every run | "A green suite that quietly implies 'the model is good' is worse than no suite" | ⚠️ Revisit — tension with REQ-offline-eval-quality |
-| Promote the load-bearing five decisions to numbered ADRs before any reversal lands | Six coming requirements reverse a stated position; each must supersede a record, not silently contradict prose | — Pending (Phase 10) |
+| Eval judge on Opus 5 — **rationale re-derived, not inherited** | The old reason (a weak critic) died with the independent critic. The judge survives on a different job: it grades finished answers against a rubric, retrospectively. Judge == critic is recorded as an **acceptance**, not an oversight | ✓ Good — [ADR-0010](../docs/adr/0010-judge-rederived-for-an-independent-critic.md) supersedes 0005 |
+| Migration is **two** commands: copy *or* re-embed | The original reason survives and became the copy leg's guarantee; re-embed is a separate, measured act with its cost quoted first | ✓ Good — [ADR-0008](../docs/adr/0008-embedding-migration-two-commands.md) |
+| Offline evals also grade **recorded** answers, and never claim them of the current model | The caveat did not weaken — it got more specific: a replay reports what the pipeline said on a stated date, model and commit, and goes stale on purpose | ✓ Good — [ADR-0009](../docs/adr/0009-recorded-answer-quality-evals.md) |
+| Promote the load-bearing five decisions to numbered ADRs before any reversal lands | Six coming requirements reverse a stated position; each must supersede a record, not silently contradict prose | ✓ Good — the milestone's best structural call; 11 records now, 3 superseded |
+| The critic runs on a **more capable** model than the writer it gates | The user's own position, quoted verbatim in ADR-0010; it inverts the old rationale, which justified a strong judge by a weak critic | ✓ Good — Fly v10, ~12% of a run's cost |
+| Fairness keys on an auto-issued anonymous identity; the global cap bounds the bill | Identities are free to mint, so per-caller limits buy fairness, not a bound — and a signup wall would cost more than it buys | ✓ Good — [ADR-0007](../docs/adr/0007-anonymous-identity-fairness-global-cap.md) supersedes 0006 |
+| The admission reservation is sized on **measurement**, not estimate | Two live runs put a typical run above the $0.20 estimate; the docstring's own rule already named $0.30 | ✓ Good — raised at the v1.1 audit |
 
 ---
-*Last updated: 2026-08-04 after doc ingest and v1.1 roadmap creation*
+*Last updated: 2026-08-11 at v1.1 milestone close (Fly release v12)*

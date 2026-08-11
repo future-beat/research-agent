@@ -61,7 +61,13 @@ is spent: ADRs 0011 records the last one.
 - **P1 / VALIDATION drift — closed.** All nine phases now read `status: complete`,
   `nyquist_compliant: true`, zero pending rows, each row carrying what was measured.
 
-**Next, if wanted:** `/gsd:complete-milestone` (archive v1.1, prep the next). Open items
+**MILESTONE CLOSED 2026-08-11.** `/gsd:complete-milestone v1.1` archived the roadmap and
+requirements to `.planning/milestones/`, collapsed ROADMAP.md, evolved PROJECT.md, and tagged
+`v1.1`. `.planning/REQUIREMENTS.md` is gone by design — the next milestone creates a fresh one.
+The pre-close artifact audit was clear: zero open debug sessions, quick tasks, threads, todos,
+seeds, UAT gaps, verification gaps or context questions.
+
+**Next:** `/gsd:new-milestone` (questioning → research → requirements → roadmap). Open items
 carried across the milestone and never phased:
 - The full 40-case eval record run (~$16.51 now, ~$21 after 2026-09-01) — machinery proven
   by one calibration case; recording the rest is an operator decision.
@@ -74,6 +80,8 @@ carried across the milestone and never phased:
   the same wall.
 - The next reservation threshold is **2026-09-01**, when Sonnet 5's introductory window
   closes and a typical unchanged run rises roughly a third again. ~$0.40 covers it.
+- The `DATABASE_URL` rollback path is documented but never exercised; `run_finished` carries
+  no `session_id`, so a completed run is not addressable from the logs.
 
 ## Performance Metrics
 
