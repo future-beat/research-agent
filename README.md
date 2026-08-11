@@ -12,7 +12,7 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 735 tests
+backends, an eval harness that grades real recorded answers, and 737 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
@@ -195,7 +195,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 735 tests, ~30s, no API keys, no network
+pytest                    # 737 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
@@ -277,6 +277,7 @@ here; everything below is one of those or a limit the v1.1 work created.
 - **Only one of forty answers is recorded.** Offline runs grade real recorded answers, but recording costs real money and only the calibration case has been run. Until the rest are recorded, the suite claims one measured answer, not a benchmark — and even then it reports what the pipeline said on a stated date and model, never what the model would say today. `--live` is the only thing that answers that. [ADR-0009](docs/adr/0009-recorded-answer-quality-evals.md) states what each grader can and cannot see.
 - **Reported cost is an approximation, never the invoice.** Nothing here reads a bill. Provider token counts are telemetry — measured live, Voyage reported 25 tokens where the tokenizer counted 40, and 0 for a one-word document that embedded fine. `/pricing` shows the rate window and multipliers in effect; read it there, not from a number in a document.
 - **Identities are free to mint.** Clearing browser storage gets you a fresh one with fresh limits, so per-caller limits buy fairness, not a bound on the bill. The global rolling daily spend cap is the actual backstop. Recorded as [ADR-0007](docs/adr/0007-anonymous-identity-fairness-global-cap.md).
+- **`/health` checks that the API keys are *present*, not that they work.** It reads `bool(os.environ.get(...))`, so a key that is revoked, expired or simply wrong reports healthy — and Fly's check passes while every run fails upstream. Deliberate as far as it goes: a liveness probe that calls Anthropic would get a perfectly healthy container restarted during a provider outage. What is missing is the other signal, and `/metrics` is where an operator would currently see it.
 - **The database is a single region on a free tier.** Supabase Nano in `ap-southeast-2`, no read replica, a 60-connection ceiling of which the fleet holds ten. Fine at this traffic; the first thing to look at if it isn't.
 - **Notes are bounded by expiry alone.** Within one identity there's no dedup or summarisation — neither has semantics that four vector backends can agree on, and identical behaviour across them is the claim being defended.
 
