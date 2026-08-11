@@ -47,16 +47,33 @@ knowledge — the replacement guarantee observed, not asserted.
 superseding a numbered ADR rather than quietly contradicting prose. The reversal register
 is spent: ADRs 0011 records the last one.
 
-**Next, if wanted:** `/gsd:complete-milestone` (archive v1.1, prep the next), or
-`/gsd:audit-milestone` first. Open items carried across the milestone and never phased:
+**The v1.1 audit ran 2026-08-11** (`.planning/v1.1-MILESTONE-AUDIT.md`, PR #16) and returned
+`tech_debt`: 11/11 requirements satisfied on live or gated evidence, 8/8 connections wired,
+4/4 E2E flows complete, two findings and some bookkeeping. All three were closed the same day:
+
+- **W1 — fixed.** `_execute`'s try wrapped only the graph call while `_stream`'s wrapped the
+  persistence writes too, so a write failure on the blocking route lost the run from the
+  `runs` table permanently and left `spend_since` — the daily cap's only input — blind to
+  that spend. Both arms now record the state the graph produced, so a run that finished and
+  then failed to persist is worth its real cost to the cap rather than $0.00.
+- **W2 — fixed, and the default moved.** `DEMO_RESERVED_RUN_USD` **$0.20 → $0.30**, by the
+  rule the docstring had already written. Ships on the next manual deploy.
+- **P1 / VALIDATION drift — closed.** All nine phases now read `status: complete`,
+  `nyquist_compliant: true`, zero pending rows, each row carrying what was measured.
+
+**Next, if wanted:** `/gsd:complete-milestone` (archive v1.1, prep the next). Open items
+carried across the milestone and never phased:
 - The full 40-case eval record run (~$16.51 now, ~$21 after 2026-09-01) — machinery proven
   by one calibration case; recording the rest is an operator decision.
 - `/health` reports the Anthropic key present, not valid — it stayed green through a full
-  revoked-key outage in phase 11.
+  revoked-key outage in phase 11. **Now listed in the README's Limitations.**
 - No CSP header on the demo page (logged in phase 12's deferred items).
-- Cost estimates drawn pre-Opus-critic are low: a research run is ~$0.25–0.32, not ~$0.18.
-  The $0.20 reservation is marginally under a typical run; the 2026-09-01 Sonnet boundary
-  widens that.
+- **No phase has a VERIFICATION.md** (the audit's P1). Every phase ran plan → execute → PR
+  without the verify step. The work was verified by other means and the audit says so; the
+  artifact the framework expects does not exist, and the next person to run the audit hits
+  the same wall.
+- The next reservation threshold is **2026-09-01**, when Sonnet 5's introductory window
+  closes and a typical unchanged run rises roughly a third again. ~$0.40 covers it.
 
 ## Performance Metrics
 

@@ -112,29 +112,48 @@ def daily_cap_usd() -> float:
 
 
 def reserved_run_usd() -> float:
-    """What a starting run claims against the cap. Floor 0, default 0.20.
+    """What a starting run claims against the cap. Floor 0, default 0.30.
 
-    Sized on observation, not on the per-run hard cap: runs land around $0.15
-    and AGENT_MAX_RUN_COST_USD's $1.00 default would let only five run at once
-    against a $5 budget -- throttling the demo far below what it actually
-    spends. An estimate that is honest keeps the cap a bound rather than a
-    queue.
+    Sized on observation, not on the per-run hard cap: AGENT_MAX_RUN_COST_USD's
+    $1.00 default would let only five runs go at once against a $5 budget --
+    throttling the demo far below what it actually spends. An estimate that is
+    honest keeps the cap a bound rather than a queue.
+
+    **Raised from $0.20 to $0.30 on 2026-08-11**, by this docstring's own rule
+    rather than by a new one. The v1.1 milestone audit found every figure below
+    written before the milestone measured itself. Two live runs settled it:
+
+      2026-08-10, Fly v10, research, 1 critic call:            $0.2093
+      2026-08-11, Fly v11, research at 9 iterations:           $0.25-0.32
+
+    So a typical run does not cost ~$0.18. It costs $0.21 at the quiet end and
+    $0.32 at the busy one, and the old $0.20 sat under both. The literal
+    trigger written here -- 2026-09-01, or a critic priced above Opus -- had
+    not fired, but the condition those triggers were proxies for had: a typical
+    run above $0.20. Measurement outranks the proxy. $0.30 is the number this
+    docstring already named for the crossing, and it now covers the observed
+    range rather than the quiet end of it.
 
     Phase 14 settles against *multiplied* cost (discount x geo) plus embedding
-    spend, and this default survives it unchanged: at ~$0.15 a run, the $0.20
-    reservation only under-estimates once the combined multiplier passes about
-    1.33, which the published 1.1 cannot reach with any discount at or below
-    1.0 -- and a discount below 1.0 makes the reservation more conservative,
-    never less. See docs/OPERATIONS.md.
+    spend. At $0.32 a run the $0.30 reservation is already inside the observed
+    band, so the published 1.1 geo multiplier can push a busy run past it --
+    which is the tail case below, not a hole. A discount at or below 1.0 moves
+    the other way and makes the reservation more conservative. See
+    docs/OPERATIONS.md.
 
-    Phase 16 puts the critic on its own model and production sets
+    Phase 16 put the critic on its own model and production sets
     `CRITIC_MODEL = 'claude-opus-5'` (fly.toml [env]) -- the critic that gates
     the draft is deliberately more capable than the writer that produced it.
-    That is the deployed arithmetic, not a hypothetical, and this default
-    survives it too, so no resize ships with the cutover:
+    The critic is a small part of the bill and never the reason to resize: at
+    $0.0219 of a $0.2093 run it is ~12%, while the researcher node alone was
+    $0.173. Phase 17 then moved a whole class of run across the line rather
+    than moving the line -- a follow-up that cannot answer from its notes runs
+    a research pass, so those turns cost like a research run instead of the
+    pennies a notes-only answer costs. What actually moved this number was
+    neither of those decisions; it was measuring the result of both.
 
-      typical run, 1 critic call, Opus:  ~$0.15 + ~$0.03  = ~$0.18  (under $0.20)
-      fully-revised, 3 critic calls:     ~$0.15 + ~$0.13  = ~$0.28  (over, by design)
+      typical run, measured:            $0.21 - $0.32   (at or under $0.30)
+      fully-revised, 3 critic calls:    up to ~$0.42    (over, by design)
 
     The worst case being outside the estimate is the design, not a hole in it:
     this number is sized on the typical run, `AGENT_MAX_RUN_COST_USD`'s $1.00
@@ -142,21 +161,11 @@ def reserved_run_usd() -> float:
     cost the moment the run ends -- so an over-run makes the daily cap fire
     slightly late, never not at all.
 
-    Phase 17 moves a class of run across the line rather than moving the line:
-    a follow-up that cannot answer from its notes now runs a research pass, so
-    those turns cost like a research run (~$0.21) instead of the pennies a
-    notes-only answer costs. The reservation is deliberately NOT resized for
-    it -- $0.20 was always the typical-run estimate and this makes follow-ups
-    typical runs, which is the case it was sized on. What changes is how often
-    the tail is reached, and `settle()` still replaces the estimate with real
-    cost the moment the run ends.
-
-    The threshold that actually breaks this default has nothing to do with the
-    critic: from **2026-09-01** the Sonnet 5 introductory window closes and the
-    standard rate alone lifts a typical unchanged run to ~$0.21-0.22. Raise
-    `DEMO_RESERVED_RUN_USD` when a threshold is crossed -- that date, or a
-    critic priced above Opus. ~$0.30 covers the boundary and the revision tail
-    together.
+    The next threshold is **2026-09-01**, when the Sonnet 5 introductory window
+    closes and the standard rate alone lifts a typical unchanged run by roughly
+    a third again. Raise `DEMO_RESERVED_RUN_USD` when a threshold is crossed --
+    that date, a critic priced above Opus, or, as happened here, a measurement
+    that puts a typical run above the estimate. ~$0.40 covers that boundary.
 
     Deliberately NOT model-aware, and this is the second time it has been
     asked: `limits.py` imports neither `usage` nor `graph`, and coupling the
@@ -165,7 +174,7 @@ def reserved_run_usd() -> float:
     cost -- buys a dependency and nothing else. The operator knob already
     exists; this docstring says when to turn it.
     """
-    return max(0.0, _env_float("DEMO_RESERVED_RUN_USD", 0.20))
+    return max(0.0, _env_float("DEMO_RESERVED_RUN_USD", 0.30))
 
 
 def caller_identity(request: Request) -> str:

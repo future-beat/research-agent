@@ -26,7 +26,7 @@ from research_agent import db, graph, identity, limits, service
 from research_agent import memory as memory_module
 from research_agent import usage as usage_accounting
 from research_agent.memory import InMemoryStore, PgVectorMemoryStore
-from research_agent.metrics import PostgresMetricsStore, SQLiteMetricsStore
+from research_agent.metrics import FAILED, PostgresMetricsStore, SQLiteMetricsStore
 from research_agent.sessions import PostgresSessionStore, SQLiteSessionStore
 
 # Since Phase 12 this is the OPERATOR credential, not the visitor's: the
@@ -2057,6 +2057,102 @@ def test_a_failed_stream_settles_its_reservation(make_client, monkeypatch):
     assert [name for name, _ in sse_events(response)] == ["error"]  # it did fail
     assert store.reserved  # and it did reserve
     assert store.reservation_ids() == set()
+
+
+def test_a_persistence_failure_still_puts_the_run_in_the_ledger(make_client, monkeypatch):
+    """A run that finished and then failed to persist is spend that happened.
+
+    The v1.1 milestone audit found `_execute`'s try wrapping only the graph
+    call, with `on_complete` and `metrics.record` outside it -- while `_stream`
+    had both inside. So a session-store failure on the BLOCKING route raised
+    past the ledger: the run never reached the runs table, and `spend_since`
+    (the daily cap's only input) was blind to that run's cost forever. The
+    leaked reservation self-healed at the staleness cutoff; the missing row
+    never did.
+
+    Both routes are asserted here, together, because the defect was the
+    asymmetry rather than either route alone -- and both are asserted on the
+    COST, not merely on the row count: `RunRecord.from_state` reads cost out of
+    `state["usage"]`, so recording the pre-invoke state files a row worth $0.00
+    and leaves the cap exactly as blind, with a passing row-count gate on top.
+    """
+    client, _ = make_client()
+    monkeypatch.setenv("DEMO_DAILY_USD_CAP", "100.00")  # generous, but live
+    store = limits_store()
+    metrics = metrics_store()
+    sessions = service.app.dependency_overrides[service.get_sessions]()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("the session store fell over after the run finished")
+
+    monkeypatch.setattr(sessions, "create", boom)
+
+    # Blocking. _http_error maps a RuntimeError to nothing, so it re-raises and
+    # TestClient hands it back rather than turning it into a 500 response.
+    with pytest.raises(RuntimeError):
+        client.post("/research", json={"question": "why?"})
+
+    assert store.reserved, "vacuous: the cap was off and nothing reserved"
+    assert metrics.count() == 1, "the run never reached the ledger"
+    assert store.reservation_ids() == set(), "the reservation leaked"
+    blocking_cost = metrics.spend_since(0.0)
+    assert blocking_cost > 0, "recorded, but at $0.00 -- the cap is still blind"
+
+    # Streaming, same failure. The generator swallows the exception to
+    # terminate the SSE cleanly, so this arm is invisible to the handler.
+    response = client.post("/research/stream", json={"question": "and?"})
+
+    # The nodes all ran, so the stream is a full one that failed at the very
+    # end -- the terminal event is what carries the verdict.
+    assert [name for name, _ in sse_events(response)][-1] == "error"
+    assert len(store.reserved) == 2
+    assert store.reservation_ids() == set()
+    assert metrics.count() == 2
+    assert metrics.spend_since(0.0) > blocking_cost, "the stream's spend vanished"
+
+
+def test_a_failed_persist_records_the_finished_states_cost(monkeypatch):
+    """The failure record is built from the state the GRAPH produced.
+
+    `RunRecord.from_state` reads cost out of `state["usage"]`, and today the
+    graph's nodes mutate the dict they were handed, so the pre-invoke state and
+    the finished one are the same object -- which makes this indistinguishable
+    through the app and invisible to the test above. That is an implementation
+    detail of how the nodes return state, not a property anything guarantees;
+    the day a node returns a fresh dict, recording `state` would file every
+    failed-after-finish run at $0.00 and the daily cap would silently
+    under-count. So this drives `_execute` directly with a graph that returns a
+    NEW object, which is the only shape where the two can be told apart.
+    """
+    finished = {"run_id": "r1", "mode": "research", "usage": {"cost_usd": 0.31, "calls": 4}}
+    monkeypatch.setattr(graph.app, "invoke", lambda _state: finished)
+
+    class Ledger:
+        def __init__(self):
+            self.records = []
+
+        def record(self, run):
+            self.records.append(run)
+
+    def boom(_final):
+        raise RuntimeError("the session store fell over after the run finished")
+
+    ledger, store = Ledger(), RecordingLimits()
+    with pytest.raises(RuntimeError):
+        service._execute({"run_id": "r1", "mode": "research"}, ledger, store, boom)
+
+    assert [record.cost_usd for record in ledger.records] == [0.31]
+    assert ledger.records[0].status == FAILED  # it is a failure, not a success
+
+    # The streaming twin, driven the same way. Its `final_state` comes off the
+    # chunk rather than off `invoke`, so it needs its own pin -- and the whole
+    # point of W1 was that these two drifted apart once already.
+    monkeypatch.setattr(graph.app, "stream", lambda _state: iter([{"writer": finished}]))
+    ledger = Ledger()
+    events = list(service._stream({"run_id": "r1", "mode": "research"}, ledger, store, boom))
+
+    assert "event: error" in events[-1]  # it did fail
+    assert [record.cost_usd for record in ledger.records] == [0.31]
 
 
 def test_settle_sees_multiplied_cost(make_client, monkeypatch):
