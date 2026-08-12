@@ -91,6 +91,12 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS sessions_updated_at ON sessions (updated_at DESC);
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS sessions_owner ON sessions (owner, updated_at DESC);
+-- Phase 17.5. `state` is the whole run: the visitor's question and the answer
+-- text, and `owner` is the identity that asked. Both were readable by a role
+-- holding the provider's default API grants, measured 2026-08-12. RLS with no
+-- policy denies every role but this table's owner -- which is the role that ran
+-- this DDL, so the service is unaffected. Rationale in metrics.py.
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 """
 
 SESSION_TTL_DAYS_DEFAULT = 7.0

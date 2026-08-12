@@ -4,6 +4,24 @@ Newest first. Full detail per milestone in `.planning/milestones/`.
 
 ---
 
+## Since the v1.1 close (no milestone open)
+
+**Phase 17.5 — Row level security on the public schema.** Landed 2026-08-12, after v1.1
+was tagged, so it belongs to no milestone. A Supabase security-linter report flagged all
+five `public` tables as RLS-disabled and exposed to the Data API. Measured against the real
+DDL on a local stand-in, a role with the grants Supabase hands `anon` read session text and
+identity hashes and **deleted every row of `runs`** — the daily spend cap's only input, so
+an emptied ledger reads as $0 spent and the bill loses its bound.
+
+Fixed in the schema constants rather than by an operator script, because
+`migrate.py embeddings re-embed --to` creates tables on demand and a one-time fix would
+miss them. Suite 737 → 739 keyless, 801 → 805 armed; three mutations observed red.
+
+**Open:** the deploy (manual), and the one-time `REVOKE` of the `anon`/`authenticated`
+grants — which cannot live in code, because those roles do not exist on a plain Postgres.
+
+---
+
 ## v1.1 Closing the limitations list (Shipped: 2026-08-11)
 
 **Delivered:** All nine limitations the v1.0 README listed are closed — six of them by

@@ -236,6 +236,57 @@ requests against one database, but the app pool caps connections at
 Requests past that queue on a bounded checkout rather than opening an eleventh
 connection.
 
+### Row level security
+
+Every table this service creates sits in `public`, and Supabase can expose that
+schema over PostgREST — an HTTP API whose `anon` key is public by design, with
+RLS as the intended control. This service never uses PostgREST; it connects
+directly with psycopg. So the API is pure attack surface here.
+
+**The application enables RLS itself.** Each Postgres schema constant ends with
+`ALTER TABLE … ENABLE ROW LEVEL SECURITY`, applied under the same advisory lock
+as the rest of the DDL, so it lands on the next deploy with no manual step and
+covers tables created later — including the corpus table
+`migrate.py embeddings re-embed --to` builds on demand. `ENABLE`, never
+`FORCE`: RLS exempts a table's owner, that owner is the `DATABASE_URL` role
+because it ran the DDL, and the exemption is what makes an empty policy set safe.
+`FORCE` would remove it and every query would return zero rows *silently*.
+`tests/test_row_level_security.py` pins both halves.
+
+**One thing the application cannot do: revoke the grants.** Supabase's default
+privileges hand `anon` and `authenticated` table access, and those roles do not
+exist on a plain Postgres — the statement would fail here and in CI. Run this
+once, in the Supabase SQL editor, per database:
+
+```sql
+-- Pre-flight (read-only). table_owner must match the DATABASE_URL role,
+-- or enabling RLS will make the service read zero rows.
+SELECT c.relname, pg_get_userbyid(c.relowner) AS table_owner,
+       c.relrowsecurity AS rls_enabled, c.relforcerowsecurity AS rls_forced
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY 1;
+
+REVOKE ALL ON ALL TABLES    IN SCHEMA public FROM anon, authenticated;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+REVOKE ALL ON SCHEMA public FROM anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE ALL ON TABLES FROM anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE ALL ON SEQUENCES FROM anon, authenticated;
+```
+
+**Stronger still: turn the Data API off** in Settings → API. Nothing here uses
+it. Do that and the whole surface goes away, RLS included as a second layer.
+Verify from Advisors → Security, which is the authoritative view — probing
+`/rest/v1/<table>` from outside cannot distinguish "Data API off" from "gateway
+rejected a missing key", so it is not a check worth trusting.
+
+**Why this is not merely a privacy matter.** `runs` is the daily spend cap's
+only input: `spend_since` sums it. Measured on a local stand-in against the real
+DDL, a role with the default `anon` grants deleted every row of `runs` without
+error. An emptied ledger reads as $0 spent, and the one control bounding the
+Anthropic bill stops bounding it.
+
 ## Changing the embedding model or dimension
 
 A pgvector column has its width fixed at creation, so a new embedding model — or
@@ -284,6 +335,12 @@ python -m research_agent.migrate embeddings re-embed \
   --from research_notes --to research_notes_v2 \
   --model voyage-3.5 [--dimensions 1024] [--batch-size 128] [--dry-run] [--yes]
 ```
+
+Either command creates the target through the pgvector store, so the new table
+carries row level security the moment it exists — see
+[Row level security](#row-level-security). Nothing to remember here, which is
+the point: a table born after the last manual fix is exactly the one a manual
+fix misses.
 
 The cost preview **always** prints — model, width, row count, tokens, the rate with
 the date it was verified, and the estimated dollars. Without `--yes` the command
