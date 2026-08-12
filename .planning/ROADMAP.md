@@ -100,9 +100,15 @@ plan, after Phase 10.5.
 the grants Supabase hands `anon` deleted every row of `runs` without error — an emptied
 ledger reads as $0 spent and the one control bounding the Anthropic bill stops bounding it.
 
-**Outstanding, deliberately:** the production deploy (manual by convention) and the
-one-time `REVOKE` of the `anon`/`authenticated` grants, which cannot live in code because
-those roles do not exist on a plain Postgres.
+**Shipped as Fly release v13 on 2026-08-12**, deployed by hand after three green merges
+produced no release at all. Verified live: both machines on v13, all three Postgres stores
+reachable, and the row counts unchanged at 7 sessions / 10 runs / 8 notes — which is the
+proof that matters in both directions, since a failed `ALTER` would have surfaced the store
+as unreachable and a missing owner exemption would have shown zeros with no error.
+
+**Still outstanding:** the one-time `REVOKE` of the `anon`/`authenticated` grants, which
+cannot live in code because those roles do not exist on a plain Postgres. Instructions in
+`docs/OPERATIONS.md` § "Row level security", pre-flight first.
 
 Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-CONTEXT.md) ·
 [`17.5-01-SUMMARY.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-01-SUMMARY.md) ·

@@ -134,6 +134,13 @@ ALTER TABLE runs ENABLE ROW LEVEL SECURITY;
 # everything else gets nothing. `ENABLE`, never `FORCE`: FORCE would subject the
 # owner to the empty policy set too, and the app would silently read zero rows.
 #
+# DO NOT ADD A POLICY TO SILENCE A LINTER. Supabase reports `rls_enabled_no_policy`
+# (INFO) against every table here, because the shape it expects is PostgREST
+# callers reading rows a policy admits. Nothing should reach these tables that
+# way. A permissive policy -- `USING (true)`, which is what clearing the notice
+# reaches for -- restores the exact exposure measured on 2026-08-12: readable
+# session text and identity hashes, and a deletable `runs`.
+#
 # It lives in the schema constants rather than a runbook step because
 # `migrate.py embeddings re-embed` creates a NEW table on demand; a one-time
 # manual fix protects today's tables and misses tomorrow's.
