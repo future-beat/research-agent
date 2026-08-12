@@ -17,7 +17,9 @@ quality changes visible, and only then the two reversals that change what the pi
 an independent critic, and follow-ups that can reach for new information.
 
 The service runs on two machines against Supabase Postgres at `research-agent.fly.dev`, on
-release v12. **No milestone is currently defined.**
+release v12. **No milestone is currently defined.** One phase has landed since the v1.1
+close: **17.5**, a hotfix enabling row level security on every table the service creates —
+in code, **not yet deployed**.
 
 **Definition of done for this project:** demonstrable to an employer. Live URL that works,
 green CI, a README a stranger can skim. Surface tidiness is part of the deliverable.
@@ -73,6 +75,38 @@ Full detail in [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 
 **Closed after the audit:** the `_execute` ledger hole (W1), the reservation's stale arithmetic
 (W2, $0.20 → $0.30), and the five unreconciled VALIDATION contracts.
+
+</details>
+
+<details>
+<summary>✅ Phase 17.5 — Row level security on the public schema (INSERTED, hotfix, post-close)</summary>
+
+**Inserted 2026-08-12, after v1.1 shipped and was tagged.** It carries a v1.1-style number
+because it closes a defect in v1.1's infrastructure, but it is **not part of the v1.1
+milestone as archived** — the tag, the audit and `milestones/v1.1-*.md` all predate it, and
+no milestone was open when it landed.
+
+- [x] **Phase 17.5: Row level security on the public schema** - Every Postgres table the
+  service creates denies every role but its owner, applied by the schema DDL itself so a
+  table created later (`migrate.py embeddings re-embed --to`) cannot be missed
+
+**Trigger:** a Supabase security-linter report — five `public` tables with RLS disabled,
+plus `runs` flagged for exposing `session_id`. Not found by the requirements list, the
+milestone audit, or any phase gate. Second time a live exposure arrived from outside the
+plan, after Phase 10.5.
+
+**Why it is more than a privacy finding:** `runs` is the daily spend cap's only input
+(`spend_since` sums it). Measured against the real DDL on a local stand-in, a role holding
+the grants Supabase hands `anon` deleted every row of `runs` without error — an emptied
+ledger reads as $0 spent and the one control bounding the Anthropic bill stops bounding it.
+
+**Outstanding, deliberately:** the production deploy (manual by convention) and the
+one-time `REVOKE` of the `anon`/`authenticated` grants, which cannot live in code because
+those roles do not exist on a plain Postgres.
+
+Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-CONTEXT.md) ·
+[`17.5-01-SUMMARY.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-01-SUMMARY.md) ·
+[`17.5-VALIDATION.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-VALIDATION.md)
 
 </details>
 
@@ -149,6 +183,7 @@ Full detail in [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 |-----------|--------|-------|--------|---------|
 | v1.0 Production pipeline | 1–9 (+9.1) | — | Complete | pre-GSD; remastered 2026-08-12 |
 | v1.1 Closing the limitations list | 10–17 (+10.5) | 43/43 | **Complete** | 2026-08-11, Fly v12 |
+| _(no milestone open)_ | 17.5 | 1/1 | **Complete, undeployed** | landed 2026-08-12 |
 
 **Next:** no milestone defined. `/gsd:new-milestone` starts the questioning → research →
 requirements → roadmap chain.

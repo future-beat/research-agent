@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: milestone-complete
-stopped_at: "MILESTONE v1.1 COMPLETE. Phase 17 shipped as release v11 and proven on the wire: a follow-up researched instead of refusing, answered from the new notes, and declined to fill the remaining gap from parametric knowledge. All nine README limitations closed."
+stopped_at: "Phase 17.5 (post-close hotfix) complete in code and merged, AWAITING DEPLOY. RLS is enabled by the schema DDL itself, so it applies on the next `fly deploy -a research-agent`; until then the production tables are unchanged. Outstanding operator action: the one-time REVOKE of the anon/authenticated grants (docs/OPERATIONS.md § Row level security). Before that: MILESTONE v1.1 COMPLETE, all nine README limitations closed."
 last_updated: "2026-08-10T22:15:00.000Z"
-last_activity: "2026-08-12 — v1.0 remastered: phases 1–9 (+9.1) given reconstructed GSD records (SUMMARY + retroactive VALIDATION each, labeled as such), milestone archived to milestones/v1.0-{ROADMAP,REQUIREMENTS}.md. Closing suite re-measured at 5c01b3e: 364 passed / 28 skipped keyless — MILESTONES.md's 436 baseline corrected to 364."
+last_activity: "2026-08-12 — Phase 17.5 landed (post-v1.1-close hotfix): row level security enabled by the schema DDL on all five Postgres tables, pinned by four tests (two keyless, two armed), three mutations observed red. Suite 737→739 keyless, 801→805 armed. NOT YET DEPLOYED, and the one-time REVOKE of anon/authenticated grants is still an outstanding operator action. Earlier the same day: v1.0 remastered under GSD (phases 1–9 +9.1)."
 progress:
   total_phases: 19
   completed_phases: 9
