@@ -12,7 +12,7 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 737 tests
+backends, an eval harness that grades real recorded answers, and 739 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
@@ -46,6 +46,7 @@ README used to list as a known gap, or reverses a design decision on purpose.
 - [x] **15 — Answer-quality evals.** Forty golden cases, and real recorded answers graded deterministically, keylessly, free on every push. What that can and cannot claim is written down rather than implied.
 - [x] **16 — Independent critic.** `CRITIC_MODEL` gives the critic its own model, priced per node at every place a model is named, and production pins it to Opus 5 — the gate now runs on a *more capable* model than the writer it checks. The eval judge's rationale is re-derived rather than inherited, including what the choice costs in independence ([ADR-0010](docs/adr/0010-judge-rederived-for-an-independent-critic.md)).
 - [x] **17 — Follow-ups reach for new information.** A follow-up whose notes can't answer no longer refuses: the responder signals the gap, and that signal routes the turn to the researcher for exactly one pass. Grounding is unchanged and was never what was being given up — an answer still comes only from notes the critic reviewed, and the window in between ships nothing at all. This closes the last of the nine limitations v1.0 listed ([ADR-0011](docs/adr/0011-followups-reach-for-new-information.md), superseding ADR-0003 — the sharpest reversal in the milestone).
+- [x] **17.5 — Row level security.** Every Postgres table the service creates denies every role but its owner, enabled by the schema DDL itself rather than by hand — so a table created later, like the one an embedding migration builds, is covered the moment it exists. Found by a provider's security linter rather than by the plan, which is the second time a live exposure arrived from outside the roadmap (see 10.5). **Merged, not yet deployed.**
 
 ---
 
@@ -195,7 +196,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 737 tests, ~30s, no API keys, no network
+pytest                    # 739 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
@@ -253,6 +254,13 @@ through a new model at a new width. Both quote a cost and require `--yes` before
 spending; cutover is
 `PGVECTOR_TABLE` and a restart, and rollback is pointing it back, because the
 old table is never touched.
+
+Every table the service creates in Postgres enables row level security as part
+of its own schema, so a `public` schema exposed over a provider's HTTP API
+returns nothing rather than everything. No policies: RLS exempts a table's
+owner, which is the `DATABASE_URL` role because it ran the DDL, so the service
+is unaffected and everything else is denied. Doing it in the schema rather than
+by hand is what covers the table an embedding migration creates later.
 
 `COST_DISCOUNT_FACTOR` and `INFERENCE_GEO_MULTIPLIER` scale reported cost to
 what you actually pay; `SESSIONS_TOKEN` is the operator's cross-owner view of

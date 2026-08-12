@@ -54,15 +54,34 @@ exist. Setting `DATABASE_URL` lifts that constraint — see below.
 > every request failing. Copy any value you want out by hand and close the PR.
 > `tests/test_deploy_config.py` fails the build on both cases.
 
-**Deploys are manual.** Fly is not wired to this repository, and there is no
-deploy job in CI — nothing ships on push, on merge, or on tag.
-Releases are cut by hand with `fly deploy -a research-agent` from a working
-tree the operator has tested; `fly releases -a research-agent` is the evidence —
-every release is attributed to the owner's personal account, not to a machine
-token. So nothing can deploy a failing tree, but equally, merging to `main`
-ships nothing until someone runs the command, and `main` and the deployed
-release can drift apart silently. Re-run the command after any merge you expect
-to be live.
+**Deploys have been manual, and auto-deploy is being turned on — treat the
+method as unsettled and check `fly releases` after every merge.**
+
+The long-standing state: Fly was not wired to this repository and there is no
+deploy job in CI, so nothing shipped on push, merge, or tag. Releases were cut
+by hand with `fly deploy -a research-agent` from a tested working tree, and
+`fly releases -a research-agent` was the evidence — every release attributed to
+the owner's personal account rather than a machine token.
+
+**Reported changed 2026-08-12:** auto-deploy on push is enabled in Fly's
+settings. This is recorded as reported rather than as verified, because the
+first two merges after it (PR #19 at 02:26 UTC and PR #20 at 05:11 UTC, both
+green) produced **no release** — `fly releases` still showed v12 from the
+previous day, and the deployed service was still serving pre-merge code. Either
+the setting post-dates those merges or it is not reaching this repository.
+
+The check that settles it is one command after the next merge to `main`:
+
+```
+fly releases -a research-agent      # a new version, dated after the merge?
+```
+
+This distinction is not pedantry here. `docs/OPERATIONS.md` claimed
+GitHub-integration deploys once before, it was false, and Phase 10 existed
+partly to correct it. A deploy method believed but not observed is how `main`
+and the deployed release drift apart silently — which is the same failure in
+either direction: assuming a merge shipped when it did not, or assuming it did
+not when it did.
 
 What CI *does* gate is described under [CI](#ci) below, with one caveat worth
 stating plainly. `main` is protected with two required checks — `lint · tests ·
