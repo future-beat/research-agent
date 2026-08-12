@@ -2356,10 +2356,30 @@ def test_record_preview_states_its_basis_and_uncertainty():
     assert "total" in text
 
 
-def test_record_preview_requotes_itself_when_the_rate_window_flips():
-    """The sharpest test of "at runtime", and nothing in it is patched: Sonnet
-    5's introductory window closes on 2026-08-31, and a preview holding a rate
-    rather than resolving one quotes the same number on both sides of it."""
+def test_record_preview_requotes_itself_when_the_rate_window_flips(monkeypatch):
+    """The sharpest test of "at runtime": a preview holding a rate rather than
+    resolving one quotes the same number on both sides of a boundary.
+
+    Until 2026-08-12 this ran unpatched against Sonnet 5's real introductory
+    window. That window was made permanent, so the boundary is installed here
+    instead -- the property under test is that the preview re-reads the table,
+    which is only observable where the table changes.
+    """
+    boundary = datetime.date(2026, 9, 1)
+    monkeypatch.setitem(
+        usage.PRICES,
+        graph.MODEL,
+        [
+            usage.PriceWindow(
+                usage.Price(input=2.0, output=10.0, cache_write_5m=2.50, cache_read=0.20),
+                until=boundary - datetime.timedelta(days=1),
+            ),
+            usage.PriceWindow(
+                usage.Price(input=3.0, output=15.0, cache_write_5m=3.75, cache_read=0.30),
+                since=boundary,
+            ),
+        ],
+    )
     case = next(c for c in GOLDEN if c.followups)
 
     intro, intro_total = M.record_preview([case], {}, on=datetime.date(2026, 8, 31))
