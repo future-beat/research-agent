@@ -54,34 +54,36 @@ exist. Setting `DATABASE_URL` lifts that constraint — see below.
 > every request failing. Copy any value you want out by hand and close the PR.
 > `tests/test_deploy_config.py` fails the build on both cases.
 
-**Deploys have been manual, and auto-deploy is being turned on — treat the
-method as unsettled and check `fly releases` after every merge.**
+**Deploys are manual in practice. Auto-deploy on push is enabled in Fly's
+settings and does not fire for this repository — measured, three times.**
 
-The long-standing state: Fly was not wired to this repository and there is no
-deploy job in CI, so nothing shipped on push, merge, or tag. Releases were cut
-by hand with `fly deploy -a research-agent` from a tested working tree, and
-`fly releases -a research-agent` was the evidence — every release attributed to
-the owner's personal account rather than a machine token.
+Releases are cut by hand with `fly deploy -a research-agent` from a tested
+working tree. `fly releases -a research-agent` is the evidence: every release is
+attributed to the owner's personal account, never a machine token.
 
-**Reported changed 2026-08-12:** auto-deploy on push is enabled in Fly's
-settings. This is recorded as reported rather than as verified, because the
-first two merges after it (PR #19 at 02:26 UTC and PR #20 at 05:11 UTC, both
-green) produced **no release** — `fly releases` still showed v12 from the
-previous day, and the deployed service was still serving pre-merge code. Either
-the setting post-dates those merges or it is not reaching this repository.
+**The measurement, 2026-08-12.** Auto-deploy on push was reported enabled that
+day. Three merges to `main` followed — PR #19 (02:26 UTC), PR #20 (05:11 UTC)
+and PR #21, all with green CI — and **none produced a release**. `fly releases`
+stayed on v12 from the previous day and the live service kept serving pre-merge
+code throughout; GitHub's deployments API showed nothing since 2026-08-01. v13
+was then cut by hand and appeared immediately. So whatever the setting says, the
+wiring is not reaching this repository — check the Fly app's GitHub connection
+(repository and branch) before relying on it.
 
-The check that settles it is one command after the next merge to `main`:
+**The operational consequence, which has not changed:** merging to `main` ships
+nothing. Run the command after any merge you expect to be live, and confirm:
 
 ```
-fly releases -a research-agent      # a new version, dated after the merge?
+fly deploy -a research-agent
+fly releases -a research-agent      # new version, dated after the merge
 ```
 
-This distinction is not pedantry here. `docs/OPERATIONS.md` claimed
-GitHub-integration deploys once before, it was false, and Phase 10 existed
-partly to correct it. A deploy method believed but not observed is how `main`
-and the deployed release drift apart silently — which is the same failure in
-either direction: assuming a merge shipped when it did not, or assuming it did
-not when it did.
+This distinction is not pedantry here. This document claimed
+GitHub-integration deploys once before, it was false, and Phase 10 spent a plan
+correcting it. A deploy method believed but not observed is how `main` and the
+deployed release drift apart silently — and that is the same failure in either
+direction: assuming a merge shipped when it did not, or assuming it did not when
+it did.
 
 What CI *does* gate is described under [CI](#ci) below, with one caveat worth
 stating plainly. `main` is protected with two required checks — `lint · tests ·
