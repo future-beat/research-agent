@@ -68,6 +68,31 @@ switched off the same day rather than left on and unreliable, which is the right
 call: a deploy path that fires sometimes is worse than one that never fires,
 because the first teaches you to stop checking.
 
+**A deploy can fail and still look fine, which is the other reason to confirm.**
+On 2026-08-12 a run died at `dial tcp: lookup api.machines.dev: no such host` —
+a transient resolution failure, not a config problem; the same lookup succeeded
+seconds later and the retry deployed. Two traps in that one incident. First, the
+running service was entirely healthy throughout, because the failure was flyctl
+reaching Fly's API rather than anything wrong with the app — so "the site is up"
+is not evidence the deploy landed. Second, `fly deploy | tail` reports **`tail`'s**
+exit status, so a failed deploy through a pipe exits 0. Redirect instead of
+piping if you need the status:
+
+```
+fly deploy -a research-agent > deploy.log 2>&1; echo "exit=$?"
+```
+
+**An interrupted deploy splits the fleet, and health checks will not tell you.**
+Also on 2026-08-12, a deploy was killed partway through its rollout. It left the
+release stuck in `running` and the two machines on *different versions*, while
+every health check passed and every endpoint returned 200 — because that
+particular image differed only in a comment. Had it carried a behavioural
+change, two machines would have been serving different code with nothing
+complaining. The fix is another `fly deploy`, which converges both machines onto
+a fresh release; the abandoned release stays listed as `running` forever and can
+be ignored. **`fly status` is the check that catches this — compare the VERSION
+column across machines. `/health` cannot see it.**
+
 **The operational consequence:** merging to `main` ships nothing. Run the command
 after any merge you expect to be live, and confirm:
 
