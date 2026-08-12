@@ -54,24 +54,22 @@ exist. Setting `DATABASE_URL` lifts that constraint — see below.
 > every request failing. Copy any value you want out by hand and close the PR.
 > `tests/test_deploy_config.py` fails the build on both cases.
 
-**Deploys are manual in practice. Auto-deploy on push is enabled in Fly's
-settings and does not fire for this repository — measured, three times.**
+**Deploys are manual.** Releases are cut by hand with
+`fly deploy -a research-agent` from a tested working tree.
+`fly releases -a research-agent` is the evidence: every release is attributed to
+the owner's personal account, never a machine token.
 
-Releases are cut by hand with `fly deploy -a research-agent` from a tested
-working tree. `fly releases -a research-agent` is the evidence: every release is
-attributed to the owner's personal account, never a machine token.
+**Auto-deploy was tried and turned back off, 2026-08-12.** While it was enabled,
+three merges to `main` — PRs #19, #20 and #21, all with green CI — produced **no
+release**: `fly releases` stayed on v12 from the previous day, the live service
+kept serving pre-merge code, and GitHub's deployments API showed nothing since
+2026-08-01. A hand-run `fly deploy` produced v13 immediately. The setting was
+switched off the same day rather than left on and unreliable, which is the right
+call: a deploy path that fires sometimes is worse than one that never fires,
+because the first teaches you to stop checking.
 
-**The measurement, 2026-08-12.** Auto-deploy on push was reported enabled that
-day. Three merges to `main` followed — PR #19 (02:26 UTC), PR #20 (05:11 UTC)
-and PR #21, all with green CI — and **none produced a release**. `fly releases`
-stayed on v12 from the previous day and the live service kept serving pre-merge
-code throughout; GitHub's deployments API showed nothing since 2026-08-01. v13
-was then cut by hand and appeared immediately. So whatever the setting says, the
-wiring is not reaching this repository — check the Fly app's GitHub connection
-(repository and branch) before relying on it.
-
-**The operational consequence, which has not changed:** merging to `main` ships
-nothing. Run the command after any merge you expect to be live, and confirm:
+**The operational consequence:** merging to `main` ships nothing. Run the command
+after any merge you expect to be live, and confirm:
 
 ```
 fly deploy -a research-agent
@@ -280,27 +278,83 @@ exist on a plain Postgres — the statement would fail here and in CI. Run this
 once, in the Supabase SQL editor, per database:
 
 ```sql
--- Pre-flight (read-only). table_owner must match the DATABASE_URL role,
--- or enabling RLS will make the service read zero rows.
-SELECT c.relname, pg_get_userbyid(c.relowner) AS table_owner,
-       c.relrowsecurity AS rls_enabled, c.relforcerowsecurity AS rls_forced
-FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY 1;
+-- STEP 0 — pre-flight, read-only. Two jobs: table_owner must match the
+-- DATABASE_URL role (or RLS makes the service read zero rows), and the value
+-- it prints is the role name step 2 requires.
+SELECT DISTINCT pg_get_userbyid(c.relowner) AS table_creating_role
+FROM   pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE  n.nspname = 'public' AND c.relkind = 'r';
 
+-- STEP 1 — revoke what is already granted.
 REVOKE ALL ON ALL TABLES    IN SCHEMA public FROM anon, authenticated;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated;
 REVOKE ALL ON SCHEMA public FROM anon, authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
+
+-- STEP 2 — stop FUTURE tables being granted. `FOR ROLE` is MANDATORY and must
+-- name the role step 0 printed. Default privileges are per granting role, so
+-- the bare form silently governs only the role that runs it: measured
+-- 2026-08-12, running it as `postgres` left a table later created by a
+-- different role holding all seven privileges for anon. Substitute the role
+-- below if step 0 printed something other than `postgres`.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON TABLES FROM anon, authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL ON SEQUENCES FROM anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE ALL ON FUNCTIONS FROM anon, authenticated;
+
+-- STEP 3 — verify. Both must report none.
+SELECT COALESCE(string_agg(DISTINCT grantee, ', '), '(none - correct)')
+FROM   information_schema.role_table_grants
+WHERE  table_schema = 'public' AND grantee IN ('anon', 'authenticated');
+
+SELECT COALESCE(string_agg(DISTINCT pg_get_userbyid(d.defaclrole)
+                           || ' -> ' || d.defaclacl::text, '; '),
+                '(none - correct)')
+FROM   pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace
+WHERE  n.nspname = 'public' AND d.defaclacl::text LIKE '%anon%';
 ```
+
+Verified end to end on a local stand-in reproducing Supabase's default posture
+(14 grant rows → none; a table created *after* the script receives no grants;
+`anon` then gets `permission denied for table sessions` on both read and write).
+
+**`service_role` is deliberately untouched, and it bypasses all of this.** That
+role carries `BYPASSRLS`, so its key reads and writes everything regardless of
+RLS or grants. Unlike the anon key it is a genuine secret — it must never reach
+a browser, a client bundle, or this repository.
 
 **Stronger still: turn the Data API off** in Settings → API. Nothing here uses
 it. Do that and the whole surface goes away, RLS included as a second layer.
 Verify from Advisors → Security, which is the authoritative view — probing
 `/rest/v1/<table>` from outside cannot distinguish "Data API off" from "gateway
 rejected a missing key", so it is not a check worth trusting.
+
+**Confirmed 2026-08-12:** the Data API was turned off and Fly release v13 carried
+the RLS DDL. Advisors → Security then reported the five
+`rls_disabled_in_public` errors and the `sensitive_columns_exposed` error on
+`runs` **cleared**.
+
+### Do not "fix" the five `rls_enabled_no_policy` notices
+
+Advisors now reports five `INFO` findings — one per table — saying RLS is
+enabled but no policies exist. **That is this design working, not a defect, and
+the linter's suggested remediation would undo the phase that put it there.**
+
+The linter assumes the normal Supabase shape, where `anon` and `authenticated`
+reach tables through PostgREST and policies decide which rows they see. Here
+nothing should reach these tables through PostgREST at all. RLS with zero
+policies denies every role except the table's owner, and the owner is the
+`DATABASE_URL` role — so the service works and everyone else gets nothing.
+Adding a policy is the only way to grant access back, and a permissive one
+(`USING (true)`, which is what a quick fix reaches for) would restore exactly
+the exposure measured on 2026-08-12: readable session text and identity hashes,
+and a deletable `runs` table with the spend cap's only input in it.
+
+The finding is `INFO`, it stays, and it stays for a reason. If a future change
+genuinely needs PostgREST access, that is a design decision with its own record,
+not a linter notice to clear.
 
 **Why this is not merely a privacy matter.** `runs` is the daily spend cap's
 only input: `spend_since` sums it. Measured on a local stand-in against the real

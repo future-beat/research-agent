@@ -119,14 +119,13 @@ _None. v1.1 closed 2026-08-11._
   load-bearing five.
 - Six of the nine active requirements **reverse** a stated design position rather than fix
   a defect. See `.planning/intel/constraints.md`.
-- Deploys are **manual in practice** (`fly deploy -a research-agent`), and a merge to
-  `main` ships nothing. Verified 2026-08-04 and re-measured 2026-08-12: auto-deploy on
-  push is *enabled in Fly's settings* but does not fire for this repository — three green
-  merges (PRs #19, #20, #21) produced **no release**, `fly releases` stayed on v12 and the
-  live service served pre-merge code, while a hand-run `fly deploy` produced v13 at once.
-  The Fly app's GitHub connection is the thing to check before trusting the setting. This
-  project has already shipped one false deploy claim in its docs and the correction cost
-  Phase 10 a plan, so the rule is: confirm with `fly releases`, never infer from a merge.
+- Deploys are **manual** (`fly deploy -a research-agent`); a merge to `main` ships
+  nothing. Verified 2026-08-04, re-measured 2026-08-12: auto-deploy on push was enabled
+  that day, three green merges (PRs #19, #20, #21) produced **no release** while a
+  hand-run deploy produced v13 at once, and the setting was **switched back off** the same
+  day. This project has already shipped one false deploy claim in its docs and the
+  correction cost Phase 10 a plan, so the rule stands regardless of settings: confirm with
+  `fly releases`, never infer from a merge.
 - The drift Phase 10 existed to remove: deploys now run from merged `main` only, and every
   release since v4 is recorded in its phase SUMMARY with the evidence it was verified by.
 - War stories worth preserving in the docs: the unreachable revision cap the evals caught

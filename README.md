@@ -257,10 +257,12 @@ old table is never touched.
 
 Every table the service creates in Postgres enables row level security as part
 of its own schema, so a `public` schema exposed over a provider's HTTP API
-returns nothing rather than everything. No policies: RLS exempts a table's
-owner, which is the `DATABASE_URL` role because it ran the DDL, so the service
-is unaffected and everything else is denied. Doing it in the schema rather than
-by hand is what covers the table an embedding migration creates later.
+returns nothing rather than everything. **No policies, deliberately** — RLS
+exempts a table's owner, which is the `DATABASE_URL` role because it ran the
+DDL, so the service is unaffected and everything else is denied. A linter will
+suggest adding one; adding a permissive one is what would reopen the hole.
+Doing this in the schema rather than by hand is what covers the table an
+embedding migration creates later.
 
 `COST_DISCOUNT_FACTOR` and `INFERENCE_GEO_MULTIPLIER` scale reported cost to
 what you actually pay; `SESSIONS_TOKEN` is the operator's cross-owner view of
