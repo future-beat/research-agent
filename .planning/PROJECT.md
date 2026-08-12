@@ -119,9 +119,16 @@ _None. v1.1 closed 2026-08-11._
   load-bearing five.
 - Six of the nine active requirements **reverse** a stated design position rather than fix
   a defect. See `.planning/intel/constraints.md`.
-- Verified as of 2026-08-04: deploys are **manual** (`fly deploy -a research-agent`), not
-  run through Fly's GitHub integration — `fly releases -a research-agent` shows 3 releases,
-  all from the owner's personal account. `docs/OPERATIONS.md` says otherwise and is wrong.
+- Deploy method is **in transition and currently unsettled — verify, do not assume.**
+  Verified 2026-08-04: deploys were **manual** (`fly deploy -a research-agent`), not run
+  through Fly's GitHub integration; `fly releases` showed every release from the owner's
+  personal account. Reported 2026-08-12: auto-deploy on push is now enabled in Fly's
+  settings. Measured the same day, and the reason this is not yet recorded as fact: the
+  two merges after that report (PRs #19 and #20, both green) produced **no release** —
+  `fly releases` still read v12 from the previous day and the live service was serving
+  pre-merge code. The next merge to `main` settles it; `fly releases -a research-agent`
+  is the check. This project has already shipped one false deploy claim in its docs, and
+  the correction cost Phase 10 a plan.
 - The drift Phase 10 existed to remove: deploys now run from merged `main` only, and every
   release since v4 is recorded in its phase SUMMARY with the evidence it was verified by.
 - War stories worth preserving in the docs: the unreachable revision cap the evals caught

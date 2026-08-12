@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Closing the limitations list
 status: milestone-complete
-stopped_at: "Phase 17.5 (post-close hotfix) complete in code and merged, AWAITING DEPLOY. RLS is enabled by the schema DDL itself, so it applies on the next `fly deploy -a research-agent`; until then the production tables are unchanged. Outstanding operator action: the one-time REVOKE of the anon/authenticated grants (docs/OPERATIONS.md § Row level security). Before that: MILESTONE v1.1 COMPLETE, all nine README limitations closed."
+stopped_at: "Phase 17.5 merged (PR #20) and CONFIRMED UNDEPLOYED — `fly releases` reads v12 from 2026-08-11 and /health serves the pre-merge build, so the merge shipped nothing despite auto-deploy being reported enabled. Deploy method is unsettled; verify with `fly releases` after the next merge. RLS is enabled by the schema DDL itself, so it applies on the next `fly deploy -a research-agent`; until then the production tables are unchanged. Outstanding operator action: the one-time REVOKE of the anon/authenticated grants (docs/OPERATIONS.md § Row level security). Before that: MILESTONE v1.1 COMPLETE, all nine README limitations closed."
 last_updated: "2026-08-10T22:15:00.000Z"
 last_activity: "2026-08-12 — Phase 17.5 landed (post-v1.1-close hotfix): row level security enabled by the schema DDL on all five Postgres tables, pinned by four tests (two keyless, two armed), three mutations observed red. Suite 737→739 keyless, 801→805 armed. NOT YET DEPLOYED, and the one-time REVOKE of anon/authenticated grants is still an outstanding operator action. Earlier the same day: v1.0 remastered under GSD (phases 1–9 +9.1)."
 progress:
