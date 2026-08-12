@@ -130,9 +130,10 @@ def reserved_run_usd() -> float:
     $0.32 at the busy one, and the old $0.20 sat under both. The literal
     trigger written here -- 2026-09-01, or a critic priced above Opus -- had
     not fired, but the condition those triggers were proxies for had: a typical
-    run above $0.20. Measurement outranks the proxy. $0.30 is the number this
-    docstring already named for the crossing, and it now covers the observed
-    range rather than the quiet end of it.
+    run above $0.20. Measurement outranks the proxy, and the point was made
+    twice over when that date was retired on 2026-08-12 without ever firing.
+    $0.30 is the number this docstring already named for the crossing, and it
+    now covers the observed range rather than the quiet end of it.
 
     Phase 14 settles against *multiplied* cost (discount x geo) plus embedding
     spend. At $0.32 a run the $0.30 reservation is already inside the observed
@@ -161,11 +162,15 @@ def reserved_run_usd() -> float:
     cost the moment the run ends -- so an over-run makes the daily cap fire
     slightly late, never not at all.
 
-    The next threshold is **2026-09-01**, when the Sonnet 5 introductory window
-    closes and the standard rate alone lifts a typical unchanged run by roughly
-    a third again. Raise `DEMO_RESERVED_RUN_USD` when a threshold is crossed --
-    that date, a critic priced above Opus, or, as happened here, a measurement
-    that puts a typical run above the estimate. ~$0.40 covers that boundary.
+    **There is no dated threshold any more.** This paragraph named 2026-09-01,
+    when the Sonnet 5 introductory rate was to rise and lift a typical run by
+    roughly a third; Anthropic made $2/$10 permanent on 2026-08-12, so that
+    crossing will not happen and the ~$0.40 it called for is not owed. $0.30
+    stands on the measurements above. Raise `DEMO_RESERVED_RUN_USD` when a
+    threshold is crossed -- a price rise, a critic priced above Opus, or, as
+    happened here, a measurement putting a typical run above the estimate.
+    Note which of those actually fired: the retired date was a proxy, and the
+    reason $0.30 is right is the measured $0.21-0.32 band, not the calendar.
 
     Deliberately NOT model-aware, and this is the second time it has been
     asked: `limits.py` imports neither `usage` nor `graph`, and coupling the

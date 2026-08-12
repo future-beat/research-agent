@@ -77,7 +77,8 @@ seeds, UAT gaps, verification gaps or context questions.
 
 **Next:** `/gsd:new-milestone` (questioning → research → requirements → roadmap). Open items
 carried across the milestone and never phased:
-- The full 40-case eval record run (~$16.51 now, ~$21 after 2026-09-01) — machinery proven
+- The full 40-case eval record run (**~$16.51, no longer time-sensitive** — the ~$21 figure
+  assumed the 2026-09-01 price rise, cancelled 2026-08-12) — machinery proven
   by one calibration case; recording the rest is an operator decision.
 - `/health` reports the Anthropic key present, not valid — it stayed green through a full
   revoked-key outage in phase 11. **Now listed in the README's Limitations.**
@@ -86,8 +87,10 @@ carried across the milestone and never phased:
   without the verify step. The work was verified by other means and the audit says so; the
   artifact the framework expects does not exist, and the next person to run the audit hits
   the same wall.
-- The next reservation threshold is **2026-09-01**, when Sonnet 5's introductory window
-  closes and a typical unchanged run rises roughly a third again. ~$0.40 covers it.
+- ~~The next reservation threshold is **2026-09-01**~~ — **retired 2026-08-12 without ever
+  firing.** Sonnet 5's $2/$10 is permanent, so no run gets a third more expensive and the
+  ~$0.40 that date called for is not owed. `DEMO_RESERVED_RUN_USD` stays **$0.30**, resting
+  on the measured $0.21–0.32 band. **There is now no dated threshold of any kind.**
 - The `DATABASE_URL` rollback path is documented but never exercised; `run_finished` carries
   no `session_id`, so a completed run is not addressable from the logs.
 

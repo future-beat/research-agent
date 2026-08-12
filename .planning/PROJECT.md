@@ -42,16 +42,19 @@ list price, with Voyage embedding spend counted for the first time.
 **None defined.** `/gsd:new-milestone` starts the questioning → research → requirements →
 roadmap chain. Carried forward as open items rather than requirements:
 
-- The full 40-case eval record run (~$16.51 now, ~$21 after 2026-09-01). Machinery proven by
-  one paid calibration case; recording the rest is an operator decision.
+- The full 40-case eval record run (**~$16.51, and no longer time-sensitive** — the ~$21
+  figure assumed the 2026-09-01 Sonnet 5 price rise, which was cancelled on 2026-08-12).
+  Machinery proven by one paid calibration case; recording the rest is an operator decision,
+  and the deadline that was the only argument for doing it sooner is gone.
 - `/health` checks that API keys are *present*, not that they work — it stayed green through a
   full revoked-key outage. Now listed in the README's Limitations.
 - No phase carries a `VERIFICATION.md`. The audit's P1, left open deliberately: writing them
   after the fact would record a verification step that did not happen.
 - No CSP header on the demo page; `run_finished` carries no `session_id`; the `DATABASE_URL`
   rollback path is documented but never exercised.
-- **2026-09-01** closes Sonnet 5's introductory pricing window. A typical unchanged run rises
-  roughly a third; `DEMO_RESERVED_RUN_USD` would go $0.30 → ~$0.40.
+- ~~**2026-09-01** closes Sonnet 5's introductory pricing window~~ — **cancelled 2026-08-12**:
+  $2/$10 per MTok is permanent, so no run gets a third more expensive and
+  `DEMO_RESERVED_RUN_USD` stays $0.30. **The project now has no dated obligation at all.**
 
 ## Requirements
 
@@ -147,9 +150,11 @@ _None. v1.1 closed 2026-08-11._
 - **Deployment**: container listens on port 8000; never merge Fly's "New files from
   Fly.io Launch" PRs; always pass `-a` explicitly to `fly`; credentials never reach an
   image layer; the image installs `[service]` only and excludes `tests/` and `evals/`.
-- **Pricing, time-sensitive**: Claude Sonnet 5 introductory pricing ($2/$10 per MTok) runs
-  through 2026-08-31 and moves to $3/$15 on 2026-09-01. The effective-dated price table
-  handles this at runtime; planning documents must not quote a single rate as if permanent.
+- **Pricing, no longer time-sensitive**: Claude Sonnet 5 is **$2/$10 per MTok permanently**
+  — the scheduled 2026-09-01 rise to $3/$15 was cancelled on 2026-08-12. The effective-dated
+  price table still resolves by date and still must: the constraint was never "this one rate
+  expires", it is that a rate can change on a date somebody else picks. Planning documents
+  should keep citing `/pricing` as the live source rather than quoting a rate inline.
   `/pricing` is the live source.
 - **Reversals need replacement guarantees**: no reversal lands without stating what
   replaces the guarantee it removes, and which ADR it supersedes.

@@ -7,10 +7,15 @@ expensive one. This module turns each response's `usage` object into dollars
 so the supervisor can bound spend as well as call count, and so `/metrics` can
 report what the service actually costs to run.
 
-Prices are effective-dated. Claude Sonnet 5 is on introductory pricing
-($2/$10 per MTok) through 2026-08-31 and moves to $3/$15 on 2026-09-01, so a
-single hardcoded rate would silently under-report by a third the moment that
-window closes. `price_for()` resolves the rate for a date, defaulting to today.
+Prices are effective-dated: `price_for()` resolves the rate for a date,
+defaulting to today. No shipped model currently has more than one window --
+Sonnet 5's $2/$10 introductory rate was scheduled to rise to $3/$15 on
+2026-09-01 and was made permanent instead (2026-08-12). The machinery stays,
+because the reason for it has not changed: a single hardcoded rate would
+silently under-report from the morning a window closes, and the next dated
+price is a table edit rather than a code change. `tests/test_usage.py` proves
+the dated path against a synthetic two-window table so it cannot rot while
+every real model is single-window.
 
 List price is not the invoice, so two multipliers scale the computed number
 without ever touching the table: `COST_DISCOUNT_FACTOR` (a negotiated discount,
@@ -81,15 +86,12 @@ class PriceWindow:
 # Only the models this service might plausibly run. Adding one means adding a
 # row here -- an unpriced model is reported honestly rather than costed at zero.
 PRICES: dict[str, list[PriceWindow]] = {
+    # $2/$10 was introductory and scheduled to rise to $3/$15 on 2026-09-01.
+    # Anthropic made it permanent (announced 2026-08-12, confirmed the same day
+    # against the published model pricing), so the second window is gone rather
+    # than merely postponed -- there is no later date to move it to.
     "claude-sonnet-5": [
-        PriceWindow(
-            Price(input=2.0, output=10.0, cache_write_5m=2.50, cache_read=0.20),
-            until=date(2026, 8, 31),  # introductory pricing
-        ),
-        PriceWindow(
-            Price(input=3.0, output=15.0, cache_write_5m=3.75, cache_read=0.30),
-            since=date(2026, 9, 1),
-        ),
+        PriceWindow(Price(input=2.0, output=10.0, cache_write_5m=2.50, cache_read=0.20)),
     ],
     "claude-opus-5": [
         PriceWindow(Price(input=5.0, output=25.0, cache_write_5m=6.25, cache_read=0.50)),
@@ -131,9 +133,11 @@ def window_for(model: str, on: date | None = None) -> PriceWindow:
     """The price window in force for `model` on `on` (default: today, UTC).
 
     `price_for` answers "what does a token cost"; this answers "and until
-    when". `/pricing` needs the dates, not just the rate, because the whole
-    reason the window exists is that it ends: Sonnet 5's introductory rate
-    stops on 2026-08-31 and the same run costs 50% more the next morning.
+    when". `/pricing` needs the dates, not just the rate, because a window
+    that ends means the same run costs more the next morning. Every current
+    model's window is open-ended (`since` and `until` both None), so today
+    every answer here is "indefinitely" -- that is a fact about the table,
+    not about the endpoint, and it changes the day a dated price returns.
 
     Date logic lives here rather than in the endpoint so it can be tested at
     fixed dates. A test that had to know what today is would be a test that
@@ -149,12 +153,13 @@ def window_for(model: str, on: date | None = None) -> PriceWindow:
 def next_window(model: str, on: date | None = None) -> PriceWindow | None:
     """The window that opens after `on`, or None when none does.
 
-    None is the ordinary case, not an error: `claude-opus-5` and
-    `claude-haiku-4-5` have a single undated window and never will have a
-    "next", and Sonnet 5 stops having one the moment its September window is
-    the current one. Callers must treat it as nullable from the first day
-    this ships -- a payload field that is only ever a dict until 2026-09-01
-    is a time bomb with a date on it.
+    None is the ordinary case, not an error, and since 2026-08-12 it is the
+    ONLY case: every model in the table has a single undated window, so this
+    returns None for all of them. That makes the nullable contract more
+    load-bearing rather than less -- a consumer written against the old table,
+    where Sonnet 5 always had a September window to point at, would have been
+    reading a dict that has now permanently become None. `/pricing` publishes
+    `windows.next` as nullable and is tested for the null case.
     """
     day = on or datetime.now(timezone.utc).date()
     upcoming = [w for w in PRICES.get(model, ()) if w.since is not None and w.since > day]

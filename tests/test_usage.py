@@ -5,7 +5,7 @@ mistake here shows up as a failing test rather than as a wrong invoice.
 
 import contextvars
 import threading
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -43,22 +43,25 @@ class FakeResponse:
 # --------------------------------------------------------------------------
 
 
-def test_sonnet_5_introductory_pricing_applies_before_september():
-    price = price_for("claude-sonnet-5", date(2026, 8, 31))
-    assert (price.input, price.output) == (2.0, 10.0)
-
-
-def test_sonnet_5_standard_pricing_applies_from_september():
-    """The introductory window closes 2026-08-31. A single hardcoded rate
-    would under-report by a third from the next morning onwards."""
-    price = price_for("claude-sonnet-5", date(2026, 9, 1))
-    assert (price.input, price.output) == (3.0, 15.0)
-
-
-def test_the_two_sonnet_windows_do_not_overlap_or_leave_a_gap():
+def test_sonnet_5_costs_the_same_on_every_date():
+    """$2/$10 was introductory, scheduled to rise to $3/$15 on 2026-09-01.
+    Anthropic made it permanent on 2026-08-12, so the second window is gone
+    rather than postponed. Dates on both sides of the retired boundary and
+    far past it must all resolve to the one rate -- a leftover September
+    window would over-report by half from that morning."""
     for day in (date(2026, 1, 1), date(2026, 8, 31), date(2026, 9, 1), date(2030, 1, 1)):
-        matches = [w for w in usage_accounting.PRICES["claude-sonnet-5"] if w.covers(day)]
-        assert len(matches) == 1, day
+        price = price_for("claude-sonnet-5", day)
+        assert (price.input, price.output) == (2.0, 10.0), day
+
+
+def test_no_model_has_overlapping_or_gapped_windows():
+    """Written for Sonnet 5's two windows; kept as a table-wide invariant.
+    It holds trivially while every model is single-window, and starts doing
+    real work again the day a dated price returns."""
+    for model in usage_accounting.PRICES:
+        for day in (date(2026, 1, 1), date(2026, 8, 31), date(2026, 9, 1), date(2030, 1, 1)):
+            matches = [w for w in usage_accounting.PRICES[model] if w.covers(day)]
+            assert len(matches) == 1, (model, day)
 
 
 def test_cache_rates_are_multiples_of_the_input_rate():
@@ -87,20 +90,60 @@ def test_price_defaults_to_today():
 # `/pricing` reports dates, not just rates, so the resolution has to be
 # askable for the window itself. Every date below is written out: a helper
 # whose tests consulted today's date would be a helper whose tests change
-# meaning on 2026-09-01, which is the exact day this code exists for.
+# meaning on a date nobody chose.
+#
+# SYNTHETIC TABLE, AND SAID SO. Until 2026-08-12 these tests ran against
+# Sonnet 5's real introductory/standard pair. That pair is gone -- the
+# introductory rate became permanent -- and every shipped model now has a
+# single open-ended window. Left there, the dated half of this module would
+# have no caller that exercises it: `window_for` would only ever return
+# (None, None), and `next_window` only ever None. That is the vacuous-gate
+# failure this codebase keeps finding, so the machinery is proven here against
+# a table that exists only in this file. It defends the next real dated price,
+# which is a table edit away.
+
+BOUNDARY = date(2026, 9, 1)
+FIXTURE_MODEL = "fixture-two-window-model"
+TWO_WINDOWS = [
+    usage_accounting.PriceWindow(
+        usage_accounting.Price(input=2.0, output=10.0, cache_write_5m=2.50, cache_read=0.20),
+        until=BOUNDARY - timedelta(days=1),
+    ),
+    usage_accounting.PriceWindow(
+        usage_accounting.Price(input=3.0, output=15.0, cache_write_5m=3.75, cache_read=0.30),
+        since=BOUNDARY,
+    ),
+]
 
 
-def test_window_for_resolves_the_same_boundary_price_for_does():
-    assert usage_accounting.window_for("claude-sonnet-5", date(2026, 8, 31)).price.input == 2.0
-    assert usage_accounting.window_for("claude-sonnet-5", date(2026, 9, 1)).price.input == 3.0
+@pytest.fixture
+def dated_model(monkeypatch):
+    """Install the synthetic two-window model for the duration of one test."""
+    monkeypatch.setitem(usage_accounting.PRICES, FIXTURE_MODEL, TWO_WINDOWS)
+    return FIXTURE_MODEL
 
 
-def test_window_for_carries_the_dates_the_rate_alone_cannot():
-    august = usage_accounting.window_for("claude-sonnet-5", date(2026, 8, 31))
-    september = usage_accounting.window_for("claude-sonnet-5", date(2026, 9, 1))
+def test_window_for_resolves_the_boundary_price_for_does(dated_model):
+    before = usage_accounting.window_for(dated_model, BOUNDARY - timedelta(days=1))
+    on_the_day = usage_accounting.window_for(dated_model, BOUNDARY)
 
-    assert (august.since, august.until) == (None, date(2026, 8, 31))
-    assert (september.since, september.until) == (date(2026, 9, 1), None)
+    assert before.price.input == 2.0
+    assert on_the_day.price.input == 3.0
+
+
+def test_window_for_carries_the_dates_the_rate_alone_cannot(dated_model):
+    before = usage_accounting.window_for(dated_model, BOUNDARY - timedelta(days=1))
+    after = usage_accounting.window_for(dated_model, BOUNDARY)
+
+    assert (before.since, before.until) == (None, BOUNDARY - timedelta(days=1))
+    assert (after.since, after.until) == (BOUNDARY, None)
+
+
+def test_window_for_reports_every_real_model_as_open_ended():
+    """The other half of the same fact: no shipped price expires today."""
+    for model in usage_accounting.PRICES:
+        window = usage_accounting.window_for(model, date(2026, 8, 12))
+        assert (window.since, window.until) == (None, None), model
 
 
 def test_window_for_raises_on_an_unpriced_model():
@@ -108,26 +151,30 @@ def test_window_for_raises_on_an_unpriced_model():
         usage_accounting.window_for("gpt-nonexistent", date(2026, 8, 9))
 
 
-def test_next_window_is_the_september_window_before_the_boundary():
+def test_next_window_is_visible_before_the_boundary(dated_model):
     """The operator-facing half: the step is visible before it is charged."""
-    upcoming = usage_accounting.next_window("claude-sonnet-5", date(2026, 8, 9))
+    upcoming = usage_accounting.next_window(dated_model, BOUNDARY - timedelta(days=23))
 
     assert upcoming is not None
-    assert upcoming.since == date(2026, 9, 1)
+    assert upcoming.since == BOUNDARY
     assert upcoming.price.input == 3.0
 
 
-def test_next_window_is_none_once_the_boundary_has_passed():
-    """The time bomb, defused by a test. From 2026-09-01 there is no next
-    window, so any consumer that assumed a dict would start crashing on a
-    date nobody chose -- `next` is nullable from the day it ships."""
-    assert usage_accounting.next_window("claude-sonnet-5", date(2026, 9, 1)) is None
-    assert usage_accounting.next_window("claude-sonnet-5", date(2030, 1, 1)) is None
+def test_next_window_is_none_once_the_boundary_has_passed(dated_model):
+    """The nullable contract: a consumer that assumed a dict would start
+    crashing on a date nobody chose."""
+    assert usage_accounting.next_window(dated_model, BOUNDARY) is None
+    assert usage_accounting.next_window(dated_model, date(2030, 1, 1)) is None
 
 
-def test_next_window_is_none_for_models_with_one_undated_window():
-    for model in ("claude-opus-5", "claude-haiku-4-5"):
-        assert usage_accounting.next_window(model, date(2026, 8, 9)) is None, model
+def test_next_window_is_none_for_every_shipped_model():
+    """Now the only case in production -- including Sonnet 5, which had a
+    September window to point at until 2026-08-12 and no longer does. A
+    payload field that was reliably a dict has permanently become null, which
+    is exactly the transition the nullable contract was written for."""
+    for model in usage_accounting.PRICES:
+        assert usage_accounting.next_window(model, date(2026, 8, 12)) is None, model
+        assert usage_accounting.next_window(model, date(2030, 1, 1)) is None, model
 
 
 # --------------------------------------------------------------------------
@@ -189,11 +236,23 @@ def test_web_fetches_cost_nothing_beyond_their_tokens():
     assert call.cost_usd("claude-sonnet-5", date(2026, 8, 1)) == 0.0
 
 
-def test_the_same_call_costs_more_after_the_intro_window_closes():
+def test_the_same_call_costs_more_after_a_window_closes(dated_model):
+    """`cost_usd` resolves the rate by run date, not by today. Proven on the
+    synthetic table since no shipped model changes price any more; without
+    this, a run priced against a stale window would compute silently wrong."""
     call = CallUsage(input_tokens=1_000_000, output_tokens=1_000_000)
-    before = call.cost_usd("claude-sonnet-5", date(2026, 8, 31))
-    after = call.cost_usd("claude-sonnet-5", date(2026, 9, 1))
+    before = call.cost_usd(dated_model, BOUNDARY - timedelta(days=1))
+    after = call.cost_usd(dated_model, BOUNDARY)
     assert after == pytest.approx(before * 1.5)
+
+
+def test_sonnet_5_costs_the_same_across_the_retired_boundary():
+    """The concrete consequence of the price becoming permanent, asserted at
+    the choke point rather than only in the table."""
+    call = CallUsage(input_tokens=1_000_000, output_tokens=1_000_000)
+    assert call.cost_usd("claude-sonnet-5", date(2026, 8, 31)) == pytest.approx(
+        call.cost_usd("claude-sonnet-5", date(2026, 9, 1))
+    )
 
 
 # --------------------------------------------------------------------------
@@ -408,20 +467,21 @@ def test_the_web_search_fee_is_discounted_but_not_geo_multiplied(monkeypatch):
     assert call.cost_usd("claude-sonnet-5", FIXED_AUGUST) == pytest.approx(10.0 * 0.9)
 
 
-def test_boundary_with_multipliers(monkeypatch):
+def test_boundary_with_multipliers(monkeypatch, dated_model):
     """Multipliers compose with effective-dating; they do not replace it.
 
-    The same call across the Sonnet 5 introductory boundary still costs
-    exactly 1.5x more on the far side, and each side is still halved by the
-    discount. A multiplier applied to a stale rate, or a rate resolved after
-    the multiplier had already flattened it, would break one of these two
-    assertions and not the other.
+    The same call across a window boundary still costs exactly 1.5x more on
+    the far side, and each side is still halved by the discount. A multiplier
+    applied to a stale rate, or a rate resolved after the multiplier had
+    already flattened it, would break one of these two assertions and not the
+    other. Runs on the synthetic table: this composition needs a price that
+    changes, and after 2026-08-12 no shipped model has one.
     """
     monkeypatch.setenv("COST_DISCOUNT_FACTOR", "0.5")
 
     call = CallUsage(input_tokens=1_000_000, output_tokens=1_000_000)
-    before = call.cost_usd("claude-sonnet-5", date(2026, 8, 31))  # $2/$10
-    after = call.cost_usd("claude-sonnet-5", date(2026, 9, 1))  # $3/$15
+    before = call.cost_usd(dated_model, BOUNDARY - timedelta(days=1))  # $2/$10
+    after = call.cost_usd(dated_model, BOUNDARY)  # $3/$15
 
     assert before == pytest.approx(12.0 * 0.5)
     assert after == pytest.approx(before * 1.5)
