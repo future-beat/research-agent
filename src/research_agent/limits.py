@@ -413,6 +413,12 @@ CREATE TABLE IF NOT EXISTS run_reservations (
     created_at DOUBLE PRECISION NOT NULL
 );
 CREATE INDEX IF NOT EXISTS run_reservations_created_at ON run_reservations (created_at DESC);
+-- Phase 17.5. Both tables are guardrail state, which makes them a target rather
+-- than a leak: emptying `run_reservations` unblocks admission, and filling it
+-- blocks the demo outright. `rate_hits` carries identities. RLS with no policy
+-- denies every role but this table's owner. Rationale in metrics.py.
+ALTER TABLE rate_hits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE run_reservations ENABLE ROW LEVEL SECURITY;
 """
 
 # One statement, one round trip: the row is inserted only if the identity is

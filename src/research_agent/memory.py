@@ -518,6 +518,14 @@ class PgVectorMemoryStore(MemoryStore):
             -- identity is a 32-hex uuid -- and the TTL collects them.
             ALTER TABLE {self.table} ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT '';
             CREATE INDEX IF NOT EXISTS {self.table}_owner ON {self.table} (owner);
+            -- Phase 17.5. This is the one schema in the codebase whose table
+            -- name is a variable, which is exactly why RLS belongs here rather
+            -- than in a runbook: `migrate.py embeddings re-embed --to` creates
+            -- a new corpus table on demand, and a one-time manual fix would
+            -- protect the old table and silently miss the new one. Notes carry
+            -- researched text and the identity that owns them. Rationale in
+            -- metrics.py.
+            ALTER TABLE {self.table} ENABLE ROW LEVEL SECURITY;
             """
         )
 

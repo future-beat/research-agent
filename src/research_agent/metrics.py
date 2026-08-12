@@ -112,7 +112,36 @@ CREATE INDEX IF NOT EXISTS runs_status ON runs (status);
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS embedding_tokens BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS embedding_requests BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS embedding_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0.0;
+-- Phase 17.5. `runs` is the daily spend cap's ONLY input: `spend_since` sums
+-- this table, so a caller who can DELETE from it leaves the cap reading $0 and
+-- the bill unbounded. Measured 2026-08-12 on a local stand-in -- a role holding
+-- the grants Supabase hands `anon` by default deleted every row, no error.
+-- Enabled here rather than by hand because a managed Postgres re-exposing the
+-- table is a config change nobody redeploys for. See the note below.
+ALTER TABLE runs ENABLE ROW LEVEL SECURITY;
 """
+
+# Why every Postgres schema in this codebase ends with ENABLE ROW LEVEL SECURITY
+# ------------------------------------------------------------------------------
+# These tables live in `public`, which a managed provider (Supabase, and others)
+# may expose over an HTTP API whose key is public by design. RLS is then the only
+# thing standing between the internet and this data; without it the provider's
+# own linter is correct to call the tables world-readable.
+#
+# No policy is created, deliberately. RLS with zero policies denies every role
+# EXCEPT the table's owner, and the owner is the role in `DATABASE_URL` because
+# it is the role that ran this DDL. So the application is unaffected and
+# everything else gets nothing. `ENABLE`, never `FORCE`: FORCE would subject the
+# owner to the empty policy set too, and the app would silently read zero rows.
+#
+# It lives in the schema constants rather than a runbook step because
+# `migrate.py embeddings re-embed` creates a NEW table on demand; a one-time
+# manual fix protects today's tables and misses tomorrow's.
+#
+# What this canNOT do: revoke the grants the provider already handed its API
+# roles, because those roles do not exist on a plain Postgres and the statement
+# would fail here and in CI. That half is a one-time operator action, documented
+# in docs/OPERATIONS.md under "Row level security".
 
 COMPLETED = "completed"
 FAILED = "failed"
