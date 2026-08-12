@@ -17,8 +17,16 @@ Fixed in the schema constants rather than by an operator script, because
 `migrate.py embeddings re-embed --to` creates tables on demand and a one-time fix would
 miss them. Suite 737 → 739 keyless, 801 → 805 armed; three mutations observed red.
 
-**Open:** the deploy (manual), and the one-time `REVOKE` of the `anon`/`authenticated`
-grants — which cannot live in code, because those roles do not exist on a plain Postgres.
+**Closed the same day, end to end.** Shipped in Fly release v13; the one-time `REVOKE` of
+the `anon`/`authenticated` grants was run in the Supabase SQL editor and confirmed (all
+five tables: `owner = postgres`, `rls_on = t`, `api_grants = (none)`). The provider's
+linter went from six `ERROR` findings to five `INFO` `rls_enabled_no_policy` notices — the
+correct end state, since a policy is the only way to grant access back and none should exist.
+
+**One lesson outlives the phase:** the `REVOKE` as first published was wrong in the way that
+fails silently — a bare `ALTER DEFAULT PRIVILEGES` governs only the role that runs it, so it
+would have looked like it worked while protecting no future table. Caught by testing the
+script against a stand-in rather than by reading it again.
 
 ---
 

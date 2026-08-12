@@ -106,9 +106,14 @@ reachable, and the row counts unchanged at 7 sessions / 10 runs / 8 notes — wh
 proof that matters in both directions, since a failed `ALTER` would have surfaced the store
 as unreachable and a missing owner exemption would have shown zeros with no error.
 
-**Still outstanding:** the one-time `REVOKE` of the `anon`/`authenticated` grants, which
-cannot live in code because those roles do not exist on a plain Postgres. Instructions in
-`docs/OPERATIONS.md` § "Row level security", pre-flight first.
+**Closed 2026-08-12 — nothing outstanding.** The one-time `REVOKE` of the
+`anon`/`authenticated` grants (which cannot live in code, since those roles do not exist on
+a plain Postgres) was run and confirmed: all five tables report `owner = postgres`,
+`rls_on = t`, `api_grants = (none)`, and no `postgres`-granted default privileges remain to
+cover future tables. The provider's own linter agrees — the five `rls_disabled_in_public`
+errors and the `sensitive_columns_exposed` error on `runs` are cleared, replaced by five
+`INFO` `rls_enabled_no_policy` notices that are the correct end state and must **not** be
+"fixed" by adding a policy.
 
 Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-CONTEXT.md) ·
 [`17.5-01-SUMMARY.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-01-SUMMARY.md) ·
