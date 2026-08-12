@@ -199,9 +199,12 @@ def _caveat(loaded: list[dict]) -> str:
 # the invoice will. Nothing here is a dollar literal: every figure is tokens
 # (named constants, below) run through `usage.CallUsage.cost_usd`, which is the
 # one place in the service where tokens become dollars, and which resolves the
-# rate through `usage.price_for` for the day the preview runs. The Sonnet 5
-# introductory window closes on 2026-08-31; the morning after, this preview
-# quotes 50% more without anybody editing this file.
+# rate through `usage.price_for` for the day the preview runs. That property
+# was written against the Sonnet 5 introductory window, which was scheduled to
+# close on 2026-08-31 and was instead made permanent on 2026-08-12 -- so the
+# preview no longer has a rate step to re-quote across. It still resolves
+# rather than hard-codes, which is what makes the next dated price a table
+# edit rather than an edit here.
 # --------------------------------------------------------------------------
 
 # What one turn is ASSUMED to cost in tokens when the case has never been

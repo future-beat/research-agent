@@ -775,12 +775,17 @@ default **$5.00** daily cap it is about 16 runs admitted at once instead of 25 �
 still far above what a demo sees, and now the cap counts in-flight spend at
 roughly what that spend turns out to be.
 
-**The next threshold is a date, not the critic.** From **2026-09-01** Sonnet 5's
-introductory window closes and the standard rate alone lifts a typical
-*unchanged* run by roughly a third again. Raise `DEMO_RESERVED_RUN_USD` when a
-threshold is crossed — that date, pointing `CRITIC_MODEL` at something priced
-above Opus, or another measurement putting a typical run above the estimate.
-**~$0.40** covers the date.
+**There is no dated threshold any more.** This section named **2026-09-01**, when
+Sonnet 5's introductory window was to close and lift a typical *unchanged* run by
+roughly a third. Anthropic made **$2/$10 per MTok permanent on 2026-08-12**, so
+that crossing will not happen and the **~$0.40** it called for is not owed —
+**$0.30** stands, on the measured $0.21–0.32 band rather than on a calendar.
+
+Raise `DEMO_RESERVED_RUN_USD` when a threshold is actually crossed: a price rise,
+pointing `CRITIC_MODEL` at something priced above Opus, or a measurement putting
+a typical run above the estimate. Worth noting which of those has ever fired —
+only the measurement. The date was a proxy, it was retired without firing, and
+the resize that did happen came from two live runs.
 
 **What is checked and what is not.** Pricing is: a `CRITIC_MODEL` with no row
 in the price table costs the run nothing and reports `pricing_unknown` on that

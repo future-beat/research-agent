@@ -28,6 +28,18 @@ fails silently — a bare `ALTER DEFAULT PRIVILEGES` governs only the role that 
 would have looked like it worked while protecting no future table. Caught by testing the
 script against a stand-in rather than by reading it again.
 
+**Sonnet 5 pricing became permanent, 2026-08-12.** Anthropic made the $2/$10 per MTok
+introductory rate the standing price and cancelled the $3/$15 rise scheduled for
+2026-09-01. The price table collapsed to a single open-ended window — a data edit, which
+is exactly what the effective-dating design existed to absorb. The subtler half was the
+tests: six boundary tests used Sonnet 5's two windows as their subject, so removing the
+second window would have left `window_for` only ever returning `(None, None)` and
+`next_window` only ever `None`. They moved onto a synthetic two-window table declared in
+the test file and labelled as such, and two mutations confirm it earns its place — both
+pass silently without it. **This removes the project's last dated obligation**: the
+reservation threshold and the "record the evals before the price rises" argument expired
+with it. Verified against the published pricing, not the announcement alone.
+
 ---
 
 ## v1.1 Closing the limitations list (Shipped: 2026-08-11)

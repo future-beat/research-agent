@@ -901,12 +901,14 @@ def _window_payload(window: usage_accounting.PriceWindow) -> dict:
 def pricing() -> dict:
     """The rates cost accounting is using today, and what is about to change.
 
-    Worth exposing: Claude Sonnet 5 is on introductory pricing that ends
-    2026-08-31, so the same run costs 50% more the following day. A cost
-    dashboard that steps without explanation is a support ticket. `windows`
-    makes that step visible before it happens -- `next` is null whenever no
-    further window is on file, which is the ordinary state of every other
-    model and Sonnet 5's own state from 2026-09-01.
+    Worth exposing because a cost dashboard that steps without explanation is
+    a support ticket: `windows` makes a coming rate change visible before it
+    is charged. `next` is null whenever no further window is on file, and
+    since 2026-08-12 that is every model -- Sonnet 5's introductory rate was
+    made permanent rather than expiring on 2026-08-31 as scheduled, so the
+    field this endpoint was written around is now uniformly null. It stays
+    nullable and stays published: the next dated price is a table edit away,
+    and a consumer that hard-codes "always null" breaks then instead.
 
     The multipliers are *displayed* here and multiplied nowhere: this endpoint
     reports what accounting is configured with, and `CallUsage.cost_usd` stays
