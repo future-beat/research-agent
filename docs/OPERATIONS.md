@@ -320,6 +320,34 @@ Verified end to end on a local stand-in reproducing Supabase's default posture
 (14 grant rows → none; a table created *after* the script receives no grants;
 `anon` then gets `permission denied for table sessions` on both read and write).
 
+**Reading step 3's second result — `supabase_admin` rows are expected and are
+not yours to remove.** Run against the live project on 2026-08-12, that query
+returned three rows all granted by `supabase_admin` (tables `arwdDxtm`,
+sequences `rwU`, functions `X`) and **no row granted by `postgres`**. That
+absence is the success signal: default privileges are per granting role, a
+`postgres` row is what would grant `anon` on future app tables, and a successful
+revoke deletes the row outright rather than emptying it. The `supabase_admin`
+entries govern only objects *that* role creates — platform-managed, not the
+app's tables — and `postgres` is not a member of `supabase_admin`, so trying to
+alter them errors rather than helping.
+
+The end state, confirmed with one query:
+
+```sql
+SELECT c.relname AS table_name,
+       pg_get_userbyid(c.relowner) AS owner,
+       c.relrowsecurity AS rls_on,
+       COALESCE((SELECT string_agg(DISTINCT g.grantee, ',')
+                 FROM information_schema.role_table_grants g
+                 WHERE g.table_schema = 'public' AND g.table_name = c.relname
+                   AND g.grantee IN ('anon','authenticated')), '(none)') AS api_grants
+FROM   pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE  n.nspname = 'public' AND c.relkind = 'r'
+ORDER  BY 1;
+```
+
+Five rows, every one `owner = postgres`, `rls_on = t`, `api_grants = (none)`.
+
 **`service_role` is deliberately untouched, and it bypasses all of this.** That
 role carries `BYPASSRLS`, so its key reads and writes everything regardless of
 RLS or grants. Unlike the anon key it is a genuine secret — it must never reach
