@@ -96,6 +96,15 @@ PRICES: dict[str, list[PriceWindow]] = {
     "claude-opus-5": [
         PriceWindow(Price(input=5.0, output=25.0, cache_write_5m=6.25, cache_read=0.50)),
     ],
+    # The eval judge's model since Phase 18, where it stopped sharing the
+    # critic's. Rate-identical to Opus 5 above (verified 2026-08-13), which is
+    # what makes "the judge became independent at zero cost change" exact
+    # rather than approximate. This service never runs it -- the evals CLI
+    # does -- but the table is one table, and an unpriced judge leg would fail
+    # the record preview loud (DEC-12) rather than cost a run at zero.
+    "claude-opus-4-8": [
+        PriceWindow(Price(input=5.0, output=25.0, cache_write_5m=6.25, cache_read=0.50)),
+    ],
     "claude-haiku-4-5": [
         PriceWindow(Price(input=1.0, output=5.0, cache_write_5m=1.25, cache_read=0.10)),
     ],

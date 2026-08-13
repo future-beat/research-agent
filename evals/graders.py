@@ -30,7 +30,7 @@ from decimal import Decimal
 
 from evals.dataset import Case, Followup
 
-JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-opus-5")
+JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-opus-4-8")
 
 
 @dataclass

@@ -15,6 +15,11 @@ import types
 
 import pytest
 
+# Third-party by ruff's reckoning, not a mistake: `target-version = "py310"`,
+# and tomllib is stdlib only from 3.11. tests/test_deploy_config.py orders it
+# the same way.
+import tomllib
+
 from evals import __main__ as M
 from evals import fixtures as F
 from evals import graders as G
@@ -608,6 +613,43 @@ def test_the_judge_runs_on_a_different_model_than_the_pipeline():
     to find. This is the independence ADR-0010 keeps: judge != WRITER."""
 
     assert G.JUDGE_MODEL != graph.MODEL
+
+
+def test_the_judge_runs_on_a_different_model_than_the_deployed_critic():
+    """The independence Phase 18 adds: judge != CRITIC, in production.
+
+    Compared against `fly.toml`'s parsed `[env]` value, not against
+    `graph.critic_model()`. In this suite `CRITIC_MODEL` is unset, so
+    `critic_model()` returns the writer's model and the comparison would be
+    green forever while saying nothing about the deployed configuration --
+    16-02's neutral-default blind spot, which is exactly the failure this pin
+    exists to avoid repeating.
+
+    Failing loud on an absent key rather than skipping: Fly's tooling has
+    regenerated `fly.toml` from the web UI's defaults twice, and a regenerated
+    `[env]` carries only the variables Fly knows about. Compared against a
+    silently missing value, `!= None` is true and the pin would report
+    independence from nothing at all.
+    """
+    fly_toml = pathlib.Path(__file__).resolve().parent.parent / "fly.toml"
+    assert fly_toml.exists(), (
+        "fly.toml is missing, so nothing in this repository states which model "
+        "the deployed critic runs on -- the judge's independence from it is "
+        "unverifiable rather than merely unproven."
+    )
+    deployed_critic = tomllib.loads(fly_toml.read_text()).get("env", {}).get("CRITIC_MODEL")
+
+    assert deployed_critic, (
+        "fly.toml's [env] no longer pins CRITIC_MODEL. The deployed critic "
+        "falls back to the writer's model and this pin has nothing to compare "
+        "the judge against -- see tests/test_deploy_config.py's critic pin."
+    )
+    assert deployed_critic != G.JUDGE_MODEL, (
+        f"the eval judge and the deployed critic both run on "
+        f"{deployed_critic!r}. A recorded verdict is then independent of the "
+        "writer's model and not of the critic's -- the arrangement ADR-0010 "
+        "accepted and Phase 18 supersedes."
+    )
 
 
 def test_grounding_judge_is_given_the_notes_and_the_draft():
