@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
 status: executing
-stopped_at: "Phase 18 waves 1-2 complete (18-01 flip+price row, 18-02 refusal guard) on branch gsd/phase-18-independent-eval-judge. 747 passed / 67 skipped keyless, offline evals 41/41 exit 0, ruff clean. Next: 18-03 (ADR-0012 and the supersession chain)."
-last_updated: "2026-08-13T09:45:00.000Z"
-last_activity: "2026-08-13 — Phase 18 wave 2 executed: Judge.verdict reads stop_reason before content, so a refusal is a graded finding reaching the recorder's failed-graders branch; truncation named separately; five mutation probes each observed red alone."
+stopped_at: "Phase 18 waves 1-3 complete (18-01 flip+price row, 18-02 refusal guard, 18-03 ADR-0012 + the supersession chain) on branch gsd/phase-18-independent-eval-judge. 748 passed / 67 skipped keyless, offline evals 41/41 exit 0, ruff clean. Next: 18-04 (the collision line re-derived and the remaining judge==critic doc surfaces)."
+last_updated: "2026-08-13T09:59:46.406Z"
+last_activity: "2026-08-13 — Phase 18 wave 3 executed: ADR-0012 supersedes ADR-0010's judge==critic acceptance ONLY, states the reversal register reopening plainly and the family residual in its own voice; the status flip, the re-derived index and the extended 0005->0010->0012 chain test land in one commit because the convention's status-line edit deletes the string the chain test asserted."
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
-  percent: 50
+  completed_plans: 3
+  percent: 75
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 18 — Independent eval judge (v1.2 "Nothing uncovered", Phases 18-22)
-Plan: 2 of 4 complete (18-01, 18-02); next is 18-03 (ADR-0012), then 18-04 (the doc/collision re-derivation)
-Status: Executing — waves 1 and 2 landed on gsd/phase-18-independent-eval-judge
-Last activity: 2026-08-13 — 18-02: the judge's response boundary made honest. `stop_reason` is read before any content block, so a refusal returns a FAILED verdict ("the judge DECLINED to grade this case…") that reaches `_refuse_failing`'s failed-graders branch instead of arriving as `ValueError: … unparseable verdict: ''` and being relabelled "the run errored" by `run_case`'s blanket except. Malformation still raises; truncation now says TRUNCATED. Zero lines changed in evals/fixtures.py and evals/__main__.py
+Plan: 3 of 4 complete (18-01, 18-02, 18-03); next is 18-04 (the doc/collision re-derivation)
+Status: Executing — waves 1, 2 and 3 landed on gsd/phase-18-independent-eval-judge
+Last activity: 2026-08-13 — 18-03: ADR-0012 written, ADR-0010's status line flipped, the index re-derived and the chain test extended, all in one commit (`bc7cf40`). The record supersedes exactly one of ADR-0010's two positions — the judge==critic acceptance; the critic-above-writer stance is untouched and `CRITIC_MODEL` did not move. It states the reversal register's deliberate reopening, states the family residual in its own voice (Opus 4.8 is the critic's family, so this buys model identity), and attributes the declined Fable option to the owner with the verified half separated from the attributed half. New derived-counts index checker built (17-04's unbuilt T3); probe A5 reproduced — literal greps green, derived checker red
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Last activity: 2026-08-13 — 18-02: the judge's response boundary made honest. 
 | 15 | 6 of 6 (15-01 … 15-06) | 306min | 51min |
 | 16 | 3 of 4 (16-01, 16-02, 16-03) | 120min | 40min |
 | 17 | 3 of 4 (17-01, 17-02, 17-03; 17-04 Tasks 1–2 only, T3 unstarted) | 165min | 41min |
+| 18 | 3 of 4 (18-01, 18-02, 18-03) | 97min | 32min |
 
 **Recent Trend:**
 
@@ -68,6 +69,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 18-03]: **The supersession convention DELETES a middle-of-chain record's own supersession claim, and nobody had written that down.** The index checker's first back-reference design required every `Superseded by` target to contain `supersedes ADR-…`; it red on its first run against correct code, on ADR-0010 — whose status line had just been overwritten by the convention's step 1. That is research trap #2 seen one level up: the same edit that deletes `supersedes ADR-0005` from 0010 is why the chain test's 0005 half had to move to 0005's permanent side rather than be re-asserted from 0010's. Re-targeted at `Carried forward from ADR-NNNN`, which lives in a body the convention explicitly forbids editing, verified present in all four superseders. **Any future gate checking a supersession from the superseder's side must use the carried-forward section, not the status line.** And the mirror of the house rule: a probe that comes back green is re-targeted and disclosed — so is a gate that comes back red on correct code.
+- [Phase 18-03]: **A supersession stales COUNTING, FORECASTING and ENUMERATING prose — and the enumerating one is the one no count-grep finds.** The plan named three index paragraphs; the whole-file pass found a fourth: "there is no `docs/DESIGN.md` passage behind any of the **six**, so all **six** carry `**Source:**`" → seven. It contains no count of records and no supersession vocabulary, so nothing in the plan, the research or a number-word grep pointed at it. Also corrected: `README.md:40`'s ADR-count parenthetical, falsified by this very commit and therefore committed with it. **Seventh instance of the family — and the first time the plan's own arithmetic (twelve/eight/four) was CORRECT**, because it was derived cell by cell from the table before a number was typed rather than copied from the plan.
+- [Phase 18-03]: **"Each was forecast by the record it overturned" had to be rewritten, not deleted — the fourth supersession is the first unforecast one.** Verified against the files rather than assumed: `### Expected reversal` exists in ADR-0005, ADR-0003 and ADR-0006, and does **not** exist in ADR-0010 (its only hit is a citation of 0005's). ADR-0010 was written into a register the project was closing, so nothing forecast its reversal. The index now says three of four were forecast and the fourth was not, and says why; ADR-0012 states the reopening in its own text. **A record superseded in PART also earns a note saying which part** — a `Superseded` status invites the reading that everything under it is dead, and ADR-0010's critic-above-writer position is still deployed with no successor record.
 - [Phase 17-03]: **Gate a parse and the prompt that invites it on the SAME boolean.** The responder's sentinel is model text turned into a routing flag, and the only thing keeping it out of shipped answers is that the parse never runs where the prompt never asked. Two conditions that agree today are a bug waiting for the day they don't — probe P1 drops `pre_research` from the parse alone and the post-research sentinel sets the flag, row 5 refuses it (flag-gated), the turn falls through to the author, and the responder's *fallback* reply becomes the shipped answer. **No error anywhere.** The four RED-first pins show the pre-fix behaviour was worse still: the sentinel text WAS the draft, the critic approved it (it claims nothing, so it is grounded), and the caller received it as their answer.
 - [Phase 17-03]: **A signal must be structurally unable to produce anything.** The sentinel path returns before `draft`, `reviewed`, `revision_count` and the `answer_length` trace entry are touched, so "the insufficiency window ships no answer" is a consequence of the control flow rather than a promise the node makes and then keeps by convention. The pin asserts the responder's trace entry for that pass EXISTS and carries no `answer_length` — an absence asserted on something that has to be there, which is the only way to test that nothing was generated.
 - [Phase 17-03]: **A before-pin whose condition can no longer be false must be deleted, with the reason stated.** Wave 2 deliberately kept the flip-tag test's before-half because three cases were still awaiting their flip; after wave 3 no case satisfies `not answerable and not expect_research`, so it would loop over zero cases and report green forever. Replaced by a COUNTED after-pin (`len(reaching) == 4`, so it cannot grade an empty set) plus a `stranded` clause that reds if any case goes back to refusing without looking. **A pin expires per case, then per wave — and the wave it expires in owes the deletion, not the next one.**
@@ -373,8 +377,42 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-08-10
-Stopped at: **17-04 Tasks 1–2 complete; Task 3 (the live checkpoint) UNSTARTED by
+Last session: 2026-08-13T09:59:46.396Z
+Stopped at: **Phase 18 wave 3 complete (18-03).** Four commits on
+`gsd/phase-18-independent-eval-judge`: `06140a4` (18-01 flip + price row), `dd7b2e8` +
+`ca59b62` (18-02 refusal guard), and `bc7cf40` (18-03 — ADR-0012, ADR-0010's status line,
+the re-derived index, `README.md`'s ADR count, and the extended chain test, **one commit
+because the convention's status-line edit deletes the string the chain test asserted**).
+748 passed / 67 skipped keyless (+1, the index checker); offline evals **41/41 exit 0**;
+ruff clean both forms.
+**ADR-0012 supersedes exactly one of ADR-0010's two positions** — the judge==critic
+acceptance. The critic-above-writer stance is untouched, still deployed, and named as such
+in both the record and the index; `CRITIC_MODEL` did not move. The record states the
+residual in its own voice (Opus 4.8 is the critic's *family*, so this buys model **identity**
+and a family-correlation argument survives), states plainly that it **reopens the reversal
+register v1.1 closed as spent**, and attributes the declined Fable option to the owner dated
+2026-08-13 — the 2× price verified against the table, the retention and refusal-classifier
+reasons recorded as his stated context rather than as measurements.
+**The checker's first back-reference design red on correct code, and that red is the
+finding:** it required every `Superseded by` target to say `supersedes ADR-…`, and ADR-0010
+had just stopped saying it. **The convention deletes a middle-of-chain record's own
+supersession claim.** Re-targeted at `Carried forward from ADR-NNNN`, which lives in a body
+no supersession may edit — and it is why the 0005 half of the chain is now held from 0005's
+side.
+**Plan arithmetic checked and correct for the first time in this family** (twelve records,
+eight Accepted, four supersessions — derived cell by cell before typing). The whole-file pass
+still found two sites the plan never named: the ENUMERATING "any of the **six**… all **six**
+carry `**Source:**`" → seven, and `README.md:40`'s ADR count.
+Next: **18-04** — the collision line's premise re-derived (silent at shipped defaults, points
+at ADR-0012), plus the remaining judge==critic doc surfaces (`graders.py`'s module docstring,
+`harness.py`'s `_state_judge_critic_relation`, `docs/DESIGN.md`'s trailer,
+`docs/OPERATIONS.md:803` — the sole surviving `judge and the critic share` hit, still at its
+1 → 0 baseline) and the stale test counts in `README.md:15`/`:199` and `PROJECT.md:31`
+(740/737 against a measured 748, logged in `deferred-items.md`). `README.md:285` stays
+Phase 22's.
+Resume file: None
+
+Superseded — previously recorded session: **17-04 Tasks 1–2 complete; Task 3 (the live checkpoint) UNSTARTED by
 instruction.** Three commits on `gsd/phase-17-followup-live-search`, unpushed: `25c34d7`
 (ADR-0011 `Accepted — supersedes ADR-0003`; ADR-0003's status line and nothing else, numstat
 `1	1` against **main**, re-checked post-commit; ADR-0002 zero-diff and reaffirmed by

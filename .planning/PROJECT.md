@@ -24,8 +24,9 @@ research — and it is demonstrable to a stranger in one click.
 in `syd` against Supabase Postgres. Live at `research-agent.fly.dev`.
 
 All nine limitations the v1.0 README listed are closed. Six were deliberate reversals, each
-superseding a numbered ADR rather than quietly contradicting prose — the reversal register the
-milestone opened with is now spent. `docs/adr/` holds 11 records, three of them superseded.
+superseding a numbered ADR rather than quietly contradicting prose — and the reversal register
+the milestone opened with closed as spent, then was reopened once, deliberately, by v1.2's
+ADR-0012. `docs/adr/` holds 12 records, four of them superseded.
 
 737 tests pass with no API keys; 801 with Postgres armed. Offline evals grade 41 cases keylessly
 on every push, including one real recorded answer.
@@ -194,10 +195,10 @@ but never exercised (an operational drill, not a feature).
 | Sessions persist completed runs in SQLite, not LangGraph's checkpointer | Different feature, different failure model; avoids coupling schema to LangGraph | ✓ Good |
 | One `DATABASE_URL` moves sessions, metrics, and notes together | The real failure is setting one flag and forgetting another | ✓ Good |
 | Nothing constructed at import time; service boots degraded and self-heals | Eager DDL made `/health`'s degraded reporting unreachable by definition | ✓ Good |
-| Eval judge on Opus 5 — **rationale re-derived, not inherited** | The old reason (a weak critic) died with the independent critic. The judge survives on a different job: it grades finished answers against a rubric, retrospectively. Judge == critic is recorded as an **acceptance**, not an oversight | ✓ Good — [ADR-0010](../docs/adr/0010-judge-rederived-for-an-independent-critic.md) supersedes 0005 |
+| Eval judge on Opus 5 — **rationale re-derived, not inherited** | The old reason (a weak critic) died with the independent critic. The judge survives on a different job: it grades finished answers against a rubric, retrospectively. Judge == critic is recorded as an **acceptance**, not an oversight | ✓ Good — [ADR-0010](../docs/adr/0010-judge-rederived-for-an-independent-critic.md) supersedes 0005. The different-job leg still stands; the judge==critic **acceptance** is itself superseded by [ADR-0012](../docs/adr/0012-judge-independent-of-the-critic.md) (Phase 18), which moves the judge to `claude-opus-4-8` at zero cost change |
 | Migration is **two** commands: copy *or* re-embed | The original reason survives and became the copy leg's guarantee; re-embed is a separate, measured act with its cost quoted first | ✓ Good — [ADR-0008](../docs/adr/0008-embedding-migration-two-commands.md) |
 | Offline evals also grade **recorded** answers, and never claim them of the current model | The caveat did not weaken — it got more specific: a replay reports what the pipeline said on a stated date, model and commit, and goes stale on purpose | ✓ Good — [ADR-0009](../docs/adr/0009-recorded-answer-quality-evals.md) |
-| Promote the load-bearing five decisions to numbered ADRs before any reversal lands | Six coming requirements reverse a stated position; each must supersede a record, not silently contradict prose | ✓ Good — the milestone's best structural call; 11 records now, 3 superseded |
+| Promote the load-bearing five decisions to numbered ADRs before any reversal lands | Six coming requirements reverse a stated position; each must supersede a record, not silently contradict prose | ✓ Good — the milestone's best structural call; 12 records now, 4 superseded |
 | The critic runs on a **more capable** model than the writer it gates | The user's own position, quoted verbatim in ADR-0010; it inverts the old rationale, which justified a strong judge by a weak critic | ✓ Good — Fly v10, ~12% of a run's cost |
 | Fairness keys on an auto-issued anonymous identity; the global cap bounds the bill | Identities are free to mint, so per-caller limits buy fairness, not a bound — and a signup wall would cost more than it buys | ✓ Good — [ADR-0007](../docs/adr/0007-anonymous-identity-fairness-global-cap.md) supersedes 0006 |
 | The admission reservation is sized on **measurement**, not estimate | Two live runs put a typical run above the $0.20 estimate; the docstring's own rule already named $0.30 | ✓ Good — raised at the v1.1 audit |

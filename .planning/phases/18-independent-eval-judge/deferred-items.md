@@ -37,3 +37,33 @@ made on purpose.
 **Candidate owner:** Phase 21's record run (the next time a real judge is asked
 anything) or a follow-up to 18-04, which already owns operator-facing wording in
 this phase.
+
+## Stale test counts in prose (found in 18-03)
+
+**Measured, 18-03 Task 2's whole-file pass.** Greping the tree for spelled-out and
+digit counts to re-derive the ADR arithmetic turned up two test counts that are
+stale, neither of them falsified by this plan:
+
+| Site | Says | Measured 2026-08-13 |
+|------|------|---------------------|
+| `.planning/PROJECT.md:31` | 737 keyless / 801 with Postgres | **748** keyless (67 skipped) |
+| `README.md:15` and `README.md:199` | 740 (both sites) | **748** |
+
+`PROJECT.md`'s number was already stale entering Phase 18 (the measured baseline
+at phase start was 740), so it is not this wave's to correct alone, and the same
+count in `README.md` is explicitly **18-04's** deliverable per `18-VALIDATION.md`
+row 7 ("README test count measured and corrected"). Fixing one of the two here
+would leave the pair disagreeing.
+
+**What 18-03 did fix**, because its own commit falsified them: the ADR counts in
+`README.md:40` (eleven/three → twelve/four) and `.planning/PROJECT.md` § Current
+State and § Key Decisions.
+
+**Candidate owner:** 18-04, in the same pass that corrects the README count —
+both numbers come from one `pytest` run.
+
+**The house lesson this is the seventh instance of:** a whole-file pass means
+counting, and a plan's stated arithmetic is a claim to check. Here the plan's
+arithmetic (twelve records, eight Accepted, four supersessions) was **correct** —
+verified cell by cell against the index table before it was typed — which is the
+first time in this family it has been. The drift was elsewhere in the same files.
