@@ -2842,22 +2842,116 @@ def test_judge_critic_collision_warning_states_a_fact_not_a_fault(tmp_path, monk
 
 
 def test_judge_critic_collision_warning_points_at_a_record_that_exists():
-    """The three tests above pin a *string*, `ADR-0010`, in a line an operator
-    reads at the moment they are deciding whether to trust a recording. Nothing
-    checked that the string resolves to anything. A dangling pointer in an
-    operator-facing message is worse than no pointer: it spends the reader's
-    trust and then their time.
+    """The collision tests above pin a *string* naming an ADR in a line an
+    operator reads at the moment they are deciding whether to trust a
+    recording. Nothing checked that the string resolves to anything. A dangling
+    pointer in an operator-facing message is worse than no pointer: it spends
+    the reader's trust and then their time. The judge's rationale now lives in
+    ADR-0012, so that is where the line points, and this test is what
+    guarantees the pointer lands on a record that exists and agrees.
 
-    So: the record exists, it is the one that supersedes ADR-0005, and 0005's
-    own status line agrees. The supersession is a two-file claim and this is
-    the only thing in the tree that holds both halves together -- the
-    one-line-diff gate on 0005 lived in a plan, and plans stop being run."""
+    The chain is three deep and every status line is asserted, because a
+    supersession is a two-file claim and the middle record is half of two of
+    them. Phase 18 extended this test rather than adding a second one: the same
+    test keeps holding both halves of every supersession it names.
+
+    One assertion was REPLACED, not dropped. This test used to require
+    `supersedes ADR-0005` inside ADR-0010 -- text that lived only in 0010's
+    status line, which the supersession convention overwrites the day 0010 is
+    itself superseded. The 0005 -> 0010 half is now held from 0005's side,
+    where `Superseded by ADR-0010` is permanent. That deletion is the whole
+    reason this test had to move in the same commit as ADR-0012."""
     adr = pathlib.Path(__file__).resolve().parent.parent / "docs" / "adr"
-    record = adr / "0010-judge-rederived-for-an-independent-critic.md"
+    records = {
+        "0005": adr / "0005-opus-5-eval-judge.md",
+        "0010": adr / "0010-judge-rederived-for-an-independent-critic.md",
+        "0012": adr / "0012-judge-independent-of-the-critic.md",
+    }
+    for number, path in records.items():
+        assert path.exists(), f"the record trail names ADR-{number}; {path.name} is not on disk"
 
-    assert record.exists(), "record mode names ADR-0010; no such record on disk"
-    assert "supersedes ADR-0005" in record.read_text()
-    assert "Superseded by ADR-0010" in (adr / "0005-opus-5-eval-judge.md").read_text()
+    # 0005 -> 0010 (Phase 16), held from the superseded record's side.
+    assert "Superseded by ADR-0010" in records["0005"].read_text()
+    # 0010 -> 0012 (Phase 18), both halves.
+    assert "Superseded by ADR-0012" in records["0010"].read_text()
+    assert "supersedes ADR-0010" in records["0012"].read_text()
+
+
+_SPELLED = {
+    1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+    8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
+    14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
+    19: "nineteen", 20: "twenty",
+}
+
+
+def test_the_adr_index_counting_prose_is_derived_from_the_table():
+    """A gate that greps for the string you just typed is not a gate (17-04).
+    The ADR index opens with prose that COUNTS -- how many records exist, how
+    many are `Accepted`, how many supersessions have happened -- and a literal
+    grep for "Eight of the twelve" stays green forever once someone flips a
+    row's Status cell and forgets the paragraph, which is exactly the drift
+    every supersession since Phase 12 has produced.
+
+    So the numbers are DERIVED from the table's own Status cells and compared
+    against the prose. Nothing here hardcodes this phase's counts: add a
+    thirteenth record and the checker demands the prose say thirteen."""
+    index = pathlib.Path(__file__).resolve().parent.parent / "docs" / "adr" / "README.md"
+    text = index.read_text()
+
+    # The prose under test is the paragraph between `## Index` and the table.
+    heading, _, rest = text.partition("## Index")
+    assert heading, "docs/adr/README.md has no `## Index` section"
+    prose = rest.split("| # | Record |")[0].lower()
+
+    rows = [ln for ln in text.splitlines() if re.match(r"^\|\s*\d{4}\s*\|", ln)]
+    statuses = [ln.split("|")[4].strip() for ln in rows]
+    assert len(rows) >= 11, f"only parsed {len(rows)} index rows; the table shape moved"
+
+    accepted = sum(1 for s in statuses if s.startswith("Accepted"))
+    superseded = sum(1 for s in statuses if s.startswith("Superseded"))
+    # Every row is one or the other. A mis-parse would shrink both silently.
+    assert accepted + superseded == len(rows), f"unclassified Status cells: {statuses}"
+
+    def spelled(n: int) -> str:
+        assert n in _SPELLED, f"extend _SPELLED past {n}, or move the prose to digits"
+        return _SPELLED[n]
+
+    assert f"{spelled(accepted)} of the {spelled(len(rows))} records" in prose, (
+        f"the table says {accepted} of {len(rows)} records are Accepted; "
+        f"the counting prose does not say so:\n{prose}"
+    )
+    assert f"{spelled(superseded)} supersessions" in prose, (
+        f"the table carries {superseded} superseded records; "
+        f"the counting prose does not say so:\n{prose}"
+    )
+
+    # A `Superseded by` cell must name a record that is on disk and that owns
+    # the supersession the index credits it with -- the index is the third
+    # party to every supersession the chain test holds two halves of.
+    #
+    # The back-reference is NOT `supersedes ADR-NNNN`. That text lives in the
+    # superseder's status line, and the convention above replaces that line the
+    # day the superseder is itself superseded: ADR-0010 stopped claiming
+    # ADR-0005 the moment ADR-0012 landed. (That deletion is the same one that
+    # reds the chain test below.) The durable claim is the
+    # `Carried forward from ADR-NNNN` section, which lives in a body no
+    # supersession is ever allowed to edit. Either form counts.
+    for row in rows:
+        cells = [c.strip() for c in row.split("|")]
+        number, status, successor_cell = cells[1], cells[4], cells[5]
+        target = re.search(r"\((\d{4}-[a-z0-9-]+\.md)\)", successor_cell)
+        if not status.startswith("Superseded"):
+            assert not target, f"an Accepted row carries a successor link: {row}"
+            continue
+        assert target, f"superseded row names no successor file: {row}"
+        successor = index.parent / target.group(1)
+        assert successor.exists(), f"index points at a missing record: {target.group(1)}"
+        body = successor.read_text()
+        assert (
+            f"supersedes ADR-{number}" in body
+            or f"Carried forward from ADR-{number}" in body
+        ), f"{target.group(1)} never claims ADR-{number}, which the index credits it with"
 
 
 def test_judge_critic_collision_warning_leaves_the_judgeless_refusal_intact(tmp_path, capsys):
