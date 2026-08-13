@@ -220,7 +220,13 @@ refusal surfaces as a finding rather than a misleading parse error
      reopens the reversal register v1.1 closed as spent.
   4. The price table carries an Opus 4.8 row, so a judge run's cost is reported rather than
      landing on `pricing_unknown`.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 18-01-PLAN.md — PRICES row + `JUDGE_MODEL` default flip in one commit, independence pinned against the deployed critic
+- [ ] 18-02-PLAN.md — the refusal guard: `stop_reason` checked before content, a decline is a graded finding reaching the recorder's failed-graders branch
+- [ ] 18-03-PLAN.md — ADR-0012 supersedes ADR-0010, index re-derived with a derived-counts checker, the 0005→0010→0012 chain test extended in the same commit
+- [ ] 18-04-PLAN.md — the collision line's premise re-derived (silent at shipped defaults, points at ADR-0012), every other judge==critic doc surface cleaned
 
 ### Phase 19: Credential validity, log addressability, demo CSP
 **Goal**: `/health` reports whether the API keys actually work without touching liveness, a
