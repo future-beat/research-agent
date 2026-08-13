@@ -573,13 +573,24 @@ def test_the_refusal_grader_accepts_a_structural_forced_stop_only_when_expected(
 
 
 class FakeJudgeClient:
-    def __init__(self, *payloads):
+    """A judge client that answers normally: `stop_reason="end_turn"`.
+
+    `stop_reason` and `stop_details` are here because `Judge.verdict` reads the
+    stop reason before it reads a single content block, and a fake whose
+    response is missing the field the real `anthropic.types.Message` always
+    carries would AttributeError every test built on it. `stop_details` is
+    non-null ONLY for refusals in the SDK, so `None` is the honest value here.
+    """
+
+    def __init__(self, *payloads, stop_reason="end_turn"):
         self.payloads = list(payloads)
         self.prompts = []
         self.messages = self
+        self.stop_reason = stop_reason
 
     def create(self, **kwargs):
         self.prompts.append(kwargs["messages"][0]["content"])
+        stop_reason = self.stop_reason
 
         class Block:
             type = "text"
@@ -590,8 +601,62 @@ class FakeJudgeClient:
         class Response:
             def __init__(self, text):
                 self.content = [Block(text)]
+                self.stop_reason = stop_reason
+                self.stop_details = None
 
         return Response(self.payloads.pop(0))
+
+
+class RefusalStopDetails:
+    """Shaped after `anthropic.types.RefusalStopDetails` (SDK 0.120.0): the
+    three fields the guard is allowed to read, and nothing else."""
+
+    def __init__(self, category, explanation):
+        self.type = "refusal"
+        self.category = category
+        self.explanation = explanation
+
+
+class RefusingJudgeClient:
+    """A judge client whose model DECLINES to answer.
+
+    The documented shape of a safety-classifier refusal: a normal HTTP 200,
+    `stop_reason="refusal"`, `stop_details` naming the trigger, and content
+    that is empty or minimal -- which is why reading content first turns a
+    refusal into `unparseable verdict: ''` and blames the parse.
+
+    Unlike `FakeJudgeClient` this one never runs out of payloads: a recording
+    calls the judge once per judge grader per turn, and a client that popped
+    from a list would fail on the second call for reasons that have nothing to
+    do with refusals.
+    """
+
+    def __init__(
+        self,
+        *,
+        category="general_harms",
+        explanation="declined by the safety classifier",
+        with_details=True,
+    ):
+        self.prompts = []
+        self.messages = self
+        self.calls = 0
+        self.stop_details = (
+            RefusalStopDetails(category, explanation) if with_details else None
+        )
+
+    def create(self, **kwargs):
+        self.prompts.append(kwargs["messages"][0]["content"])
+        self.calls += 1
+        stop_details = self.stop_details
+
+        class Response:
+            def __init__(self):
+                self.content = []  # empty on refusal -- the documented shape
+                self.stop_reason = "refusal"
+                self.stop_details = stop_details
+
+        return Response()
 
 
 def test_judge_parses_a_structured_verdict():
@@ -606,6 +671,77 @@ def test_judge_raises_on_an_unparseable_verdict():
     judge = G.Judge(FakeJudgeClient("I think it's fine, honestly"))
     with pytest.raises(ValueError, match="unparseable"):
         judge.verdict("check this")
+
+
+def test_judge_says_truncated_rather_than_unparseable_when_it_ran_out_of_tokens():
+    """Cut-off JSON is not malformed JSON, and the fix is not the same.
+
+    `max_tokens=1500` is shared with adaptive thinking, so the plausible way a
+    real verdict fails to parse is that the model thought at length and the
+    object ended mid-string. Reported as "unparseable" that reads as a prompt
+    or schema problem; reported as TRUNCATED it names the budget. Both raise --
+    truncation is an operational failure, not a graded finding, and a run that
+    quietly scored nothing is the outcome the raise exists to prevent."""
+    client = FakeJudgeClient('{"passed": true, "rea', stop_reason="max_tokens")
+    judge = G.Judge(client)
+
+    with pytest.raises(ValueError, match="TRUNCATED") as exc:
+        judge.verdict("check this")
+
+    # Not the malformation message: the two diagnoses stay apart.
+    assert "unparseable" not in str(exc.value)
+    # And the partial text is quoted, because it is the evidence.
+    assert '{"passed": true, "rea' in str(exc.value)
+
+
+def test_judge_refusal_is_a_graded_finding_not_a_parse_error():
+    """A refusal is the model DECLINING, and it must say so in those words.
+
+    Three outcomes have to stay distinguishable downstream, because they call
+    for three different actions: a genuine FAILED verdict (the report is bad --
+    fix the pipeline), a MALFORMED verdict (raises -- fix the parse or the
+    prompt), and a REFUSAL (the judge never graded anything -- nothing about
+    the report has been measured at all). Before this guard the third was
+    reported as the second: `ValueError: Judge returned unparseable verdict:
+    ''`, blaming the parse for a decision the model made, on empty content the
+    parse never had a chance with.
+
+    The shape is pinned literally rather than against a constant imported from
+    the code, so a reworded detail reds here instead of agreeing with itself.
+    """
+    client = RefusingJudgeClient(
+        category="general_harms", explanation="the audit prompt quoted disallowed text"
+    )
+    judge = G.Judge(client)
+
+    passed, detail = judge.verdict("audit this")
+
+    assert passed is False
+    assert detail.startswith("the judge DECLINED to grade")
+    # The typed field, quoted -- so a reader of the eval report can tell this
+    # apart from a grader that decided the report was ungrounded.
+    assert "stop_reason=refusal" in detail
+    assert "general_harms" in detail
+    assert "the audit prompt quoted disallowed text" in detail
+    # A refusal still cost a call; the counter is what the record run's
+    # "N judge calls" line is built from.
+    assert judge.calls == 1
+
+
+def test_judge_refusal_without_details_still_names_the_refusal():
+    """`stop_details` is documented as refusal-only, not as refusal-always, and
+    the SDK types it `RefusalStopDetails | None`. A guard that reached straight
+    for `.category` would turn a refusal into an AttributeError -- which is a
+    crash inside the grader, i.e. straight back to the run-errored branch this
+    whole change exists to get out of."""
+    judge = G.Judge(RefusingJudgeClient(with_details=False))
+
+    passed, detail = judge.verdict("audit this")
+
+    assert passed is False
+    assert detail.startswith("the judge DECLINED to grade")
+    assert "stop_reason=refusal" in detail
+    assert "category" not in detail
 
 
 def test_the_judge_runs_on_a_different_model_than_the_pipeline():
@@ -2806,6 +2942,14 @@ class RecordingFakeClient:
         def __init__(self, payload):
             self.content = [RecordingFakeClient._Block(json.dumps(payload))]
             self.usage = None
+            # This response is handed to the REAL `Judge.verdict`, which reads
+            # the stop reason before the content. Without these two fields the
+            # guard AttributeErrors inside the grader, `run_case`'s blanket
+            # except turns it into `result.error`, and the recorder refuses
+            # with "the run errored" -- the exact mislabelling Phase 18 exists
+            # to remove, arriving via the fake instead of via a refusal.
+            self.stop_reason = "end_turn"
+            self.stop_details = None
 
     def __init__(self, case, judge_passes=True):
         self.scripted = ScriptedClient(case)

@@ -729,6 +729,33 @@ class Judge:
         self.calls = 0
 
     def verdict(self, question: str) -> tuple[bool, str]:
+        """Ask the model, and read WHY it stopped before reading WHAT it said.
+
+        Three outcomes, deliberately kept apart because they call for three
+        different actions:
+
+        * **Refused** (`stop_reason="refusal"`) -- the model declined to grade.
+          Returned as a FAILED verdict whose reason says so. It is a graded
+          finding, not an error: the run succeeded, the pipeline produced an
+          answer, and the only thing that did not happen is the grading. It
+          must not raise -- `run_case`'s blanket `except` would turn it into
+          `result.error`, and the recorder would then refuse the fixture with
+          "the run errored", blaming a paid, successful run for the judge's
+          decision.
+        * **Truncated** (`stop_reason="max_tokens"`) -- the 1500-token budget
+          is shared with adaptive thinking, so a long deliberation can cut the
+          JSON off mid-object. Raises, but says TRUNCATED rather than letting
+          an operational failure masquerade as a malformed verdict.
+        * **Malformed** (a normal stop, unreadable content) -- still raises.
+          A harness that silently mis-parses a verdict reports a confident
+          wrong number, which is worse than crashing.
+
+        The refusal check runs BEFORE the content join because a refusal is a
+        normal HTTP 200 with empty or minimal content: parse first and the
+        decision arrives as `unparseable verdict: ''`, which names the parse
+        and hides the refusal. The stop reason is a typed field on the
+        response -- it is never inferred from the text.
+        """
         self.calls += 1
         response = self.client.messages.create(
             model=self.model,
@@ -740,12 +767,36 @@ class Judge:
             },
             messages=[{"role": "user", "content": question}],
         )
+        if response.stop_reason == "refusal":
+            return False, _refusal_detail(response)
         text = "".join(b.text for b in response.content if b.type == "text")
+        if response.stop_reason == "max_tokens":
+            raise ValueError(
+                "Judge verdict was TRUNCATED at max_tokens (the 1500-token budget is "
+                f"shared with adaptive thinking), not malformed: {text[:200]!r}"
+            )
         try:
             parsed = json.loads(text)
             return bool(parsed["passed"]), str(parsed.get("reason", ""))
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
             raise ValueError(f"Judge returned unparseable verdict: {text[:200]!r}") from exc
+
+
+def _refusal_detail(response) -> str:
+    """Say, in the verdict's own reason, that nothing was graded.
+
+    `stop_details` is populated only for refusals and is typed
+    `RefusalStopDetails | None`, so every field it carries is read defensively:
+    a guard that raised an AttributeError reaching for `.category` would land
+    the refusal right back in the run-errored branch it exists to avoid.
+    """
+    detail = "the judge DECLINED to grade this case (stop_reason=refusal"
+    details = getattr(response, "stop_details", None)
+    if details is None:
+        return detail + ")"
+    detail += f", category={getattr(details, 'category', None)}"
+    explanation = getattr(details, "explanation", "")
+    return f"{detail}): {explanation}" if explanation else detail + ")"
 
 
 def judge_grounding(judge: Judge, case: Case, state: dict) -> Grade:
