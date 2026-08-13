@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
-status: phase-planned
-stopped_at: "Phase 18 planned and checker-verified (0 blockers; 2 warnings revised into the plans). Four plans, four sequential waves, on branch gsd/phase-18-independent-eval-judge. Ready for /gsd:execute-phase 18."
-last_updated: "2026-08-13T06:55:10.666Z"
-last_activity: "2026-08-13 — Phase 18 planned: CONTEXT from milestone decisions, RESEARCH (Opus 4.8 compat verified, ~30 tests inventoried, 2 ordering traps), VALIDATION contract, 4 PLANs, checker loop closed at 0 outstanding."
+status: executing
+stopped_at: "Phase 18 waves 1-2 complete (18-01 flip+price row, 18-02 refusal guard) on branch gsd/phase-18-independent-eval-judge. 747 passed / 67 skipped keyless, offline evals 41/41 exit 0, ruff clean. Next: 18-03 (ADR-0012 and the supersession chain)."
+last_updated: "2026-08-13T09:45:00.000Z"
+last_activity: "2026-08-13 — Phase 18 wave 2 executed: Judge.verdict reads stop_reason before content, so a refusal is a graded finding reaching the recorder's failed-graders branch; truncation named separately; five mutation probes each observed red alone."
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 18 — Independent eval judge (v1.2 "Nothing uncovered", Phases 18-22)
-Plan: 4 plans (18-01 … 18-04), 4 sequential waves, checker-verified
-Status: Planned — ready for /gsd:execute-phase 18
-Last activity: 2026-08-13 — Phase 18 planned end to end: CONTEXT (from milestone decisions), RESEARCH, VALIDATION contract, 4 PLANs, checker loop closed (0 blockers; 2 warnings revised in)
+Plan: 2 of 4 complete (18-01, 18-02); next is 18-03 (ADR-0012), then 18-04 (the doc/collision re-derivation)
+Status: Executing — waves 1 and 2 landed on gsd/phase-18-independent-eval-judge
+Last activity: 2026-08-13 — 18-02: the judge's response boundary made honest. `stop_reason` is read before any content block, so a refusal returns a FAILED verdict ("the judge DECLINED to grade this case…") that reaches `_refuse_failing`'s failed-graders branch instead of arriving as `ValueError: … unparseable verdict: ''` and being relabelled "the run errored" by `run_case`'s blanket except. Malformation still raises; truncation now says TRUNCATED. Zero lines changed in evals/fixtures.py and evals/__main__.py
 
 ## Performance Metrics
 
