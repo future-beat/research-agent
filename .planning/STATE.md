@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
-status: "Roadmap approved — ready for /gsd:plan-phase 18"
-stopped_at: **17-04 Tasks 1–2 complete; Task 3 (the live checkpoint) UNSTARTED by
+status: phase-planned
+stopped_at: "Phase 18 planned and checker-verified (0 blockers; 2 warnings revised into the plans). Four plans, four sequential waves, on branch gsd/phase-18-independent-eval-judge. Ready for /gsd:execute-phase 18."
 last_updated: "2026-08-13T06:55:10.666Z"
-last_activity: 2026-08-13 — v1.2 ROADMAP.md created (Phases 18-22), REQUIREMENTS.md traceability filled
+last_activity: "2026-08-13 — Phase 18 planned: CONTEXT from milestone decisions, RESEARCH (Opus 4.8 compat verified, ~30 tests inventoried, 2 ordering traps), VALIDATION contract, 4 PLANs, checker loop closed at 0 outstanding."
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 18 — Independent eval judge (v1.2 "Nothing uncovered", Phases 18-22)
-Plan: —
-Status: Roadmap approved — ready for /gsd:plan-phase 18
-Last activity: 2026-08-13 — v1.2 ROADMAP.md created (Phases 18-22), REQUIREMENTS.md traceability filled
+Plan: 4 plans (18-01 … 18-04), 4 sequential waves, checker-verified
+Status: Planned — ready for /gsd:execute-phase 18
+Last activity: 2026-08-13 — Phase 18 planned end to end: CONTEXT (from milestone decisions), RESEARCH, VALIDATION contract, 4 PLANs, checker loop closed (0 blockers; 2 warnings revised in)
 
 ## Performance Metrics
 
