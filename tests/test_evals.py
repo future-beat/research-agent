@@ -2639,6 +2639,112 @@ def record_with_fakes(case_ids, tmp_path, *, refuse_task=None, force=False):
     )
 
 
+def test_a_judge_refusal_reaches_the_recorders_failed_graders_branch(tmp_path):
+    """A declining judge must refuse the RECORD through the graders' door.
+
+    `_refuse_failing` has two branches and they blame different actors. The
+    run-errored branch says the pipeline broke; the failed-graders branch names
+    the graders that said no. Before the guard a refusal took the first one --
+    a ValueError out of `Judge.verdict`, swallowed by `run_case`'s blanket
+    except into `result.error` -- so an operator reading a $12 record run was
+    told their successful, paid pipeline run had errored, when what actually
+    happened is that the judge declined to look at it.
+
+    The REAL `G.Judge` over a refusing client, deliberately: `FakeJudge` has no
+    client and its `verdict` never reaches the guard, so a test built on it
+    would exercise none of this.
+
+    Which surface carries WHAT: the `FixtureError` names the graders, and the
+    refusal-shaped detail rides on the failed `Grade` objects -- the same
+    `result.failures` list `evals/__main__.py`'s `announce` prints from, and
+    the `turns[].grades[].detail` that `--report` serialises.
+    """
+    judge = G.Judge(RefusingJudgeClient(explanation="declined by the safety classifier"))
+
+    report = record_suite(
+        [by_id("technical-figures")],
+        client_factory=offline_client_factory,
+        memory_factory=offline_memory_factory,
+        judge=judge,
+        directory=tmp_path,
+    )
+
+    recording = report["recordings"][0]
+    case = report["cases"][0]
+
+    # (a) The failed-graders branch fired, and the run-errored one did not.
+    assert recording["written"] is False
+    assert "judge_grounding" in recording["refusal"]
+    assert "the run errored" not in recording["refusal"]
+    assert case["error"] == ""  # nothing about the RUN failed
+
+    # (b) The reason's CONTENT, not merely that there was one. A reason-blind
+    # assertion is green under both branches and would gate nothing: remove the
+    # guard and `written` is still False, the file is still absent, and the
+    # only thing that changes is who gets blamed.
+    failed = [g for turn in case["turns"] for g in turn["grades"] if not g["passed"]]
+    assert [g["grader"] for g in failed] == [
+        "judge_grounding",
+        "judge_answers_the_question",
+    ]
+    for grade in failed:
+        assert grade["detail"].startswith("the judge DECLINED to grade")
+        assert "stop_reason=refusal" in grade["detail"]
+        assert "declined by the safety classifier" in grade["detail"]
+        assert grade["judged"] is True
+
+    # (c) A refused write leaves no file (15-01) -- not a partial one, not an
+    # empty one.
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_record_console_names_the_judge_not_the_run_when_the_judge_declines(
+    tmp_path, monkeypatch, capsys
+):
+    """What the operator actually reads, through `main`, end to end.
+
+    The claim above is about data structures; this one is about the console a
+    person watches a paid record run in. It says SKIP, it names
+    `judge_grounding`, and it never says the run errored.
+
+    It also MEASURES the limit of that surface rather than assuming it: in
+    record mode `main` wires `announce_recording` (which prints the refusal
+    message -- grader names) and never calls `announce` (which is the function
+    that prints `grade.detail`). So the console says WHICH grader refused and
+    the word DECLINED travels in `--report`. Recorded as measured behaviour,
+    not repaired here: printing failed-grade details from a refused recording
+    means editing `evals/__main__.py`, and this plan's whole argument is that
+    the refusal composes with the existing paths without touching them.
+    """
+    report_path = tmp_path / "report.json"
+    code = cli_record(
+        monkeypatch,
+        tmp_path,
+        "technical-figures",
+        judge_refuses=True,
+        argv=("--min-pass-rate", "0", "--report", str(report_path)),
+    )
+
+    assert code == 1
+    assert not (tmp_path / "technical-figures.json").exists()
+    out = capsys.readouterr().out
+    assert "1 case(s) were NOT recorded" in out
+    assert "judge_grounding" in out
+    assert "the run errored" not in out
+    # The measured boundary of the console surface.
+    assert "DECLINED" not in out
+
+    failed = [
+        grade
+        for case in json.loads(report_path.read_text())["cases"]
+        for turn in case["turns"]
+        for grade in turn["grades"]
+        if not grade["passed"]
+    ]
+    assert failed
+    assert all(g["detail"].startswith("the judge DECLINED to grade") for g in failed)
+
+
 def test_record_writes_a_fixture_per_case_with_fakes(tmp_path):
     """The whole recording composition -- drive the graph with state capture,
     build the fixture, write it through the refusing writer -- proven without
@@ -2951,26 +3057,43 @@ class RecordingFakeClient:
             self.stop_reason = "end_turn"
             self.stop_details = None
 
-    def __init__(self, case, judge_passes=True):
+    class _RefusedResponse:
+        """The judge half of the client, declining. Same fields, refusal
+        values -- the whole difference a safety classifier makes to the wire."""
+
+        def __init__(self):
+            self.content = []
+            self.usage = None
+            self.stop_reason = "refusal"
+            self.stop_details = RefusalStopDetails(
+                "general_harms", "declined by the safety classifier"
+            )
+
+    def __init__(self, case, judge_passes=True, judge_refuses=False):
         self.scripted = ScriptedClient(case)
         self.judge_passes = judge_passes
+        self.judge_refuses = judge_refuses
         self.judge_calls = 0
         self.messages = self
 
     def create(self, **kwargs):
         if kwargs["model"] == G.JUDGE_MODEL:
             self.judge_calls += 1
+            if self.judge_refuses:
+                return self._RefusedResponse()
             return self._Response(
                 {"passed": self.judge_passes, "reason": "a canned verdict"}
             )
         return self.scripted.create(**kwargs)
 
 
-def cli_record(monkeypatch, tmp_path, case_id, *, judge_passes=True, argv=()):
+def cli_record(
+    monkeypatch, tmp_path, case_id, *, judge_passes=True, judge_refuses=False, argv=()
+):
     """Drive `main`'s record branch end to end with fakes."""
     module = types.ModuleType("anthropic")
     module.Anthropic = lambda *a, **k: RecordingFakeClient(
-        by_id(case_id), judge_passes=judge_passes
+        by_id(case_id), judge_passes=judge_passes, judge_refuses=judge_refuses
     )
     monkeypatch.setitem(sys.modules, "anthropic", module)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
