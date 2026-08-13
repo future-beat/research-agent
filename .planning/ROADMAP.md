@@ -10,16 +10,24 @@ with guardrails. It is live at `research-agent.fly.dev`.
 Milestone v1.1 took on all nine items from the README's `## Limitations` list and closed
 every one. Six of them reversed a design position the project argues *for*, so the milestone
 opened by promoting the five load-bearing decisions into numbered ADRs — every later reversal
-names the ADR it supersedes, and the register of expected reversals is now spent. The work ran
+names the ADR it supersedes, and the register of expected reversals closed as spent. The work ran
 outward-in: infrastructure nothing else depends on first (multi-machine Postgres, pooling),
 then identity and lifecycle, then data migration and cost, then the measurement that makes
 quality changes visible, and only then the two reversals that change what the pipeline *says* —
 an independent critic, and follow-ups that can reach for new information.
 
 The service runs on two machines against Supabase Postgres at `research-agent.fly.dev`, on
-release v12. **No milestone is currently defined.** One phase has landed since the v1.1
-close: **17.5**, a hotfix enabling row level security on every table the service creates —
-in code, **not yet deployed**.
+release **v13**. One phase landed after the v1.1 close and before any milestone reopened:
+**17.5**, a hotfix enabling row level security on every table the service creates — shipped
+the same day it was found, deployed, and closed with nothing outstanding.
+
+**Milestone v1.2 "Nothing uncovered" is now open (Phases 18–22).** An investigation on
+2026-08-13 sorted the v1.1 README's seven remaining limitations into four that close without
+a successor limitation (judge independence, health credential validity, the note count bound,
+and the forty recorded golden answers) and three that cannot close honestly and instead get a
+record (cost-approximation-by-design, mintable identities via ADR-0007, and the free-tier
+database posture). One reversal is in scope and ceremonised: moving the judge off the critic's
+model supersedes ADR-0010, deliberately reopening the reversal register v1.1 closed as spent.
 
 **Definition of done for this project:** demonstrable to an employer. Live URL that works,
 green CI, a README a stranger can skim. Surface tidiness is part of the deliverable.
@@ -28,7 +36,7 @@ green CI, a README a stranger can skim. Surface tidiness is part of the delivera
 
 - ✅ **v1.0 Production pipeline** — Phases 1–9 (shipped, plus post-Phase-9 housekeeping). Pre-GSD; record remastered 2026-08-12. → [archive](milestones/v1.0-ROADMAP.md) · [requirements](milestones/v1.0-REQUIREMENTS.md)
 - ✅ **v1.1 Closing the limitations list** — Phases 10–17 + the inserted 10.5, **shipped 2026-08-11** (Fly v12). All nine limitations the v1.0 README listed are closed; six were deliberate reversals, each superseding a numbered ADR. → [archive](milestones/v1.1-ROADMAP.md) · [requirements](milestones/v1.1-REQUIREMENTS.md) · [audit](v1.1-MILESTONE-AUDIT.md)
-- **Next milestone: not yet defined** — start with `/gsd:new-milestone`
+- 🚧 **v1.2 Nothing uncovered** — Phases 18–22, **in progress** (roadmap created 2026-08-13). Closes four README limitations honestly and records the three that cannot close honestly, so the Limitations section's terminal state is "chosen and argued for," not backlog.
 
 ## Phases
 
@@ -43,7 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Full remastered detail in [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md);
 per-phase records (SUMMARY + retroactive VALIDATION, reconstructed 2026-08-12 and labeled
-as such) in `.planning/phases/01-*` … `09.1-*`.
+as such) in `.planning/milestones/v1.0-phases/`.
 
 - [x] **Phase 1: Core loop** - Supervisor pattern with deterministic Python routing
 - [x] **Phase 2: Memory** - Voyage embeddings, cosine recall with a relevance floor, persisted
@@ -115,11 +123,25 @@ errors and the `sensitive_columns_exposed` error on `runs` are cleared, replaced
 `INFO` `rls_enabled_no_policy` notices that are the correct end state and must **not** be
 "fixed" by adding a policy.
 
-Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-CONTEXT.md) ·
-[`17.5-01-SUMMARY.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-01-SUMMARY.md) ·
-[`17.5-VALIDATION.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-VALIDATION.md)
+Records: [`17.5-CONTEXT.md`](milestones/v1.1-phases/17.5-row-level-security-on-the-public-schema/17.5-CONTEXT.md) ·
+[`17.5-01-SUMMARY.md`](milestones/v1.1-phases/17.5-row-level-security-on-the-public-schema/17.5-01-SUMMARY.md) ·
+[`17.5-VALIDATION.md`](milestones/v1.1-phases/17.5-row-level-security-on-the-public-schema/17.5-VALIDATION.md)
 
 </details>
+
+### 🚧 v1.2 Nothing uncovered (Phases 18–22) — IN PROGRESS
+
+Phase numbering continues from v1.1's close (Phase 17, plus the post-close 17.5 hotfix), so
+v1.2 starts at Phase 18. Ordering is constrained: the judge phase must settle before the
+record run (judge verdicts are recorded once, as fixture metadata), and the record run and
+the README/records close-out sit at the end, since the close-out deletes bullets the other
+phases close.
+
+- [ ] **Phase 18: Independent eval judge** - `EVAL_JUDGE_MODEL` defaults to `claude-opus-4-8`, independent of the critic and the writer; ADR-0012 supersedes ADR-0010
+- [ ] **Phase 19: Credential validity, log addressability, demo CSP** - `/health` reports whether keys actually work; `run_finished` carries `session_id`; the demo page ships a hash-based CSP header
+- [ ] **Phase 20: Note count bound** - A per-owner count cap with oldest-first eviction, identical across all four backends
+- [ ] **Phase 21: Forty recorded answers** - All 40 golden cases carry a real recorded answer, graded keylessly on every push
+- [ ] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the four closed bullets are deleted, not rewritten into release notes
 
 ## Phase Details
 
@@ -128,7 +150,7 @@ Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema
 
 > Remastered 2026-08-12: each phase below now has a reconstructed record —
 > `NN-SUMMARY.md` and a retroactive `NN-VALIDATION.md` — under
-> `.planning/phases/<NN-slug>/`, and the milestone is archived in
+> `.planning/milestones/v1.0-phases/<NN-slug>/`, and the milestone is archived in
 > [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md).
 
 ### Phase 1: Core loop
@@ -183,28 +205,115 @@ Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema
 
 </details>
 
+### Phase 18: Independent eval judge
+**Goal**: The eval judge grades every case on a model independent of the critic, and a judge
+refusal surfaces as a finding rather than a misleading parse error
+**Depends on**: Nothing (first phase of v1.2)
+**Requirements**: REQ-judge-independent-of-critic
+**Success Criteria** (what must be TRUE):
+  1. `EVAL_JUDGE_MODEL` defaults to `claude-opus-4-8` — not the critic's model
+     (`claude-opus-5`), stronger than the writer it grades (Sonnet 5), at zero cost change
+     against `/pricing`.
+  2. A judge response the safety classifier refuses is surfaced as a graded finding, because
+     `graders.py` checks `stop_reason` before reading content instead of misparsing it.
+  3. ADR-0012 exists, records the supersession of ADR-0010, and states plainly that this
+     reopens the reversal register v1.1 closed as spent.
+  4. The price table carries an Opus 4.8 row, so a judge run's cost is reported rather than
+     landing on `pricing_unknown`.
+**Plans**: TBD
+
+### Phase 19: Credential validity, log addressability, demo CSP
+**Goal**: `/health` reports whether the API keys actually work without touching liveness, a
+completed run is addressable from its logs, and the demo page's inline JS survives a real CSP
+**Depends on**: Nothing (independent of Phase 18; sequenced here for milestone flow)
+**Requirements**: REQ-health-credential-validity, REQ-run-finished-session-id, REQ-demo-csp-header
+**Success Criteria** (what must be TRUE):
+  1. `/health` surfaces new credential-validity fields for Anthropic and Voyage, beside the
+     existing presence booleans, backed by a cached async probe (`count_tokens` for
+     Anthropic, a micro-embed for Voyage).
+  2. The liveness path Fly's health check reads still never calls a provider — a healthy
+     container is not restarted during a provider outage.
+  3. Probe spend is either excluded from cost accounting or attributed within it, and the
+     code states which, deliberately rather than silently.
+  4. `run_finished` log lines carry `session_id`, so a completed run is addressable from the
+     logs without cross-referencing another line.
+  5. The demo page ships a hash-based Content-Security-Policy header (no `unsafe-inline`)
+     and its inline JS still runs, verified against the live page.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 20: Note count bound
+**Goal**: Notes are bounded by count as well as expiry, with identical eviction behaviour on
+every backend
+**Depends on**: Nothing (independent of Phases 18–19; sequenced here for milestone flow)
+**Requirements**: REQ-note-count-bound
+**Success Criteria** (what must be TRUE):
+  1. Each owner's notes are capped at a fixed per-owner count, with the oldest note evicted
+     first once the cap is exceeded.
+  2. Eviction semantics are byte-identical across json, memory, chroma, and pgvector, proven
+     by the shared 4-arm contract suite (same inputs, same outcomes, all four backends).
+  3. The README's notes-unbounded-by-count limitation is falsified by a passing test, not
+     merely narrowed in prose.
+**Plans**: TBD
+
+### Phase 21: Forty recorded answers
+**Goal**: All 40 golden cases carry a real recorded answer, replayed and graded keylessly on
+every push
+**Depends on**: Phase 18 (the judge must settle first — verdicts are recorded once, as fixture
+metadata, and recording under a judge about to be replaced would file verdicts from an
+abandoned judge)
+**Requirements**: REQ-forty-recorded-answers
+**Success Criteria** (what must be TRUE):
+  1. All 40 golden cases have a fixture carrying a real recorded answer plus the settled
+     judge's verdict as metadata.
+  2. Every push replays and grades all 40 cases keylessly, with no live API key required.
+  3. A case the recorder refuses (failed graders or judge) is surfaced as a finding in the
+     record run's output, not silently retried or dropped.
+  4. The paid checkpoint is re-quoted at run time (quoted **$17.48** on 2026-08-13) and the
+     actual spend is reported against that quote.
+**Plans**: TBD
+
+### Phase 22: Limitations recorded
+**Goal**: Every surviving README limitation points at a record, and the Limitations section
+says plainly that what remains is chosen, not owed
+**Depends on**: Phases 18–21 (every closable limitation — judge independence, credential
+validity, the note count bound, and the forty recorded answers — must close before the
+section can be rewritten around what's left)
+**Requirements**: REQ-limitations-recorded
+**Success Criteria** (what must be TRUE):
+  1. A new ADR states the cost-approximation-by-design position and records why invoice
+     reconciliation via Anthropic's Admin cost API was rejected.
+  2. The mintable-identities limitation points at ADR-0007 instead of standing bare.
+  3. The free-tier-database limitation points at a database posture note in OPERATIONS.md.
+  4. The four closed bullets (judge independence, credential validity, the note count bound,
+     forty recorded answers) are deleted from the README, per the standing convention —
+     never rewritten into release notes.
+  5. The Limitations section's intro states that what remains is chosen, recorded, and
+     argued for.
+**Plans**: TBD
+
 ## Progress
 
 **v1.1 shipped 2026-08-11.** Per-phase execution records are archived in
 [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md); the phase-by-phase evidence lives in
-`.planning/phases/*/`, where every VALIDATION contract now reads `status: complete` and
+`.planning/milestones/v1.1-phases/*/`, where every VALIDATION contract now reads `status: complete` and
 `nyquist_compliant: true`.
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
 | v1.0 Production pipeline | 1–9 (+9.1) | — | Complete | pre-GSD; remastered 2026-08-12 |
 | v1.1 Closing the limitations list | 10–17 (+10.5) | 43/43 | **Complete** | 2026-08-11, Fly v12 |
-| _(no milestone open)_ | 17.5 | 1/1 | **Complete, undeployed** | landed 2026-08-12 |
+| _(no milestone)_ | 17.5 | 1/1 | **Complete, deployed** | landed and shipped 2026-08-12, Fly v13 |
+| v1.2 Nothing uncovered | 18–22 | 0/TBD | **In progress** | roadmap created 2026-08-13 |
 
-**Next:** no milestone defined. `/gsd:new-milestone` starts the questioning → research →
-requirements → roadmap chain.
+**Next:** Phase 18 — independent eval judge. `/gsd:plan-phase 18`
 
-## Reversal register — spent
+## Reversal register — spent at v1.1 close, reopened once by v1.2
 
-Six requirements reversed a stated design position. All six landed, each superseding a record
-rather than contradicting prose, and the register is now **spent**: `docs/adr/README.md`'s
-"remaining expected supersessions" describes an empty set. The full table is archived in
-[milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
+Six requirements reversed a stated design position during v1.1. All six landed, each
+superseding a record rather than contradicting prose, and the register closed as **spent**:
+`docs/adr/README.md`'s "remaining expected supersessions" described an empty set. The full
+v1.1 table is archived in [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md).
 
 | Phase | Reversed | Recorded as |
 |-------|----------|-------------|
@@ -214,3 +323,7 @@ rather than contradicting prose, and the register is now **spent**: `docs/adr/RE
 | 15 | DEC-20 (offline evals grade the pipeline only) | **ADR-0009** |
 | 16 | DEC-22's premise | **ADR-0010** supersedes 0005 |
 | 17 | DEC-04 | **ADR-0011** supersedes 0003 |
+
+**v1.2 reopens this register once, deliberately:** Phase 18 moves the eval judge off the
+critic's model, which supersedes ADR-0010 with a new record, **ADR-0012** — recorded as an
+intentional reopening, not drift.
