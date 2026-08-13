@@ -2628,12 +2628,19 @@ class FakeJudge:
         return True, "grounded in the notes"
 
 
-def record_with_fakes(case_ids, tmp_path, *, refuse_task=None, force=False):
+def record_with_fakes(
+    case_ids, tmp_path, *, refuse_task=None, force=False, judge_model="claude-opus-5"
+):
+    """`judge_model` is a parameter because the collision note reads it. The
+    default is the historical one (claude-opus-5, what `FakeJudge` itself
+    defaults to) so every pre-existing call site is unmoved; the collision
+    tests pass it explicitly, because after Phase 18 which model the judge runs
+    on is the whole variable under test rather than set dressing."""
     return record_suite(
         [by_id(case_id) for case_id in case_ids],
         client_factory=offline_client_factory,
         memory_factory=offline_memory_factory,
-        judge=FakeJudge(refuse_task=refuse_task),
+        judge=FakeJudge(model=judge_model, refuse_task=refuse_task),
         force=force,
         directory=tmp_path,
     )
@@ -2797,17 +2804,59 @@ def test_record_writes_the_models_map_critic_from_the_environment(tmp_path, monk
     assert fixture["models"]["pipeline"] == graph.MODEL
 
 
+def test_judge_critic_collision_warning_is_silent_at_the_shipped_defaults(
+    tmp_path, monkeypatch, capsys
+):
+    """A production-shaped record run prints NO collision line, and this is the
+    test that says so.
+
+    Until Phase 18 the collision was the deployed arrangement: the judge and
+    the critic both ran on claude-opus-5, so every real record run saw the
+    note. ADR-0012 separated them -- the judge ships on claude-opus-4-8 while
+    production still pins `CRITIC_MODEL` to claude-opus-5 -- which means the
+    line's premise inverted rather than its logic. The arrangement here is that
+    production one: the judge's own resolved model against production's pinned
+    critic.
+
+    If a future phase ever points them at the same model again, this is the
+    test that reds, and the question it asks is whether the wording below is
+    honest again -- not whether to delete the line."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")  # production's pin
+
+    record_with_fakes(["technical-figures"], tmp_path, judge_model=G.JUDGE_MODEL)
+
+    err = capsys.readouterr().err
+    assert "both run on" not in err, f"a production-shaped run printed a collision note: {err!r}"
+    assert "ADR-0012" not in err
+    # Non-vacuity: the premise of this test is that the shipped judge is NOT
+    # the deployed critic. If that stops being true the assertions above red
+    # anyway, but the reason should not have to be reconstructed from a diff.
+    assert G.JUDGE_MODEL != "claude-opus-5", (
+        "the shipped judge is back on the deployed critic's model; this test no longer "
+        "describes a production-shaped run -- see ADR-0012"
+    )
+
+
 def test_judge_critic_collision_warning_fires_once_per_run(tmp_path, monkeypatch, capsys):
-    """`FakeJudge` grades on claude-opus-5 and production pins the critic to
-    claude-opus-5, so this is the DEPLOYED configuration, not a contrived one.
+    """A CONTRIVED configuration, driven on purpose -- which is the point after
+    ADR-0012. A collision is now something an operator creates by moving either
+    knob (`EVAL_JUDGE_MODEL` or `CRITIC_MODEL`); it is no longer what ships. So
+    the judge model is passed explicitly rather than inherited from a fake's
+    default: the collision has to be arranged, and arranging it through
+    `FakeJudge`'s `model` is the only honest way here, because
+    `Judge.__init__`'s default binds `JUDGE_MODEL` at import and a monkeypatched
+    env var would prove nothing.
+
     Once per run, not once per case: two cases here, one line."""
     monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
 
-    record_with_fakes(["technical-figures", "followups-chain"], tmp_path)
+    record_with_fakes(
+        ["technical-figures", "followups-chain"], tmp_path, judge_model="claude-opus-5"
+    )
 
     err = capsys.readouterr().err
     assert err.count("both run on claude-opus-5") == 1
-    assert "ADR-0010" in err
+    assert "ADR-0012" in err
 
 
 def test_judge_critic_collision_warning_is_silent_when_they_differ(tmp_path, monkeypatch, capsys):
@@ -2818,27 +2867,42 @@ def test_judge_critic_collision_warning_is_silent_when_they_differ(tmp_path, mon
     record_with_fakes(["technical-figures"], tmp_path)
 
     err = capsys.readouterr().err
-    assert "both run on" not in err and "ADR-0010" not in err
+    assert "both run on" not in err and "ADR-0012" not in err
 
 
 def test_judge_critic_collision_warning_states_a_fact_not_a_fault(tmp_path, monkeypatch, capsys):
-    """The wording is the deliverable here, not decoration. This line fires on
-    the configuration Hesam chose -- the critic is deliberately more capable
-    than the writer it gates, which puts it on the judge's model -- so calling
-    it a misconfiguration would be telling the operator their own decision is a
-    mistake, every single record run, until they learn to skip the line. It
-    names the shared model, says what the verdicts can still claim, and points
-    at the record that accepted it."""
+    """The wording is the deliverable here, not decoration -- and Phase 18
+    inverted what an honest wording says.
+
+    The line used to fire on the arrangement Hesam had chosen, so it said so:
+    accepted, deployed, recorded in ADR-0010. After ADR-0012 the shipped
+    default separates the two models, so a collision is the operator's own
+    doing. Both readings share one rule, which is why the fault words are
+    unchanged: a line that calls the operator's configuration a mistake teaches
+    them to skip the line, and it is the only line that tells them what their
+    fixtures are worth. Both knobs are legitimate; this is a statement about
+    what colliding verdicts can claim, not a complaint.
+
+    So the required tokens moved with the facts. It must name the shared model,
+    say that the shipped default separates them (naming that default, derived
+    from the constant rather than typed here), attribute the pairing to the
+    operator, and point at ADR-0012 -- the record that separated them, whose
+    existence and status are held by the chain test below."""
     monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
 
-    record_with_fakes(["technical-figures"], tmp_path)
+    record_with_fakes(["technical-figures"], tmp_path, judge_model="claude-opus-5")
 
     err = capsys.readouterr().err.lower()
-    assert "claude-opus-5" in err and "adr-0010" in err
+    assert "claude-opus-5" in err and "adr-0012" in err
     for fault in ("misconfig", "error", "invalid", "should not", "must not", "fix"):
         assert fault not in err, f"the collision line implies fault: {fault!r}"
-    # And it says what it is: accepted, deployed, not a defect.
-    assert "accepted" in err and "deployed" in err
+    # The new facts, each pinned: the shipped default separates them, it is
+    # this model, and the pairing came from the operator.
+    assert "shipped default" in err
+    assert G.DEFAULT_JUDGE_MODEL in err, (
+        f"the line does not name the shipped default ({G.DEFAULT_JUDGE_MODEL}): {err!r}"
+    )
+    assert "operator" in err
 
 
 def test_judge_critic_collision_warning_points_at_a_record_that_exists():

@@ -30,7 +30,13 @@ from decimal import Decimal
 
 from evals.dataset import Case, Followup
 
-JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-opus-4-8")
+# The shipped default gets its own name because `JUDGE_MODEL` cannot speak for
+# it: `JUDGE_MODEL` is what THIS process resolved, and an operator who exported
+# `EVAL_JUDGE_MODEL` has moved it. The record run's collision note has to be
+# able to say what the default is while reporting a configuration that is not
+# the default -- that is the whole content of the note.
+DEFAULT_JUDGE_MODEL = "claude-opus-4-8"
+JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", DEFAULT_JUDGE_MODEL)
 
 
 @dataclass
