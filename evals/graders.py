@@ -12,11 +12,18 @@ cost money and vary run to run, so they only run under `--live`.
 
 The judge deliberately runs on a different model than the pipeline's *writer*
 (`JUDGE_MODEL` against `graph.MODEL`): a judge on the writer's own model would
-inherit exactly the blind spots it exists to find. The in-graph critic has had
-its own model since Phase 16 (`CRITIC_MODEL` -- unset means the writer's,
-production sets `claude-opus-5`), so in production the judge and the critic run
-on the same model. That is accepted rather than accidental, and recorded with
-the judge's re-derived rationale in ADR-0010.
+inherit exactly the blind spots it exists to find. That reasoning is carried
+forward unchanged; what Phase 18 added is the other half.
+
+The in-graph critic has had its own model since Phase 16 (`CRITIC_MODEL` --
+unset means the writer's, production sets `claude-opus-5`), and until Phase 18
+the judge sat on that same model, which was accepted rather than accidental.
+ADR-0012 ends the acceptance: the judge ships on `claude-opus-4-8`, a model of
+its own, so a recorded verdict is independent of the writer it grades AND of
+the critic's model *identity*. Not of the critic's model *family* -- Opus 4.8
+and the deployed Opus 5 critic are relatives, so a family-correlation skeptic
+still has an argument. The record states that residual in its own voice rather
+than solving it, and carries the re-derived rationale: ADR-0012.
 """
 
 from __future__ import annotations
