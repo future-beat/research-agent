@@ -89,4 +89,16 @@ about to be replaced would file verdicts from an abandoned judge.
 
 ## Traceability
 
-Filled by the roadmap: every requirement maps to exactly one phase.
+Every v1.2 requirement maps to exactly one phase. Filled by `/gsd:roadmap` on 2026-08-13.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| REQ-judge-independent-of-critic | Phase 18 — Independent eval judge | Pending |
+| REQ-health-credential-validity | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
+| REQ-run-finished-session-id | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
+| REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
+| REQ-note-count-bound | Phase 20 — Note count bound | Pending |
+| REQ-forty-recorded-answers | Phase 21 — Forty recorded answers | Pending |
+| REQ-limitations-recorded | Phase 22 — Limitations recorded | Pending |
+
+**Coverage:** 7/7 v1.2 requirements mapped. No orphans.
