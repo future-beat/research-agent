@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
-status: executing
-stopped_at: "Phase 18 waves 1-3 complete (18-01 flip+price row, 18-02 refusal guard, 18-03 ADR-0012 + the supersession chain) on branch gsd/phase-18-independent-eval-judge. 748 passed / 67 skipped keyless, offline evals 41/41 exit 0, ruff clean. Next: 18-04 (the collision line re-derived and the remaining judge==critic doc surfaces)."
-last_updated: "2026-08-13T09:59:46.406Z"
-last_activity: "2026-08-13 — Phase 18 wave 3 executed: ADR-0012 supersedes ADR-0010's judge==critic acceptance ONLY, states the reversal register reopening plainly and the family residual in its own voice; the status flip, the re-derived index and the extended 0005->0010->0012 chain test land in one commit because the convention's status-line edit deletes the string the chain test asserted."
+status: phase-complete
+stopped_at: "Phase 18 COMPLETE — all four waves landed on branch gsd/phase-18-independent-eval-judge (18-01 flip+price row, 18-02 refusal guard, 18-03 ADR-0012 + the supersession chain, 18-04 the collision line re-derived + every remaining judge==critic doc surface). Final gate keyless: 749 passed / 67 skipped exit 0, offline evals 41/41 (100% vs 90%) exit 0, ruff clean both forms. 18-VALIDATION reconciled, nyquist_compliant: true. Next: Phase 19 (credential validity, log addressability, demo CSP) — or merge the phase branch first."
+last_updated: "2026-08-14T00:20:00.000Z"
+last_activity: "2026-08-14 — Phase 18 wave 4 executed and the phase closed: the collision line kept its mechanism and lost its premise (silent at shipped defaults, proven by a new twin; fires once on an operator-created collision, pointing at ADR-0012), graders/OPERATIONS/DESIGN re-derived with measured 1->0 grep baselines, README's count measured at 749 and corrected at both sites. A third mutation beyond the plan's two proved the new wording tokens gate independently of the ADR citation."
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 75
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,12 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 18 — Independent eval judge (v1.2 "Nothing uncovered", Phases 18-22)
-Plan: 3 of 4 complete (18-01, 18-02, 18-03); next is 18-04 (the doc/collision re-derivation)
-Status: Executing — waves 1, 2 and 3 landed on gsd/phase-18-independent-eval-judge
-Last activity: 2026-08-13 — 18-03: ADR-0012 written, ADR-0010's status line flipped, the index re-derived and the chain test extended, all in one commit (`bc7cf40`). The record supersedes exactly one of ADR-0010's two positions — the judge==critic acceptance; the critic-above-writer stance is untouched and `CRITIC_MODEL` did not move. It states the reversal register's deliberate reopening, states the family residual in its own voice (Opus 4.8 is the critic's family, so this buys model identity), and attributes the declined Fable option to the owner with the verified half separated from the attributed half. New derived-counts index checker built (17-04's unbuilt T3); probe A5 reproduced — literal greps green, derived checker red
+Phase: 18 — Independent eval judge (v1.2 "Nothing uncovered", Phases 18-22) — **COMPLETE**
+Plan: 4 of 4 complete (18-01, 18-02, 18-03, 18-04)
+Status: Phase complete on gsd/phase-18-independent-eval-judge, not yet merged. Final gate keyless: **749 passed / 67 skipped** exit 0; offline evals **41/41 (100% vs 90% required)** real `$?` 0; ruff clean in both forms. 18-VALIDATION reconciled end to end — every row's Status filled with measured evidence, sign-off ticked, `nyquist_compliant: true`
+Last activity: 2026-08-14 — 18-04: the operator-facing collision line kept its MECHANISM (None guard, equality early-return, once-per-run placement) and lost its PREMISE. It is now silent on a production-shaped record run — proven by a new twin driving `FakeJudge(model=G.JUDGE_MODEL)` against production's pinned `CRITIC_MODEL` — and fires once on an operator-created collision, naming the shared model, saying what colliding verdicts stop being able to claim, naming the shipped default that separates them, and pointing at ADR-0012. `graders.DEFAULT_JUDGE_MODEL` is new and load-bearing: `JUDGE_MODEL` is what THIS process resolved, so the note must name the default while reporting a non-default configuration. Doc surfaces re-derived against measured 1→0 greps; README's test count measured at 749 and corrected at both sites; README `:285` left untouched as a deliberate transient Phase 22 owns
+
+**Deferred out of Phase 18, recorded rather than silent:** a real Opus 4.8 judge verdict has never round-tripped (every path is fake-driven) — the ~$0.06 one-verdict probe goes to Phase 21's record run. Also logged in `deferred-items.md`: the record console's missing DECLINED detail (18-02), three stale `.planning/codebase/` maps still naming a `claude-opus-5` judge, and PROJECT.md's unmeasurable with-Postgres count
 
 ## Performance Metrics
 
@@ -51,7 +53,7 @@ Last activity: 2026-08-13 — 18-03: ADR-0012 written, ADR-0010's status line fl
 | 15 | 6 of 6 (15-01 … 15-06) | 306min | 51min |
 | 16 | 3 of 4 (16-01, 16-02, 16-03) | 120min | 40min |
 | 17 | 3 of 4 (17-01, 17-02, 17-03; 17-04 Tasks 1–2 only, T3 unstarted) | 165min | 41min |
-| 18 | 3 of 4 (18-01, 18-02, 18-03) | 97min | 32min |
+| 18 | 4 of 4 (18-01 … 18-04) — **complete** | 135min | 34min |
 
 **Recent Trend:**
 
@@ -69,6 +71,11 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 18-04]: **A wording gate that pins the CITATION does not pin the SENTENCE, and only a third mutation showed the difference.** The plan specified two probes — fire unconditionally (both silence tests red) and point back at ADR-0010 (both wording tests red). Both passed, and **neither exercised the new required tokens**: mutation 2 reds on the ADR string alone. Probe 3, added here, restores the stale *"This is the deployed configuration and it is accepted"* sentence while leaving the pointer **correctly** at ADR-0012 — and the wording test still reds, on `shipped default`. Without it the honest claim would have been "the line cites ADR-0012", not "the line says something true": a footnote-only gate passes a sentence whose every factual claim is false provided it ends with the right number. **When the wording IS the deliverable, the mutation that matters holds the citation constant and breaks the facts.**
+- [Phase 18-04]: **When a premise inverts, separate the mechanism from the sentence before editing either.** `_state_judge_critic_relation`'s None guard, `judge.model != critic` early return and once-per-run placement were all still correct after the judge left the critic's model — 18-RESEARCH Finding 3 called this ("logic survives, premise inverts") and it held exactly. The shipped diff is a docstring and a print. The corollary is the new twin: a collision test suite that only proves the line *fires* cannot notice that it stopped being able to fire at the defaults, so the phase that inverts the premise owes a **silent-at-the-new-defaults** test, with a non-vacuity assertion so it cannot quietly stop describing production.
+- [Phase 18-04]: **A constant naming the DEFAULT cannot be the constant that resolved the ENV.** `JUDGE_MODEL` is what *this process* got, so an operator who exported `EVAL_JUDGE_MODEL` has already moved it — and the collision note's entire content is reporting a non-default configuration while naming the default. Hence `graders.DEFAULT_JUDGE_MODEL`. The wording test asserts against the constant rather than a typed literal, so re-pointing the default re-points the gate instead of leaving it pinned to a string that has stopped being true.
+- [Phase 18-04]: **Correct a stale number by measuring it, or by deleting the claim — never by deriving it from another measurement's delta.** `PROJECT.md` read "737 keyless / 801 with Postgres". The keyless half was measured (**749**) and fixed. The Postgres half was unmeasurable in-session (no Docker daemon, no server), and `801 + 12 = 813` is the plan-stated-arithmetic move this project has now caught seven times — so the sentence was rewritten to state what WAS measured (749 keyless, 67 Postgres-gated skips, 816 collected) and stops quoting a number nobody has run. **Eighth instance of the whole-file-pass-means-counting family, and the first where the honest answer was to remove a number rather than update it.**
+- [Phase 18-04]: **A grep sweep at phase close finds the artifacts nobody re-generates.** The broad judge==critic sweep turned up three `.planning/codebase/` maps (`STACK.md:98`, `INTEGRATIONS.md:131`, `TESTING.md:382`) still asserting a `claude-opus-5` judge as current fact — and `STACK.md:98`'s "this is the only place Opus appears" had **already been false since Phase 16**. Logged rather than hand-patched: they are `/gsd-map-codebase` output, regenerated wholesale, and fixing three lines would leave the rest equally stale while hiding that the snapshot needs a re-map. **Generated documentation goes stale silently because no phase owns it.**
 - [Phase 18-03]: **The supersession convention DELETES a middle-of-chain record's own supersession claim, and nobody had written that down.** The index checker's first back-reference design required every `Superseded by` target to contain `supersedes ADR-…`; it red on its first run against correct code, on ADR-0010 — whose status line had just been overwritten by the convention's step 1. That is research trap #2 seen one level up: the same edit that deletes `supersedes ADR-0005` from 0010 is why the chain test's 0005 half had to move to 0005's permanent side rather than be re-asserted from 0010's. Re-targeted at `Carried forward from ADR-NNNN`, which lives in a body the convention explicitly forbids editing, verified present in all four superseders. **Any future gate checking a supersession from the superseder's side must use the carried-forward section, not the status line.** And the mirror of the house rule: a probe that comes back green is re-targeted and disclosed — so is a gate that comes back red on correct code.
 - [Phase 18-03]: **A supersession stales COUNTING, FORECASTING and ENUMERATING prose — and the enumerating one is the one no count-grep finds.** The plan named three index paragraphs; the whole-file pass found a fourth: "there is no `docs/DESIGN.md` passage behind any of the **six**, so all **six** carry `**Source:**`" → seven. It contains no count of records and no supersession vocabulary, so nothing in the plan, the research or a number-word grep pointed at it. Also corrected: `README.md:40`'s ADR-count parenthetical, falsified by this very commit and therefore committed with it. **Seventh instance of the family — and the first time the plan's own arithmetic (twelve/eight/four) was CORRECT**, because it was derived cell by cell from the table before a number was typed rather than copied from the plan.
 - [Phase 18-03]: **"Each was forecast by the record it overturned" had to be rewritten, not deleted — the fourth supersession is the first unforecast one.** Verified against the files rather than assumed: `### Expected reversal` exists in ADR-0005, ADR-0003 and ADR-0006, and does **not** exist in ADR-0010 (its only hit is a citation of 0005's). ADR-0010 was written into a register the project was closing, so nothing forecast its reversal. The index now says three of four were forecast and the fourth was not, and says why; ADR-0012 states the reopening in its own text. **A record superseded in PART also earns a note saying which part** — a `Superseded` status invites the reading that everything under it is dead, and ADR-0010's critic-above-writer position is still deployed with no successor record.

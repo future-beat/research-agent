@@ -67,3 +67,48 @@ counting, and a plan's stated arithmetic is a claim to check. Here the plan's
 arithmetic (twelve records, eight Accepted, four supersessions) was **correct** —
 verified cell by cell against the index table before it was typed — which is the
 first time in this family it has been. The drift was elsewhere in the same files.
+
+**Resolved by 18-04:** `README.md:15` and `:199` corrected 740 → **749** from a
+measured run. `.planning/PROJECT.md:31` handled in the same pass — see below for
+why its second number could not be measured.
+
+## The codebase maps still describe the pre-Phase-16 judge (found in 18-04)
+
+**Measured, 18-04 Task 2's broad sweep.** Three `.planning/codebase/` artifacts
+assert the judge's model as current fact, and all three are stale:
+
+| Site | Says | Measured 2026-08-14 |
+|------|------|---------------------|
+| `.planning/codebase/STACK.md:98` | "**Eval judge:** `claude-opus-5` … **This is the only place Opus appears**" | judge is `claude-opus-4-8`; Opus also appears as the production critic |
+| `.planning/codebase/INTEGRATIONS.md:131` | "`EVAL_JUDGE_MODEL` (default `claude-opus-5`)" | default is `claude-opus-4-8` |
+| `.planning/codebase/TESTING.md:382` | `JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-opus-5")` | the literal is `"claude-opus-4-8"` |
+
+**Why not fixed here:** these are `/gsd-map-codebase` output — a dated snapshot of
+the tree, regenerated wholesale rather than hand-patched, and they are `.planning/`
+state rather than a shipped doc surface. 18-04's scope is the four surfaces the
+plan names (`evals/graders.py`, `docs/OPERATIONS.md`, `docs/DESIGN.md`,
+`README.md`). Hand-editing three lines of a generated artifact would leave the
+rest of the snapshot equally stale and disguise that it needs regenerating.
+
+**Note that STACK.md:98 was ALREADY stale entering this phase** — "the only place
+Opus appears" stopped being true in Phase 16, when production pinned the critic to
+`claude-opus-5`. So this is not drift Phase 18 created; it is drift Phase 18's
+sweep surfaced.
+
+**Candidate owner:** a `/gsd-map-codebase` re-run, or Phase 22's doc pass.
+
+## `.planning/PROJECT.md`'s with-Postgres count could not be measured (18-04)
+
+`PROJECT.md:31` read "737 tests pass with no API keys; 801 with Postgres armed."
+The keyless half is measured and corrected to **749**. The with-Postgres half was
+**not measurable in this session**: no Docker daemon and no running Postgres, and
+standing up a server to produce one number is outside a doc-correction plan's
+remit. What IS measured: all **67** skips are Postgres-gated (66 `DATABASE_URL is
+not set`, 1 `REQUIRE_POSTGRES is not set`), so 816 tests are collected keyless.
+
+Rather than infer `801 + 12 = 813` — the exact plan-stated-arithmetic move this
+project keeps catching — the sentence was rewritten to state the measured facts
+and stop quoting a second number nobody has run recently.
+
+**Candidate owner:** whoever next runs the suite with `DATABASE_URL` set (CI does
+this on every push; the number is in the CI log).

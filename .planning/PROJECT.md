@@ -28,8 +28,11 @@ superseding a numbered ADR rather than quietly contradicting prose — and the r
 the milestone opened with closed as spent, then was reopened once, deliberately, by v1.2's
 ADR-0012. `docs/adr/` holds 12 records, four of them superseded.
 
-737 tests pass with no API keys; 801 with Postgres armed. Offline evals grade 41 cases keylessly
-on every push, including one real recorded answer.
+749 tests pass with no API keys, and 67 more are Postgres-gated and skip without
+`DATABASE_URL` — 816 collected. (Measured 2026-08-14, keyless. The with-Postgres pass count
+used to be quoted here as 801; it is not restated because nobody has run that arm recently and
+deriving it from the keyless delta would be arithmetic, not a measurement. CI runs it on every
+push.) Offline evals grade 41 cases keylessly on every push, including one real recorded answer.
 
 **What is true now that was not at v1.0:** a stranger from a résumé link gets an auto-issued
 signed identity with no signup; sessions and notes belong to that caller and expire; the spend
