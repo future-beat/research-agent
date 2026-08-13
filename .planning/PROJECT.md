@@ -37,21 +37,35 @@ model than the writer it gates; a follow-up whose notes cannot answer goes and r
 instead of refusing; and reported cost is an approximation of the invoice rather than of the
 list price, with Voyage embedding spend counted for the first time.
 
-## Next Milestone Goals
+## Current Milestone: v1.2 Nothing uncovered
 
-**None defined.** `/gsd:new-milestone` starts the questioning → research → requirements →
-roadmap chain. Carried forward as open items rather than requirements:
+**Goal:** Every README limitation either closes without a successor, or becomes a recorded,
+argued-for position — the Limitations list stops being a to-do list.
 
-- The full 40-case eval record run (**~$16.51, and no longer time-sensitive** — the ~$21
-  figure assumed the 2026-09-01 Sonnet 5 price rise, which was cancelled on 2026-08-12).
-  Machinery proven by one paid calibration case; recording the rest is an operator decision,
-  and the deadline that was the only argument for doing it sooner is gone.
-- `/health` checks that API keys are *present*, not that they work — it stayed green through a
-  full revoked-key outage. Now listed in the README's Limitations.
-- No phase carries a `VERIFICATION.md`. The audit's P1, left open deliberately: writing them
-  after the fact would record a verification step that did not happen.
-- No CSP header on the demo page; `run_finished` carries no `session_id`; the `DATABASE_URL`
-  rollback path is documented but never exercised.
+**Target features:**
+- The eval judge runs independently of the critic: `EVAL_JUDGE_MODEL` defaults to
+  `claude-opus-4-8` (independent of the Opus 5 critic, stronger than the Sonnet 5 writer,
+  zero cost change), the judge's missing `stop_reason` guard is fixed, and ADR-0012
+  supersedes ADR-0010 — deliberately reopening the spent reversal register.
+- `/health` reports credential *validity*, not just presence: a cached async probe
+  (`count_tokens` costs nothing for Anthropic; a micro-embed for Voyage) surfaced as new
+  fields, with the liveness path untouched — the revoked-key-outage-stays-green failure
+  becomes visible without recreating the restart-during-provider-outage problem.
+- Notes gain a second bound: a per-owner count cap with oldest-first eviction, identical
+  semantics across all four backends, proven by the shared contract suite.
+- All 40 golden answers recorded (paid checkpoint, quoted **$17.48** on 2026-08-13,
+  sequenced after the judge settles — verdicts are recorded once, with the settled judge).
+- The three limitations that cannot close honestly each get a record: a new ADR for
+  cost-approximation-by-design, ADR-0007 already covering mintable identities, and the DB
+  posture moving to OPERATIONS. The README section is rewritten: what remains is chosen.
+- Riders from v1.1's deferred list: a hash-based CSP header on the demo page, and
+  `session_id` in `run_finished` logs.
+
+**Acceptance bar on every closure: no successor limitation.** And this milestone runs the
+verify step per phase, retiring the v1.1 audit's standing P1 pattern going forward.
+
+Carried forward, still not a requirement: the `DATABASE_URL` rollback path is documented
+but never exercised (an operational drill, not a feature).
 - ~~**2026-09-01** closes Sonnet 5's introductory pricing window~~ — **cancelled 2026-08-12**:
   $2/$10 per MTok is permanent, so no run gets a third more expensive and
   `DEMO_RESERVED_RUN_USD` stays $0.30. **The project now has no dated obligation at all.**
@@ -89,9 +103,16 @@ roadmap chain. Carried forward as open items rather than requirements:
 
 ### Active
 
-<!-- No milestone defined. Run /gsd:new-milestone. -->
+<!-- v1.2 — close the four closable README limitations; record the three that remain. -->
 
-_None. v1.1 closed 2026-08-11._
+- The eval judge is independent of the critic (default `claude-opus-4-8`), with the
+  refusal path guarded — ADR-0012 supersedes ADR-0010
+- `/health` reports whether the API keys actually work, without touching liveness
+- Notes carry a per-owner count bound with identical eviction semantics on all four backends
+- All 40 golden answers are recorded and graded on every push
+- Every surviving README limitation points at a record (new cost-approximation ADR;
+  ADR-0007; OPERATIONS posture note) and the section intro says so
+- The demo page ships a CSP header; `run_finished` carries `session_id`
 
 ### Out of Scope
 
@@ -182,4 +203,22 @@ _None. v1.1 closed 2026-08-11._
 | The admission reservation is sized on **measurement**, not estimate | Two live runs put a typical run above the $0.20 estimate; the docstring's own rule already named $0.30 | ✓ Good — raised at the v1.1 audit |
 
 ---
-*Last updated: 2026-08-11 at v1.1 milestone close (Fly release v12)*
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd:complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
+---
+*Last updated: 2026-08-13 at v1.2 milestone start*

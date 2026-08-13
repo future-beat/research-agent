@@ -43,7 +43,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Full remastered detail in [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md);
 per-phase records (SUMMARY + retroactive VALIDATION, reconstructed 2026-08-12 and labeled
-as such) in `.planning/phases/01-*` … `09.1-*`.
+as such) in `.planning/milestones/v1.0-phases/`.
 
 - [x] **Phase 1: Core loop** - Supervisor pattern with deterministic Python routing
 - [x] **Phase 2: Memory** - Voyage embeddings, cosine recall with a relevance floor, persisted
@@ -115,9 +115,9 @@ errors and the `sensitive_columns_exposed` error on `runs` are cleared, replaced
 `INFO` `rls_enabled_no_policy` notices that are the correct end state and must **not** be
 "fixed" by adding a policy.
 
-Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-CONTEXT.md) ·
-[`17.5-01-SUMMARY.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-01-SUMMARY.md) ·
-[`17.5-VALIDATION.md`](phases/17.5-row-level-security-on-the-public-schema/17.5-VALIDATION.md)
+Records: [`17.5-CONTEXT.md`](milestones/v1.1-phases/17.5-row-level-security-on-the-public-schema/17.5-CONTEXT.md) ·
+[`17.5-01-SUMMARY.md`](milestones/v1.1-phases/17.5-row-level-security-on-the-public-schema/17.5-01-SUMMARY.md) ·
+[`17.5-VALIDATION.md`](milestones/v1.1-phases/17.5-row-level-security-on-the-public-schema/17.5-VALIDATION.md)
 
 </details>
 
@@ -128,7 +128,7 @@ Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema
 
 > Remastered 2026-08-12: each phase below now has a reconstructed record —
 > `NN-SUMMARY.md` and a retroactive `NN-VALIDATION.md` — under
-> `.planning/phases/<NN-slug>/`, and the milestone is archived in
+> `.planning/milestones/v1.0-phases/<NN-slug>/`, and the milestone is archived in
 > [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md).
 
 ### Phase 1: Core loop
@@ -187,7 +187,7 @@ Records: [`17.5-CONTEXT.md`](phases/17.5-row-level-security-on-the-public-schema
 
 **v1.1 shipped 2026-08-11.** Per-phase execution records are archived in
 [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md); the phase-by-phase evidence lives in
-`.planning/phases/*/`, where every VALIDATION contract now reads `status: complete` and
+`.planning/milestones/v1.1-phases/*/`, where every VALIDATION contract now reads `status: complete` and
 `nyquist_compliant: true`.
 
 | Milestone | Phases | Plans | Status | Shipped |

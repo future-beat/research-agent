@@ -117,7 +117,7 @@ production service — live at `research-agent.fly.dev`.
 
 **Phases completed:** 1–9, plus the 9.1 package reorganisation. Pre-GSD: no plan artifacts
 existed at execution time. **Record remastered 2026-08-12** — per-phase SUMMARY and
-retroactive VALIDATION files under `.planning/phases/01-*` … `09.1-*`, each labeled
+retroactive VALIDATION files under `.planning/milestones/v1.0-phases/`, each labeled
 reconstructed, with the closing suite re-measured (364 passed / 28 skipped keyless).
 
 **Archive:** [`v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md) ·

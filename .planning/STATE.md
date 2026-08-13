@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Closing the limitations list
-status: milestone-complete
-stopped_at: "Phase 17.5 COMPLETE AND CLOSED — nothing outstanding. RLS shipped in Fly v13; the anon/authenticated REVOKE was run and confirmed (all five tables owner=postgres, rls_on=t, api_grants=none; no postgres-granted default privileges remain). Provider linter: six ERROR findings cleared, replaced by five INFO rls_enabled_no_policy notices which are the correct end state and must NOT be fixed by adding a policy. Now on Fly v14 (docs + one source comment; no behavioural change from v13). Auto-deploy was tried, failed three merges, and has been switched back off — deploys are manual. RLS is enabled by the schema DDL itself, so it applies on the next `fly deploy -a research-agent`; until then the production tables are unchanged. Outstanding operator action: the one-time REVOKE of the anon/authenticated grants (docs/OPERATIONS.md § Row level security). Before that: MILESTONE v1.1 COMPLETE, all nine README limitations closed."
-last_updated: "2026-08-10T22:15:00.000Z"
-last_activity: "2026-08-12 — Phase 17.5 deployed as Fly v13 and verified live (both machines, stores reachable, row counts unchanged). Row level security now enabled by the schema DDL on all five Postgres tables, pinned by four tests, three mutations observed red. Suite 739 keyless / 805 armed. Outstanding: the one-time anon/authenticated REVOKE. Also established by measurement: Fly auto-deploy does not fire for this repo despite being enabled. Earlier the same day: v1.0 remastered under GSD (phases 1–9 +9.1)."
+milestone: v1.2
+milestone_name: Nothing uncovered
+status: planning
+last_updated: "2026-08-13T04:06:09.169Z"
+last_activity: 2026-08-13
 progress:
-  total_phases: 19
-  completed_phases: 9
-  total_plans: 12
-  completed_plans: 39
-  percent: 72
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,74 +24,10 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-**MILESTONE v1.1 COMPLETE — all 17 phases + the 10.5 hotfix.**
-
-Phase: 17 of 17 (Follow-ups that can reach for new information) — **COMPLETE, live on v11**
-Progress: [██████████] 100% (17 of 17 phases + hotfix; v1.0 and v1.1 both shipped)
-
-**v1.0 remastered 2026-08-12.** The pre-GSD phases (1–9, plus 9.1) now carry the same
-record shape as v1.1: per-phase SUMMARY + retroactive VALIDATION under
-`.planning/phases/01-*` … `09.1-*`, and a milestone archive
-(`milestones/v1.0-ROADMAP.md`, `v1.0-REQUIREMENTS.md`). Every file is labeled
-reconstructed — no GSD step is claimed for a phase that predates GSD. The remaster
-re-ran the closing suite at `5c01b3e` (364 passed / 28 skipped keyless) and corrected
-MILESTONES.md's v1.1 test baseline from 436 to the measured 364.
-
-**The live proof (release v11, 2026-08-11):**
-```
-responder    ← notes cannot answer, signals INSUFFICIENT
-researcher   ← goes and searches (this row did not exist before)
-responder    ← drafts from the enlarged note set
-critic       ← approved: True
-
-trace: supervisor → researcher   followup_research: "notes_insufficient"
-forced_stop_reason: ''
-```
-The answer cited the new notes AND declined to fill the remaining gap from parametric
-knowledge — the replacement guarantee observed, not asserted.
-
-**All nine original README limitations are closed.** Six were deliberate reversals, each
-superseding a numbered ADR rather than quietly contradicting prose. The reversal register
-is spent: ADRs 0011 records the last one.
-
-**The v1.1 audit ran 2026-08-11** (`.planning/v1.1-MILESTONE-AUDIT.md`, PR #16) and returned
-`tech_debt`: 11/11 requirements satisfied on live or gated evidence, 8/8 connections wired,
-4/4 E2E flows complete, two findings and some bookkeeping. All three were closed the same day:
-
-- **W1 — fixed.** `_execute`'s try wrapped only the graph call while `_stream`'s wrapped the
-  persistence writes too, so a write failure on the blocking route lost the run from the
-  `runs` table permanently and left `spend_since` — the daily cap's only input — blind to
-  that spend. Both arms now record the state the graph produced, so a run that finished and
-  then failed to persist is worth its real cost to the cap rather than $0.00.
-- **W2 — fixed, and the default moved.** `DEMO_RESERVED_RUN_USD` **$0.20 → $0.30**, by the
-  rule the docstring had already written. Ships on the next manual deploy.
-- **P1 / VALIDATION drift — closed.** All nine phases now read `status: complete`,
-  `nyquist_compliant: true`, zero pending rows, each row carrying what was measured.
-
-**MILESTONE CLOSED 2026-08-11.** `/gsd:complete-milestone v1.1` archived the roadmap and
-requirements to `.planning/milestones/`, collapsed ROADMAP.md, evolved PROJECT.md, and tagged
-`v1.1`. `.planning/REQUIREMENTS.md` is gone by design — the next milestone creates a fresh one.
-The pre-close artifact audit was clear: zero open debug sessions, quick tasks, threads, todos,
-seeds, UAT gaps, verification gaps or context questions.
-
-**Next:** `/gsd:new-milestone` (questioning → research → requirements → roadmap). Open items
-carried across the milestone and never phased:
-- The full 40-case eval record run (**~$16.51, no longer time-sensitive** — the ~$21 figure
-  assumed the 2026-09-01 price rise, cancelled 2026-08-12) — machinery proven
-  by one calibration case; recording the rest is an operator decision.
-- `/health` reports the Anthropic key present, not valid — it stayed green through a full
-  revoked-key outage in phase 11. **Now listed in the README's Limitations.**
-- No CSP header on the demo page (logged in phase 12's deferred items).
-- **No phase has a VERIFICATION.md** (the audit's P1). Every phase ran plan → execute → PR
-  without the verify step. The work was verified by other means and the audit says so; the
-  artifact the framework expects does not exist, and the next person to run the audit hits
-  the same wall.
-- ~~The next reservation threshold is **2026-09-01**~~ — **retired 2026-08-12 without ever
-  firing.** Sonnet 5's $2/$10 is permanent, so no run gets a third more expensive and the
-  ~$0.40 that date called for is not owed. `DEMO_RESERVED_RUN_USD` stays **$0.30**, resting
-  on the measured $0.21–0.32 band. **There is now no dated threshold of any kind.**
-- The `DATABASE_URL` rollback path is documented but never exercised; `run_finished` carries
-  no `session_id`, so a completed run is not addressable from the logs.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-13 — Milestone v1.2 started
 
 ## Performance Metrics
 
@@ -416,6 +351,7 @@ Recent decisions affecting current work:
   (release v4) carried the README restructure, the `src/` reorganisation and its bugfix. The
   deployed tree now equals `main`. This satisfies Phase 10's SC-5 ahead of schedule; Phase 10 need
   only re-verify rather than redeploy.
+
 - ~~**`docs/DESIGN.md` says three `MemoryStore` backends; there are four**~~ (json, memory, chroma, pgvector) — **RESOLVED 2026-08-05, plan 10-04.** The seams paragraph now reads "four implementations" and names pgvector alongside the other three.
 - **Pricing has a shelf life — but the code already handles it.** Verified 2026-08-04:
   `src/research_agent/usage.py:59-76` has contiguous windows (`until=date(2026, 8, 31)` and
@@ -443,7 +379,9 @@ instruction.** Three commits on `gsd/phase-17-followup-live-search`, unpushed: `
 `1	1` against **main**, re-checked post-commit; ADR-0002 zero-diff and reaffirmed by
 citation; the index arithmetic; DESIGN.md's DEC-04 paragraph), `b2d6ccd` (README whole-file
 pass with the limitation **DELETED** and the nine-list closure said in two places, demo copy
+
 + its pin in the same commit, `service.py` prose, the final zero-grep) and `1ffebe7` (the
+
 README's "Nine numbered ADRs", stale since phase 16).
 **ADR-0011 leads with wave 3's measurement, not the design argument** — under ADR-0003 the
 refusal text WAS the shipped draft, approved by the critic because a sentence that claims
