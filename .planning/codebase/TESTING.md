@@ -379,7 +379,7 @@ in `pyproject.toml`.
   critic-approved or carries a `forced_stop_reason`), described in the source as
   "the single most important invariant in the system".
 - **Judge** — a model grades whether the output is any good. `--live` only.
-  `JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-opus-5")`
+  `JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", DEFAULT_JUDGE_MODEL)`  (`claude-opus-4-8`)
   (`evals/graders.py:29`). The judge is deliberately a *stronger, different*
   model than the pipeline's `claude-sonnet-5`: the in-graph critic shares the
   writer's model, so a judge on that same model "would inherit exactly the blind

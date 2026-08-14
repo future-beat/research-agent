@@ -128,7 +128,7 @@ Neither is required for tests, evals, or a container boot — the smoke test run
 - `AGENT_MAX_RUN_COST_USD` (default 1.00) — per-run spend cap
 - `DEMO_DAILY_USD_CAP` (default 5.00) / `DEMO_RATE_LIMIT_PER_HOUR` (default 10) / `DEMO_TOKEN` — public-URL guardrails
 - `VECTOR_STORE`, `SESSION_BACKEND`, `METRICS_BACKEND` — backend overrides; all follow `DATABASE_URL` when unset
-- `EVAL_JUDGE_MODEL` (default `claude-opus-5`) — eval-time only
+- `EVAL_JUDGE_MODEL` (default `claude-opus-4-8`) — eval-time only
 
 Full table with defaults: `docs/OPERATIONS.md` § Configuration.
 

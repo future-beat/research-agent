@@ -27,7 +27,7 @@ about to be replaced would file verdicts from an abandoned judge.
 
 ### Evaluation
 
-- [ ] **REQ-judge-independent-of-critic**: The eval judge runs on a model independent of
+- [x] **REQ-judge-independent-of-critic** *(Phase 18 — complete, verified 2026-08-14)*: The eval judge runs on a model independent of
   the critic — default `claude-opus-4-8`: not the critic's model, stronger than the writer
   it grades, zero cost change. The judge's response handling checks `stop_reason` before
   reading content (a safety-classifier refusal today surfaces as a misleading parse error —
@@ -93,7 +93,7 @@ Every v1.2 requirement maps to exactly one phase. Filled by `/gsd:roadmap` on 20
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REQ-judge-independent-of-critic | Phase 18 — Independent eval judge | Pending |
+| REQ-judge-independent-of-critic | Phase 18 — Independent eval judge | **Complete** (verified, `18-VERIFICATION.md` status: passed) |
 | REQ-health-credential-validity | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
 | REQ-run-finished-session-id | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
 | REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
