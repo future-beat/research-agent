@@ -6,6 +6,7 @@ these exercise genuine SQLite persistence and genuine graph traversal -- the
 only thing faked is the network.
 """
 
+import concurrent.futures
 import inspect
 import json
 import re
@@ -207,6 +208,10 @@ def make_client(tmp_path, monkeypatch):
 
     service.app.dependency_overrides.clear()
     graph.set_memory(None)
+    # The credential cache is module state: without this, a verdict one test
+    # probed for would be served warm to the next one in file order, and the
+    # cold-read assertions would pass or fail depending on collection order.
+    service._reset_credential_cache()
     for client, store, metrics in created:
         client.close()
         store.close()
@@ -1514,6 +1519,65 @@ def test_health_treats_an_empty_key_as_absent(make_client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
 
     assert client.get("/health").json()["credentials"]["anthropic"] is False
+
+
+# --------------------------------------------------------------------------
+# Credential validity: does the key actually WORK
+#
+# Presence and validity are different facts. The block below is about the
+# second one, and every test here runs keyless-by-default with a fake provider
+# behind the same seam production calls -- a probe that reached the real
+# network would break the suite's keyless invariant, not just cost money.
+# --------------------------------------------------------------------------
+
+
+def settle_credential_probes(timeout=5.0):
+    """Wait for whatever refresh /health kicked off, instead of sleeping.
+
+    `_credential_inflight` is the single-refresh guard and the test seam in one
+    object. The worker writes the cache and only then pops itself in its
+    `finally`, so a snapshot that comes back empty means the write has already
+    happened rather than that nothing ran -- which is what makes this
+    deterministic rather than a race dressed up as a wait.
+    """
+    inflight = list(service._credential_inflight.values())
+    _, not_done = concurrent.futures.wait(inflight, timeout=timeout)
+    assert not not_done, "a credential refresh did not land inside the timeout"
+
+
+def test_health_credential_valid_true_after_the_probe_lands(make_client, monkeypatch):
+    """The whole path in one test: cold read, fire-and-forget refresh, warm read.
+
+    The cold read is the load-bearing half. /health must answer from the cache
+    it has -- `null`, meaning "not yet known" -- rather than waiting on a
+    provider, because the endpoint Fly restarts a machine over cannot be
+    allowed to inherit a third party's latency.
+    """
+    client, fake = make_client()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+
+    cold = client.get("/health").json()["credentials"]
+
+    assert cold["anthropic_valid"] is None
+    assert cold["anthropic_checked_at"] is None
+    assert cold["anthropic_error"] is None
+    # Additive only: the presence booleans keep their names, their type and
+    # their meaning beside the new fields.
+    assert cold["anthropic"] is True
+    assert cold["voyage"] is False
+    assert cold["identity_signing"] in (True, False)
+
+    settle_credential_probes()
+    warm = client.get("/health").json()["credentials"]
+
+    assert warm["anthropic_valid"] is True
+    assert isinstance(warm["anthropic_checked_at"], float)
+    assert warm["anthropic_error"] is None
+    assert warm["anthropic"] is True
+
+    probes = [kwargs for node, kwargs in fake.calls_with_kwargs if node == "credential_probe"]
+    assert probes, "green without a provider call would be a vacuous pass"
+    assert probes[0]["model"] == graph.MODEL
 
 
 def test_the_root_url_is_not_a_404(make_client):
