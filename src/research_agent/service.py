@@ -565,6 +565,167 @@ def _probe(fn) -> dict:
     return {"reachable": True, **result}
 
 
+# --------------------------------------------------------------------------
+# Credential validity
+#
+# Presence and validity are different facts. `/health` has always reported the
+# first one -- a container with no keys boots healthy and then fails every real
+# request -- but a key that is present and *revoked* looked identical, which is
+# how Phase 11's outage ran for as long as it did: Fly called the container
+# healthy while every run failed upstream.
+#
+# What must not change while closing that gap: liveness must never WAIT on a
+# provider. A probe that blocked the response would put a third party's outage
+# on the path of the check that decides whether to restart this process --
+# turning someone else's bad afternoon into our restart loop, which is the
+# exact failure the presence-only design was protecting against. So the read
+# path serves a cache, the refresh runs on the probe pool, and nobody ever
+# calls `.result()`.
+# --------------------------------------------------------------------------
+
+
+def credential_probe_ttl() -> float:
+    """CREDENTIAL_PROBE_TTL -- seconds a credential verdict stays fresh.
+
+    Default 300.0, floor 30.0. Deliberately NOT `HEALTH_PROBE_BUDGET`: that
+    one bounds how LONG a single store probe may take, this one bounds how
+    OFTEN a provider is asked anything at all. They are different questions
+    with different failure modes, so they get different names.
+
+    The floor is Fly's own health-check interval (docs/OPERATIONS.md): below
+    it, every liveness check would find the cache stale and kick a refresh,
+    and a mistuned env var would quietly turn /health into a per-request
+    prober against a provider's rate limit.
+    """
+    try:
+        return max(30.0, float(os.environ.get("CREDENTIAL_PROBE_TTL", "300.0")))
+    except ValueError:
+        return 300.0
+
+
+# "Not yet known", which is what an absent key and an unprobed key both are.
+# Never `False`: that is a verdict, and we have not asked anyone.
+_COLD_CREDENTIAL = {"valid": None, "checked_at": None, "error": None}
+
+_credential_cache: dict[str, dict] = {}
+_credential_cache_lock = threading.Lock()
+# Membership answers "is a refresh already running for this provider" -- the
+# single-refresh guard -- and the Future it holds lets a test wait for a
+# verdict deterministically instead of sleeping. One object, both jobs.
+_credential_inflight: dict[str, concurrent.futures.Future] = {}
+
+
+def _reset_credential_cache() -> None:
+    """Forget every verdict. Module state would otherwise leak across tests."""
+    with _credential_cache_lock:
+        _credential_cache.clear()
+        _credential_inflight.clear()
+
+
+def _refresh_credential(name: str, probe, key_invalid) -> None:
+    """Ask one provider whether its key works. Runs on a probe-pool thread.
+
+    Three outcomes, and the split between the last two is the point:
+
+        the call returned            -> valid True
+        the provider REJECTED us     -> valid False   (the key is bad)
+        anything else went wrong     -> valid None    (we could not determine)
+
+    Collapsing the last two would report a perfectly good key as invalid for
+    the entire duration of a provider outage, which is worse than saying
+    nothing: an operator would go rotate a key that was never the problem.
+
+    Only `type(exc).__name__` is stored -- never `str(exc)`. An SDK's message
+    is not guaranteed free of request metadata, and /health is the one
+    endpoint deliberately left unauthenticated, so anything stored here is
+    world-readable (see `_redact` for the same posture on store errors).
+    """
+    try:
+        try:
+            probe()
+        except Exception as exc:  # noqa: BLE001 - a probe must never raise
+            try:
+                rejected = bool(key_invalid(exc))
+            except Exception:  # noqa: BLE001 - a predicate that cannot load
+                # its SDK is itself a "could not determine", not a verdict.
+                rejected = False
+            entry = {
+                "valid": False if rejected else None,
+                "checked_at": time.time(),
+                "error": type(exc).__name__,
+            }
+        else:
+            entry = {"valid": True, "checked_at": time.time(), "error": None}
+        with _credential_cache_lock:
+            _credential_cache[name] = entry
+    finally:
+        # Whatever happened, release the guard: a raising probe that left its
+        # own name in the in-flight dict would wedge that provider on its last
+        # verdict forever.
+        with _credential_cache_lock:
+            _credential_inflight.pop(name, None)
+
+
+def _credential_status(name: str, present: bool) -> dict:
+    """The read path: serve what we know, and maybe start finding out more."""
+    if not present:
+        # A key that was never configured is a PRESENCE problem. Reporting it
+        # as invalid would send an operator hunting a bad key when what they
+        # have is a missing one -- and would spend a provider call to say so.
+        return dict(_COLD_CREDENTIAL)
+
+    with _credential_cache_lock:
+        entry = _credential_cache.get(name)
+        stale = entry is None or (time.time() - entry["checked_at"]) >= credential_probe_ttl()
+        if stale and name not in _credential_inflight:
+            spec = _CREDENTIAL_PROBES[name]
+            # Submitted and never waited on. `.result()` here -- even with a
+            # generous timeout -- is the one change that would undo this whole
+            # design; see `_probe`'s docstring for what a bounded wait on
+            # /health still costs, and note a provider is not even bounded the
+            # way libpq is. The submit and the registration happen under the
+            # same lock so the worker cannot pop its own guard before it is
+            # recorded, which would leave a stale Future blocking every later
+            # refresh.
+            _credential_inflight[name] = _probes().submit(
+                _refresh_credential, name, spec["probe"], spec["key_invalid"]
+            )
+        return dict(entry) if entry is not None else dict(_COLD_CREDENTIAL)
+
+
+def _probe_anthropic() -> None:
+    """Does the Anthropic key authenticate?
+
+    `count_tokens` rather than a one-token `messages.create`: it authenticates,
+    it is free, and it is rate-limited separately from the Messages API -- so a
+    probe on a liveness cadence can never starve production traffic or show up
+    on the bill. The return value is deliberately discarded; the question is
+    whether the call was allowed, not what it said.
+    """
+    graph.client().messages.count_tokens(
+        model=graph.MODEL,
+        messages=[{"role": "user", "content": "ping"}],
+    )
+
+
+def _anthropic_key_invalid(exc: BaseException) -> bool:
+    """A 401 from Anthropic. `APIConnectionError` is deliberately NOT this."""
+    return isinstance(exc, anthropic.AuthenticationError)
+
+
+# One row per provider: the env var that says a key is present, the call that
+# tests it, and the predicate that separates "rejected" from "no answer".
+# `health` iterates this, so adding a provider is a row rather than a fourth
+# copy of the same four lines.
+_CREDENTIAL_PROBES: dict[str, dict] = {
+    "anthropic": {
+        "env": "ANTHROPIC_API_KEY",
+        "probe": _probe_anthropic,
+        "key_invalid": _anthropic_key_invalid,
+    },
+}
+
+
 def _dependencies(store: SessionStore, metrics: MetricsStore) -> dict:
     """Each store's identity always, its counts only if it answers."""
     memory = graph.memory()
@@ -605,10 +766,20 @@ def health(
     Use /ready for the question "should traffic come here", which is the one
     where an unreachable store genuinely means no.
 
-    Deliberately never calls Claude or Voyage. Credentials are reported as
-    present or absent, never by value: the clients are lazy, so a container
-    with no keys starts up perfectly healthy and then fails every real
-    request -- better to learn that from the deploy than from a user.
+    Credentials are reported as present or absent, never by value: the clients
+    are lazy, so a container with no keys starts up perfectly healthy and then
+    fails every real request -- better to learn that from the deploy than from
+    a user. Since Phase 19 they are also reported as valid or not, because a
+    present-and-revoked key looked exactly like a working one, and that is how
+    Phase 11's outage stayed invisible for as long as it did.
+
+    This response therefore never *waits* on a provider -- which is a weaker
+    claim than the "never calls one" this docstring used to make, and the
+    difference is deliberate rather than drift. A refresh runs on the probe
+    pool and its verdict is served from a cache on some LATER request; this
+    request returns whatever is already known, including "nothing yet". The
+    invariant that matters is unchanged: no third party's latency or outage
+    can reach the check that decides whether to restart this process.
 
     `machine` is FLY_MACHINE_ID, and it is what makes "the state is shared
     across machines" demonstrable in two curls rather than by reading
@@ -619,23 +790,33 @@ def health(
     """
     dependencies = _dependencies(store, metrics)
     degraded = [name for name, d in dependencies.items() if not d["reachable"]]
+    credentials = {
+        "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "voyage": bool(os.environ.get("VOYAGE_API_KEY")),
+        # Presence, never the value -- the same posture as the API keys,
+        # and it matters more here: this one signs identity cookies, so
+        # leaking it to anyone who can curl /health would let them forge
+        # any caller. False on a multi-machine fleet means each machine
+        # minted its own ephemeral secret and identities do not survive
+        # being bounced between them (ADR-0007).
+        "identity_signing": bool(os.environ.get("IDENTITY_SIGNING_SECRET")),
+    }
+    # Flat siblings rather than nesting each provider into an object: the
+    # presence keys above are booleans that shipped in Phase 5, and turning
+    # `anthropic` into `{present, valid, ...}` would change an existing
+    # field's TYPE. This block only ever grows.
+    for name in _CREDENTIAL_PROBES:
+        status = _credential_status(name, credentials[name])
+        credentials[f"{name}_valid"] = status["valid"]
+        credentials[f"{name}_checked_at"] = status["checked_at"]
+        credentials[f"{name}_error"] = status["error"]
     return {
         "status": "ok",
         "machine": os.environ.get("FLY_MACHINE_ID", ""),
         "dependencies": "degraded" if degraded else "ok",
         "unreachable": degraded,
         **dependencies,
-        "credentials": {
-            "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
-            "voyage": bool(os.environ.get("VOYAGE_API_KEY")),
-            # Presence, never the value -- the same posture as the API keys,
-            # and it matters more here: this one signs identity cookies, so
-            # leaking it to anyone who can curl /health would let them forge
-            # any caller. False on a multi-machine fleet means each machine
-            # minted its own ephemeral secret and identities do not survive
-            # being bounced between them (ADR-0007).
-            "identity_signing": bool(os.environ.get("IDENTITY_SIGNING_SECRET")),
-        },
+        "credentials": credentials,
     }
 
 

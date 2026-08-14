@@ -1495,11 +1495,15 @@ def test_health_reports_credential_presence_never_values(make_client, monkeypatc
 
     body = client.get("/health").json()
 
-    assert body["credentials"] == {
-        "anthropic": True,
-        "voyage": False,
-        "identity_signing": True,
-    }
+    # Pinned by name rather than by whole-dict equality since Phase 19: the
+    # block now grows with validity fields, and an `==` here would turn every
+    # additive change into a failure while saying nothing about the property
+    # this test is actually for -- that presence is reported and the value
+    # never is.
+    credentials = body["credentials"]
+    assert credentials["anthropic"] is True
+    assert credentials["voyage"] is False
+    assert credentials["identity_signing"] is True
     assert "secret-value" not in json.dumps(body)
 
 
