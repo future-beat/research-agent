@@ -230,20 +230,25 @@ class FakeEmbeddingsObject:
 
 
 class FakeVoyageClient:
-    def __init__(self, total_tokens=25):
+    def __init__(self, total_tokens=25, error=None):
         self.total_tokens = total_tokens
+        # A provider that refuses. None means "behaves exactly as it always
+        # did", so every existing caller's requests stay byte-identical.
+        self.error = error
         self.calls = []
 
     def embed(self, texts, model=None, input_type=None, output_dimension=None):
         self.calls.append((list(texts), input_type))
+        if self.error is not None:
+            raise self.error
         return FakeEmbeddingsObject([[0.1, 0.2]] * len(texts), self.total_tokens)
 
 
-def voyage_embedder(total_tokens=25):
+def voyage_embedder(total_tokens=25, error=None):
     """A VoyageEmbedder wired to a fake client. `_client` is set directly so
     the lazy `client` property never imports voyageai or reads an API key."""
     embedder = vector_memory.VoyageEmbedder(model="voyage-3.5")
-    embedder._client = FakeVoyageClient(total_tokens=total_tokens)
+    embedder._client = FakeVoyageClient(total_tokens=total_tokens, error=error)
     return embedder
 
 

@@ -19,9 +19,13 @@ import anthropic
 import httpx
 import pytest
 import test_graph_smoke
+# Imported eagerly here on purpose, unlike in `service` and `memory`: the
+# credential tests need the SDK's own typed exceptions, and asserting against
+# anything else would be asserting against a stand-in for the contract.
+import voyageai.error
 from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
-from test_memory_stores import FakeEmbedder
+from test_memory_stores import FakeEmbedder, voyage_embedder
 
 from research_agent import db, graph, identity, limits, service
 from research_agent import memory as memory_module
@@ -1582,6 +1586,101 @@ def test_health_credential_valid_true_after_the_probe_lands(make_client, monkeyp
     probes = [kwargs for node, kwargs in fake.calls_with_kwargs if node == "credential_probe"]
     assert probes, "green without a provider call would be a vacuous pass"
     assert probes[0]["model"] == graph.MODEL
+
+
+def install_voyage(monkeypatch, total_tokens=25, error=None):
+    """A real VoyageEmbedder behind a fake client, reached the production way.
+
+    The probe finds its embedder through `graph.memory().embedder` and calls
+    `embed_query` on it, which is the same seam a run uses -- so these tests
+    exercise the wrapper that reports tokens, not a stand-in that doesn't.
+    """
+    monkeypatch.setenv("VOYAGE_API_KEY", "pa-dummy-not-a-real-key")
+    embedder = voyage_embedder(total_tokens=total_tokens, error=error)
+    graph.set_memory(InMemoryStore(embedder=embedder))
+    return embedder
+
+
+def test_health_credential_invalid_key_reads_false(make_client, monkeypatch):
+    """A provider that REJECTED us is the one case that is a verdict."""
+    client, _ = make_client()
+    install_voyage(monkeypatch, error=voyageai.error.AuthenticationError("401 unauthorized"))
+
+    client.get("/health")
+    settle_credential_probes()
+    credentials = client.get("/health").json()["credentials"]
+
+    assert credentials["voyage_valid"] is False
+    assert credentials["voyage"] is True
+
+
+def test_health_credential_provider_down_reads_null_with_an_error(make_client, monkeypatch):
+    """An outage is "could not determine", never "your key is bad".
+
+    Both halves are asserted because neither is sufficient alone: `null` by
+    itself does not distinguish an outage from a key nobody has probed yet,
+    and that distinction is the entire reason the error field exists. Report
+    this as `false` and an operator spends the outage rotating a key that was
+    never the problem.
+    """
+    client, _ = make_client()
+    install_voyage(monkeypatch, error=voyageai.error.APIConnectionError("connection refused"))
+
+    client.get("/health")
+    settle_credential_probes()
+    credentials = client.get("/health").json()["credentials"]
+
+    assert credentials["voyage_valid"] is None
+    assert credentials["voyage_error"] == "APIConnectionError"
+
+
+def test_health_credential_error_never_carries_the_sdk_message(make_client, monkeypatch):
+    """/health is deliberately unauthenticated, so this block is world-readable.
+
+    An SDK's error message is not guaranteed free of the request that caused
+    it. Storing the exception CLASS keeps the diagnostic and drops the payload.
+    """
+    leaked = "pa-l3aked-from-an-sdk-message"
+    client, _ = make_client()
+    install_voyage(
+        monkeypatch,
+        error=voyageai.error.AuthenticationError(f"401 for key {leaked}"),
+    )
+
+    client.get("/health")
+    settle_credential_probes()
+    response = client.get("/health")
+
+    assert leaked not in response.text
+    assert response.json()["credentials"]["voyage_error"] == "AuthenticationError"
+
+
+def test_health_credential_probe_spend_is_excluded_from_the_embedding_meter(
+    make_client, monkeypatch
+):
+    """The probe's tokens reach no run's bill, and that is by construction.
+
+    `report_embedding` is a no-op unless a meter is open in the calling
+    context, and the probe runs on a pool thread that has none -- so there is
+    no special case to keep in sync, and no run to attribute it to either.
+
+    The second half is the whole test. A meter reading zero is exactly what an
+    embedder that never reports anything would also produce, so the same
+    embedder is called directly inside the same meter and must report: without
+    that control this test would pass against a broken accounting seam.
+    """
+    client, _ = make_client()
+    embedder = install_voyage(monkeypatch, total_tokens=25)
+
+    with usage_accounting.embedding_meter() as meter:
+        client.get("/health")
+        settle_credential_probes()
+
+        assert embedder._client.calls, "the probe never embedded anything"
+        assert meter.total_tokens == 0
+
+        embedder.embed_query("the positive control")
+        assert meter.total_tokens == 25
 
 
 def test_the_root_url_is_not_a_404(make_client):
