@@ -28,7 +28,7 @@ from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
 from test_memory_stores import FakeEmbedder, voyage_embedder
 
-from research_agent import db, graph, identity, limits, service
+from research_agent import csp, db, graph, identity, limits, service
 from research_agent import memory as memory_module
 from research_agent import usage as usage_accounting
 from research_agent.memory import InMemoryStore, PgVectorMemoryStore
@@ -3069,3 +3069,40 @@ def test_page_is_self_contained():
 
     assert not re.search(r'(src|href)\s*=\s*"\s*(https?:)?//', page, re.IGNORECASE)
     assert not re.search(r"@import|url\(\s*['\"]?https?:", page, re.IGNORECASE)
+
+
+# --------------------------------------------------------------------------
+# The demo page's Content-Security-Policy
+#
+# These sit below the static-file gates rather than inside them: that section
+# states in its own header that it needs no client, and half of these drive the
+# real app to read a real response header. They do reuse `_demo_page()` and
+# `_MarkupTags` from it, deliberately -- every assertion here is about the file
+# the service actually serves, never a fixture copy. A fixture is a copy that
+# can be right while the shipped page is wrong.
+# --------------------------------------------------------------------------
+
+
+def test_demo_page_is_served_with_a_hash_based_csp(make_client):
+    """The header exists, carries both element hashes, and changed nothing.
+
+    The last assertion is the UI-SPEC's whole premise -- the CSP is derived FROM
+    the page, the page is not adapted TO the CSP -- stated as an assertion on the
+    served bytes rather than left as trust.
+    """
+    client, _ = make_client()
+
+    response = client.get("/", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    header = response.headers["content-security-policy"]
+    assert "script-src 'sha256-" in header
+    assert "style-src 'sha256-" in header
+
+    # The directive NAMES, in order, are exactly the ones csp.DIRECTIVES
+    # declares -- so a directive silently dropped, added or reordered on the way
+    # to the wire fails here, not in a browser console someone happens to open.
+    served = [directive.strip().split(" ", 1)[0] for directive in header.split(";")]
+    assert served == [directive.split(" ", 1)[0] for directive in csp.DIRECTIVES]
+
+    assert response.text == _demo_page()
