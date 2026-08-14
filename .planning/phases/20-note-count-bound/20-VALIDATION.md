@@ -38,6 +38,17 @@ armed at `:54329` **118 passed / 1 skipped** (was 101 / 1); offline evals **41/4
 required)** with a real `$?` of **0**; `ruff check .` and `ruff check src tests evals` both clean.
 The +4 skips are the four new pgvector arms, which skip keyless and run armed.
 
+**Post-verification (gap closure, 2026-08-14):** verification's one nit — no contract case
+asserted the `""` bucket is ITSELF capped, only that it survives another owner's eviction —
+is closed by `test_note_cap_applies_to_the_orphan_bucket_too`, four arms. The behaviour was
+already correct (verification measured it); what was missing was a gate that would notice it
+breaking, and the likelier direction is not the one already covered: an implementation that
+skips the empty owner passes the isolation case and fails only this one. Mutation observed:
+adding `owner and` to the brute-force cap condition reds json and memory with `orphan-1`
+surviving; chroma passes and pgvector skips, because that mutation targets the brute-force
+path alone. Final counts **799 passed / 72 skipped** keyless, **122 / 1** armed on the
+contract file; README (two sites) and OPERATIONS:609 moved 796 → 799.
+
 ---
 
 ## Sampling Rate

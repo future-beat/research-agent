@@ -256,6 +256,19 @@ actionable), the knowingly-false README bullet (Phase 22's, byte-identical as in
 REQUIREMENTS checkbox flip (due at ship, one line), and two stale planning surfaces the phase
 measured and deferred with their replacements already written down.
 
+## Gap closed after verification
+
+The verifier's one nit — the `""` bucket had no case asserting it is itself capped — was closed
+in the same session rather than deferred, matching Phase 18's precedent of closing what
+verification finds. `test_note_cap_applies_to_the_orphan_bucket_too` now runs on all four arms.
+It is not redundant with the isolation case: an implementation that skips the empty owner
+entirely passes that case (the orphan rows do survive alice's eviction) and fails only this one.
+The mutation was observed — `if owner and len(owned) > cap` reds json and memory with
+`orphan-1` surviving, chroma passes and pgvector skips, since the mutation reaches only the
+brute-force path. Suite moved to **799 passed / 72 skipped** keyless and **122 / 1** armed;
+README and OPERATIONS counts followed. This changes no verdict above; it removes the one
+behaviour the phase relied on measurement alone to know.
+
 ---
 
 _Verified: 2026-08-14T11:53:06Z_

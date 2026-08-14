@@ -775,6 +775,32 @@ def test_note_cap_never_crosses_owners(notes, monkeypatch):
     assert len(notes) == 5
 
 
+def test_note_cap_applies_to_the_orphan_bucket_too(notes, monkeypatch):
+    """'' is a bucket the cap enforces, not merely a bucket the cap spares.
+
+    The case above proves the orphan rows survive somebody else's eviction.
+    That is the half an implementation gets right by accident: skip the empty
+    owner and the assertion passes. This is the other half -- '' overflows and
+    evicts like any other identity -- and the two together say what "exact
+    owner matching" means in both directions.
+
+    Verification measured this behaviour on all four backends and found it
+    already true; what was missing was a gate that would notice if it stopped
+    being true. Legacy pre-Phase-12 rows all live in this bucket, so an
+    unbounded '' is exactly the unbounded store this phase exists to close.
+    """
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "3")
+    for n in (1, 2, 3, 4):
+        notes.add(f"langgraph orphan-{n}")  # owner='' by default
+
+    assert _owned(notes, "") == {
+        "langgraph orphan-2",
+        "langgraph orphan-3",
+        "langgraph orphan-4",
+    }
+    assert len(notes) == 3
+
+
 def test_note_cap_and_ttl_compose_sweep_first(notes, monkeypatch):
     """The sweep is unconditional and runs first, so the cap counts only live
     notes -- and an owner nowhere near the cap still gets swept.
