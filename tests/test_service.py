@@ -1684,6 +1684,168 @@ def test_health_credential_probe_spend_is_excluded_from_the_embedding_meter(
         assert meter.total_tokens == 25
 
 
+def test_health_credential_absent_key_reads_null_and_never_probes(make_client, monkeypatch):
+    """A missing key is a presence fact. It is never a validity verdict.
+
+    `false` here would send an operator hunting a bad key when what they have
+    is no key at all -- and would spend a provider call to say it. `null`
+    means "nobody asked", which is exactly true.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    probed = []
+
+    def never_call_me():
+        probed.append(1)
+
+    for name in service._CREDENTIAL_PROBES:
+        monkeypatch.setitem(service._CREDENTIAL_PROBES[name], "probe", never_call_me)
+
+    client, _ = make_client()
+    credentials = client.get("/health").json()["credentials"]
+
+    for name in ("anthropic", "voyage"):
+        assert credentials[name] is False
+        assert credentials[f"{name}_valid"] is None
+        assert credentials[f"{name}_checked_at"] is None
+        assert credentials[f"{name}_error"] is None
+    assert probed == [], "an unconfigured key was sent to a provider"
+
+
+def test_health_credential_single_refresh_while_one_is_in_flight(make_client, monkeypatch):
+    """Three reads, one refresh. Fly polls /health forever; without this guard
+    the probe rate would track request volume rather than the TTL, and a
+    provider's rate limit would be the thing that eventually stopped it."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    def blocking_probe():
+        calls.append(1)
+        started.set()
+        release.wait(30)  # a backstop; the `finally` is the mechanism
+
+    monkeypatch.setitem(service._CREDENTIAL_PROBES["anthropic"], "probe", blocking_probe)
+    client, _ = make_client()
+
+    try:
+        client.get("/health")
+        assert started.wait(5), "the first read never kicked a refresh"
+        client.get("/health")
+        client.get("/health")
+
+        assert calls == [1]
+        assert list(service._credential_inflight) == ["anthropic"]
+    finally:
+        release.set()
+
+    settle_credential_probes()
+
+    assert calls == [1]
+    assert client.get("/health").json()["credentials"]["anthropic_valid"] is True
+
+
+def test_health_credential_cache_is_reused_within_the_ttl(make_client, monkeypatch):
+    """A landed verdict is served, not re-earned -- and does get re-earned once
+    it goes stale, which is the half that keeps the first half honest.
+
+    Note the TTL is monkeypatched rather than set through CREDENTIAL_PROBE_TTL:
+    P-02's 30 s floor clamps the env var, so a test driving it that way would
+    be measuring the clamp and quietly proving nothing.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+    client, fake = make_client()
+
+    def probe_count():
+        return sum(1 for node, _ in fake.calls_with_kwargs if node == "credential_probe")
+
+    client.get("/health")
+    settle_credential_probes()
+    first = client.get("/health").json()["credentials"]["anthropic_checked_at"]
+    calls_after_first = probe_count()
+
+    second = client.get("/health").json()["credentials"]["anthropic_checked_at"]
+
+    assert second == first
+    assert probe_count() == calls_after_first
+
+    # Now expire it: the same read path must go back to the provider.
+    monkeypatch.setattr(service, "credential_probe_ttl", lambda: 0.0)
+    client.get("/health")
+    settle_credential_probes()
+
+    assert probe_count() == calls_after_first + 1
+    assert client.get("/health").json()["credentials"]["anthropic_checked_at"] > first
+
+
+def test_health_credential_probe_ttl_floors_at_flys_check_interval(monkeypatch):
+    """The floor is Fly's own 30 s check interval.
+
+    Below it every liveness check would find the cache stale, and a mistuned
+    env var would turn /health into a per-request prober against a provider's
+    rate limit. A garbage value falls back rather than raising: /health failing
+    to render because someone typed a word into a duration is the endpoint
+    failing at its one job.
+    """
+    monkeypatch.setenv("CREDENTIAL_PROBE_TTL", "0.5")
+    assert service.credential_probe_ttl() == 30.0
+
+    monkeypatch.setenv("CREDENTIAL_PROBE_TTL", "not-a-number")
+    assert service.credential_probe_ttl() == 300.0
+
+    monkeypatch.delenv("CREDENTIAL_PROBE_TTL", raising=False)
+    assert service.credential_probe_ttl() == 300.0
+
+
+def test_health_never_waits_on_a_hanging_credential_probe(make_client, monkeypatch):
+    """The invariant the whole design exists for.
+
+    Fly restarts a machine whose liveness check fails. If /health waited on a
+    provider, a provider's outage would become our restart loop -- taking down
+    the endpoints that were still working, and fixing nothing, because a
+    restart does not repair someone else's API.
+
+    The bound is three orders of magnitude above the store probes' measured
+    ~3 ms, so it is immune to CI jitter while still being falsified instantly
+    by a `.result()` anywhere on the read path.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+    release = threading.Event()
+
+    def never_answers():
+        release.wait(30)
+
+    monkeypatch.setitem(service._CREDENTIAL_PROBES["anthropic"], "probe", never_answers)
+    client, _ = make_client()
+
+    try:
+        started = time.perf_counter()
+        response = client.get("/health")
+        elapsed = time.perf_counter() - started
+    finally:
+        # Never leave a worker blocked into the next test.
+        release.set()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["credentials"]["anthropic_valid"] is None
+    assert elapsed < 1.0, f"/health waited {elapsed:.2f}s on a provider that never answered"
+
+
+def test_ready_carries_no_credentials_block(make_client, monkeypatch):
+    """Readiness is about stores. Mixing provider validity in here would
+    re-create the restart hazard one hop away: /ready returns 503, the load
+    balancer drains the machine, and a third party's outage takes the service
+    off the air even though every store it owns is answering fine."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+    client, _ = make_client()
+
+    body = client.get("/ready").json()
+
+    assert "credentials" not in body
+    assert body["status"] == "ready"
+
+
 def test_the_root_url_is_not_a_404(make_client):
     """A successful deploy whose front door returns FastAPI's bare
     `{"detail": "Not Found"}` is indistinguishable from a broken one."""
