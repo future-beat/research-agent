@@ -211,6 +211,42 @@ def test_vector_memory_alias_still_points_at_the_json_store():
     assert vector_memory.VectorMemory is JSONMemoryStore
 
 
+def test_migration_and_seed_paths_bypass_add_by_design():
+    """The two bulk writers go around add(), so no cap can evict during them.
+
+    Both bounds -- the TTL sweep and the per-owner count cap -- are enforced at
+    the add() seam and nowhere else. That is the right place for a bound on
+    what the agent remembers, and the wrong thing to apply to a migration
+    moving a corpus between tables or a fixture laying down a golden set: a
+    migration that silently dropped every note past the hundredth would be a
+    data-loss bug wearing a feature's clothes. Both already write raw SQL, for
+    reasons that predate the cap, and this turns that from something you have
+    to read three files to know into a gate.
+
+    recall_golden gets the two-part assertion rather than a bare `not in`: its
+    seed() docstring says out loud that it bypasses add(), so the token is
+    legitimately in the source exactly once. A naive absence check would have
+    been red on day one against entirely correct code.
+    """
+    import inspect
+
+    from research_agent import migrate, recall_golden
+
+    assert "store.add" not in inspect.getsource(migrate), (
+        "a migration write path now goes through add(), where the TTL sweep "
+        "and the per-owner cap can silently drop rows mid-migration"
+    )
+
+    seed_source = inspect.getsource(recall_golden)
+    assert seed_source.count("store.add") == 1, (
+        "recall_golden should mention store.add exactly once, in the docstring "
+        "recording the deliberate bypass"
+    )
+    assert "store.add" in (recall_golden.seed.__doc__ or ""), (
+        "the single mention is no longer the docstring, so it is now a call"
+    )
+
+
 # --------------------------------------------------------------------------
 # The per-owner note cap knob
 # --------------------------------------------------------------------------
