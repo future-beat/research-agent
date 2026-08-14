@@ -3095,6 +3095,10 @@ def test_demo_page_is_served_with_a_hash_based_csp(make_client):
     response = client.get("/", headers={"accept": "text/html"})
 
     assert response.status_code == 200
+    # Membership before lookup, so a header that stops being sent reds as a named
+    # failure here rather than as a KeyError out of httpx's header mapping.
+    assert "content-security-policy" in response.headers, "the demo page carries no CSP"
+
     header = response.headers["content-security-policy"]
     assert "script-src 'sha256-" in header
     assert "style-src 'sha256-" in header

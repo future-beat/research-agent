@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from research_agent import db, graph, limits, memory
+from research_agent import csp, db, graph, limits, memory
 from research_agent import usage as usage_accounting
 from research_agent.graph import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
 from research_agent.identity import IdentityMiddleware
@@ -408,7 +408,18 @@ def index(request: Request):
     URL gets something they can actually use.
     """
     if "text/html" in request.headers.get("accept", ""):
-        return FileResponse(DEMO_PAGE, media_type="text/html")
+        # The ONLY place the CSP is attached (19-02 P-06). Middleware would be
+        # the wrong mechanism here: it reaches every response, including the two
+        # SSE responses whose `Cache-Control`/`X-Accel-Buffering` headers this
+        # phase promised not to touch. Confining it to this one call site makes
+        # "absent everywhere else" a testable claim, and
+        # test_csp_header_is_absent_from_the_json_index_and_the_streams is the
+        # gate that reds if someone later reaches for the global mechanism.
+        return FileResponse(
+            DEMO_PAGE,
+            media_type="text/html",
+            headers={"Content-Security-Policy": csp.policy(DEMO_PAGE)},
+        )
     return _index_json()
 
 
