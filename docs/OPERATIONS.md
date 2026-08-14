@@ -606,7 +606,7 @@ path is the work, not a flag.
 ## CI
 
 ```
-lint · tests · evals            ruff, 772 tests, 41 offline eval cases
+lint · tests · evals            ruff, 773 tests, 41 offline eval cases
 image build · smoke test        docker build, boot the container, probe it
 ```
 
