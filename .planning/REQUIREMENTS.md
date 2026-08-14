@@ -49,7 +49,7 @@ about to be replaced would file verdicts from an abandoned judge.
   a healthy container during a provider outage. Probe spend is excluded from or attributed
   in cost accounting deliberately, not silently.
 
-- [ ] **REQ-run-finished-session-id**: `run_finished` log lines carry `session_id`, so a
+- [x] **REQ-run-finished-session-id** *(Phase 19 — complete, verified 2026-08-14; no deploy dependency)*: `run_finished` log lines carry `session_id`, so a
   completed run is addressable from the logs (the gap cost a wasted live run in Phase 17).
 
 ### Data
@@ -94,9 +94,9 @@ Every v1.2 requirement maps to exactly one phase. Filled by `/gsd:roadmap` on 20
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | REQ-judge-independent-of-critic | Phase 18 — Independent eval judge | **Complete** (verified, `18-VERIFICATION.md` status: passed) |
-| REQ-health-credential-validity | Phase 19 — Credential validity, log addressability, demo CSP | **Implemented** (19-01, wave 1; `19-01-SUMMARY.md`) — not yet Complete: the phase is unverified, and a real provider round trip is keyless-suite-invisible until the first deploy after merge (19-VALIDATION Manual-Only) |
-| REQ-run-finished-session-id | Phase 19 — Credential validity, log addressability, demo CSP | **Implemented** (19-03, wave 3; `19-03-SUMMARY.md`) — not yet Complete only because the phase is unverified; unlike the other two Phase 19 requirements this one has **no** Manual-Only dependency and needs no deploy. Met literally rather than by reinterpretation (P-07): the line NAMED `run_finished` carries `session_id` on all four routes, exactly once per run, alongside `run_id`; the graph's terminal line is renamed `graph_finished` and asserted to carry no session identity, since it structurally cannot know one. Six test items, three mutation reds |
-| REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | **Implemented** (19-02, wave 2; `19-02-SUMMARY.md`) — not yet Complete: the requirement says "verified against the live page", and browser CSP enforcement cannot run in pytest. The automated half is done (derived seven-directive policy, no `unsafe-` source, six gates, four mutation reds, `index.html` at zero edits); UI-SPEC acceptance checks 1–7 against the deployed page are 19-VALIDATION's Manual-Only row |
+| REQ-health-credential-validity | Phase 19 — Credential validity, log addressability, demo CSP | **Verified** (`19-VERIFICATION.md` status: passed, criteria 1–3). Automated half complete and independently re-measured — 20 concurrent `/health` reads against two hanging providers peaked at 0.016s. **Awaiting deploy** for the one thing a keyless suite cannot show: a real provider round trip (19-VALIDATION Manual-Only) |
+| REQ-run-finished-session-id | Phase 19 — Credential validity, log addressability, demo CSP | **COMPLETE** — verified (`19-VERIFICATION.md`, criterion 4), and unlike the other two Phase 19 requirements this one has **no** Manual-Only dependency and needs no deploy. Met literally rather than by reinterpretation (P-07): the line NAMED `run_finished` carries `session_id` on all four routes, exactly once per run, alongside `run_id`; the graph's terminal line is renamed `graph_finished` and asserted to carry no session identity, since it structurally cannot know one. Six test items, three mutation reds |
+| REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | **Verified** (`19-VERIFICATION.md`, criterion 5) — both hashes re-derived a fourth time by the verifier, byte-identical. **Awaiting deploy**: the requirement says "verified against the live page", and browser CSP enforcement cannot run in pytest. The automated half is done (derived seven-directive policy, no `unsafe-` source, six gates, four mutation reds, `index.html` at zero edits); UI-SPEC acceptance checks 1–7 against the deployed page are 19-VALIDATION's Manual-Only row |
 | REQ-note-count-bound | Phase 20 — Note count bound | Pending |
 | REQ-forty-recorded-answers | Phase 21 — Forty recorded answers | Pending |
 | REQ-limitations-recorded | Phase 22 — Limitations recorded | Pending |
