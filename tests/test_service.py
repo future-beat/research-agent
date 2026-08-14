@@ -3273,19 +3273,34 @@ def test_sse_responses_keep_their_caching_headers(make_client):
 # --------------------------------------------------------------------------
 
 
-def capture_events(caplog) -> dict[str, list]:
-    """Group the captured records by their structured `event` field.
+class _LogCapture:
+    """The captured records, grouped by their structured `event` field.
 
-    Returning a dict of lists rather than a set of names on purpose: every gate
-    below is about a COUNT (exactly one, or exactly zero), and a set silently
-    turns a double-emission into a pass.
+    `events()` returns a dict of LISTS rather than a set of names on purpose:
+    every gate below is about a COUNT (exactly one, or exactly zero), and a set
+    silently turns a double-emission into a pass -- which is precisely the
+    failure P-07 exists to prevent.
+
+    `clear()` is what lets a test that needs a session to exist first assert
+    over one request rather than over the whole setup.
     """
-    grouped: dict[str, list] = {}
-    for record in caplog.records:
-        event = getattr(record, "event", "")
-        if event:
-            grouped.setdefault(event, []).append(record)
-    return grouped
+
+    def __init__(self, caplog):
+        self._caplog = caplog
+
+    def clear(self) -> None:
+        self._caplog.clear()
+
+    def events(self) -> dict[str, list]:
+        grouped: dict[str, list] = {}
+        for record in self._caplog.records:
+            event = getattr(record, "event", "")
+            if event:
+                grouped.setdefault(event, []).append(record)
+        return grouped
+
+    def count(self, event: str) -> int:
+        return len(self.events().get(event, []))
 
 
 @pytest.fixture
@@ -3297,7 +3312,7 @@ def capture_log(monkeypatch, caplog):
     """
     monkeypatch.setattr(service.log, "propagate", True)
     with caplog.at_level(logging.INFO, logger=service.log.name):
-        yield lambda: capture_events(caplog)
+        yield _LogCapture(caplog)
 
 
 def test_run_finished_carries_the_session_id_for_a_new_session(make_client, capture_log):
@@ -3318,7 +3333,7 @@ def test_run_finished_carries_the_session_id_for_a_new_session(make_client, capt
     assert service.log is graph.log
 
     body = client.post("/research", json={"question": "why?"}).json()
-    by_event = capture_log()
+    by_event = capture_log.events()
 
     finished = by_event.get("run_finished", [])
     assert len(finished) == 1, f"expected exactly one run_finished, got {len(finished)}"
@@ -3334,3 +3349,109 @@ def test_run_finished_carries_the_session_id_for_a_new_session(make_client, capt
     assert not hasattr(graph_finished[0], "session_id"), (
         "the graph reported a session identity it cannot know"
     )
+
+
+def test_run_finished_carries_the_session_id_on_the_streaming_path(make_client, capture_log):
+    """The stream emits from inside the generator, so the whole body has to be
+    consumed before anything is asserted -- a test that reads the headers and
+    walks away is asserting about a run that has not finished.
+
+    The comparison is against the id the terminal `result` event reported,
+    which is the one the caller actually holds.
+    """
+    client, _ = make_client()
+
+    response = client.post("/research/stream", json={"question": "why?"})
+    events = sse_events(response)  # consumes the body in full
+
+    terminal = [payload for name, payload in events if name == "result"]
+    assert len(terminal) == 1, "the stream did not finish -- nothing to compare against"
+
+    finished = capture_log.events().get("run_finished", [])
+    assert len(finished) == 1, f"expected exactly one run_finished, got {len(finished)}"
+    assert hasattr(finished[0], "session_id"), "the completion record carries no session_id"
+    assert finished[0].session_id == terminal[0]["session_id"]
+
+
+@pytest.mark.parametrize("route", ["ask", "ask/stream"])
+def test_run_finished_carries_the_session_id_for_a_followup(make_client, capture_log, route):
+    """The route where the id was ALREADY known must produce the identical
+    record shape as the route where it was not.
+
+    Uniformity across all four routes is the requirement -- an operator
+    counting completions or looking one up cannot be asked which entry point a
+    run came through. The capture is cleared after the setup run so this
+    asserts over one request rather than over two.
+    """
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    capture_log.clear()
+
+    response = client.post(f"/sessions/{session_id}/{route}", json={"question": "and?"})
+    assert response.status_code == 200
+    if route.endswith("stream"):
+        assert [name for name, _ in sse_events(response)][-1] == "result"
+
+    finished = capture_log.events().get("run_finished", [])
+    assert len(finished) == 1, f"expected exactly one run_finished, got {len(finished)}"
+    assert hasattr(finished[0], "session_id"), "the completion record carries no session_id"
+    assert finished[0].session_id == session_id
+
+
+def test_exactly_one_run_finished_record_per_request(make_client, capture_log):
+    """One completion event per RUN, not one per call site.
+
+    This is the gate P-07 exists for. Two sites sharing one event name
+    double-counts every HTTP run for anyone counting completions out of the log
+    stream, and the count drifts silently -- nothing fails, the number is just
+    wrong, which is the failure family this project has hit before (the v1.1
+    audit's blind daily cap, and the Phase 17 run nobody could find). The
+    graph's terminal line keeps its own name so both facts stay countable
+    separately.
+    """
+    client, _ = make_client()
+
+    client.post("/research", json={"question": "why?"})
+
+    assert capture_log.count("run_finished") == 1
+    assert capture_log.count("graph_finished") == 1  # non-vacuity: the graph did run
+
+
+def test_a_failed_run_emits_run_failed_and_no_run_finished(make_client, capture_log, monkeypatch):
+    """P-08's complement, on both paths.
+
+    The completion line sits inside the `try`, after both writes, so a run that
+    fails must reach the failure line instead -- never both, never neither.
+    Without this the "exactly one" claim is only half checked: a `finally`
+    would satisfy every success-side gate above while emitting a completion
+    record for runs that did not complete.
+
+    The streaming arm needs its own assertion rather than inheriting the
+    blocking one: `_stream` swallows its exception to keep the SSE contract, so
+    the handler's except never runs and that arm is invisible from outside.
+    """
+    client, _ = make_client()
+
+    # Blocking. An upstream failure rather than a bug in ours, so _http_error
+    # maps it to a real response instead of TestClient re-raising it.
+    def explode(state):
+        raise anthropic.APIConnectionError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+
+    monkeypatch.setattr(graph.app, "invoke", explode)
+    assert client.post("/research", json={"question": "why?"}).status_code >= 500
+
+    assert capture_log.count("run_failed") == 1
+    assert capture_log.count("run_finished") == 0, "a run that failed reported itself finished"
+
+    # Streaming, same failure, its own arm.
+    capture_log.clear()
+    monkeypatch.setattr(graph.app, "stream", explode)
+    response = client.post("/research/stream", json={"question": "why?"})
+    assert [name for name, _ in sse_events(response)] == ["error"]  # it did fail
+
+    assert capture_log.count("run_failed") == 1, (
+        "a failed stream left no trace in the log stream at all"
+    )
+    assert capture_log.count("run_finished") == 0, "a run that failed reported itself finished"
