@@ -265,8 +265,12 @@ def _failed_record(state: dict, exc: BaseException, started: float) -> RunRecord
     return record
 
 
-def _finished_record(state: dict, session_id: str, duration_ms: float) -> dict:
+def _finished_log(state: dict, session_id: str, duration_ms: float) -> dict:
     """The `extra=` payload of the completion log line.
+
+    Named for the log rather than for the run because `_failed_record` above is
+    a metrics row and this is not; the two live one screen apart and calling
+    both of them "record" would be a collision waiting to be misread.
 
     One helper rather than two hand-maintained copies: the blocking and
     streaming paths must emit the identical record shape, and an eleven-key
@@ -291,6 +295,24 @@ def _finished_record(state: dict, session_id: str, duration_ms: float) -> dict:
         "model_calls": usage.get("calls", 0),
         "cost_usd": round(usage.get("cost_usd", 0.0), 6),
         "duration_ms": round(duration_ms, 2),
+    }
+
+
+def _failed_log(state: dict, exc: BaseException) -> dict:
+    """The `extra=` payload of the failure log line -- `_finished_log`'s exact
+    complement, and shared by both terminal paths for the same reason.
+
+    Deliberately narrow: a failure carries the run's identity and the exception
+    CLASS, never `str(exc)`. The message can hold a DSN with a password in it
+    (the SSE arm redacts and truncates for exactly that reason before putting
+    it on a wire a browser reads), and a log sink is a wider audience than that
+    browser, not a narrower one.
+    """
+    return {
+        "event": "run_failed",
+        "run_id": state.get("run_id", ""),
+        "mode": state.get("mode", ""),
+        "error": type(exc).__name__,
     }
 
 
@@ -332,7 +354,7 @@ def _execute(
         # means BOTH writes landed; the `run_failed` line in the except arm below
         # is its exact complement -- every HTTP-initiated run emits precisely one
         # of the two, never both and never neither.
-        log.info("run finished", extra=_finished_record(final_state, session_id, duration_ms))
+        log.info("run finished", extra=_finished_log(final_state, session_id, duration_ms))
     except BaseException as exc:
         # `final_state`, not `state`: cost lives in `state["usage"]`, so a run
         # that finished and then failed to persist is worth its real spend to
@@ -340,15 +362,7 @@ def _execute(
         # table with cost 0.00 -- present, and just as blind.
         metrics.record(_failed_record(final_state, exc, started))
         limits.settle(limits_store, state.get("run_id", ""))
-        log.warning(
-            "run failed",
-            extra={
-                "event": "run_failed",
-                "run_id": state.get("run_id", ""),
-                "mode": state.get("mode", ""),
-                "error": type(exc).__name__,
-            },
-        )
+        log.warning("run failed", extra=_failed_log(state, exc))
         raise (_http_error(exc) or exc) from exc
 
     # Immediately after the record, never before it: the estimate stops
@@ -392,7 +406,7 @@ def _stream(
         # Same placement, same shape, same helper as `_execute` -- see the
         # comment there. A completion record that differs by transport would
         # make "count the completions" a question about the client.
-        log.info("run finished", extra=_finished_record(final_state, session_id, duration_ms))
+        log.info("run finished", extra=_finished_log(final_state, session_id, duration_ms))
         limits.settle(limits_store, state.get("run_id", ""))
         yield _sse("result", RunResponse.build(session_id, final_state).model_dump())
 
@@ -411,6 +425,16 @@ def _stream(
         # event. Missing it leaks $0.20 of budget per failed stream until the
         # staleness cutoff catches up.
         limits.settle(limits_store, state.get("run_id", ""))
+        # THE SAME ARM, THE SAME OMISSION, ONE LEVEL OVER. Until this phase a
+        # failed stream logged nothing at all: the row reached the ledger and
+        # the error reached the caller's browser, and `fly logs` showed a run
+        # that started and then simply stopped. The demo page runs on the
+        # streaming routes, so that was every failed demo run -- the Phase 17
+        # "a run happened and I cannot find it" problem in its worst form,
+        # since here there is no completion line to find either. Without this,
+        # "every HTTP-initiated run emits exactly one of the two" is true of
+        # the blocking path only.
+        log.warning("run failed", extra=_failed_log(state, exc))
         # Same treatment /health gives a probe failure, for the same reason:
         # first line only, because a psycopg error is multi-line and the DSN
         # tends to sit below the first; _redact, because the DSN carries a
