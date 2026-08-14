@@ -11,6 +11,7 @@ import concurrent.futures
 import hashlib
 import inspect
 import json
+import logging
 import re
 import threading
 import time
@@ -3254,3 +3255,82 @@ def test_sse_responses_keep_their_caching_headers(make_client):
         assert response.headers["content-type"].startswith("text/event-stream"), label
         assert response.headers["cache-control"] == "no-cache", label
         assert response.headers["x-accel-buffering"] == "no", label
+
+
+# --------------------------------------------------------------------------
+# Log addressability: a completed run is findable from its own log line
+#
+# The gap these gates close cost a wasted live run in Phase 17 -- a run
+# completed, and no single log record could say which session held it. The fix
+# is not a schema change: `session_id` simply does not exist while the graph
+# runs (for a new session `store.create()` mints it inside `on_complete`, AFTER
+# `graph.app.invoke` returns), so the completion record has to be emitted from
+# the one place that knows it, which is `service.py`.
+#
+# `service.log` and `graph.log` are the same singleton, so one caplog capture
+# sees records from both modules -- which is what lets these tests assert on the
+# RELATIONSHIP between the two lines rather than on either one alone.
+# --------------------------------------------------------------------------
+
+
+def capture_events(caplog) -> dict[str, list]:
+    """Group the captured records by their structured `event` field.
+
+    Returning a dict of lists rather than a set of names on purpose: every gate
+    below is about a COUNT (exactly one, or exactly zero), and a set silently
+    turns a double-emission into a pass.
+    """
+    grouped: dict[str, list] = {}
+    for record in caplog.records:
+        event = getattr(record, "event", "")
+        if event:
+            grouped.setdefault(event, []).append(record)
+    return grouped
+
+
+@pytest.fixture
+def capture_log(monkeypatch, caplog):
+    """The house idiom: the agent logger deliberately does not propagate (its
+    own handler is the only one that should fire), so propagation is turned on
+    for the duration rather than the log call being replaced by a fake. What is
+    under test is the real `log.info(..., extra={...})`.
+    """
+    monkeypatch.setattr(service.log, "propagate", True)
+    with caplog.at_level(logging.INFO, logger=service.log.name):
+        yield lambda: capture_events(caplog)
+
+
+def test_run_finished_carries_the_session_id_for_a_new_session(make_client, capture_log):
+    """The phase's central gate, on the hard route.
+
+    `/research` opens a session that does not exist until the graph has already
+    finished, so this is the case a graph-side emission structurally cannot
+    serve. The final assertion is what keeps the design honest: the graph's own
+    terminal line must carry NO session identity, so a future attempt to thread
+    the id back through `AgentState` fails a test instead of silently doing
+    nothing (LangGraph drops undeclared state keys without a word -- measured in
+    19-RESEARCH).
+    """
+    client, _ = make_client()
+
+    # The premise of capturing both modules' records in one place, asserted
+    # rather than assumed.
+    assert service.log is graph.log
+
+    body = client.post("/research", json={"question": "why?"}).json()
+    by_event = capture_log()
+
+    finished = by_event.get("run_finished", [])
+    assert len(finished) == 1, f"expected exactly one run_finished, got {len(finished)}"
+    # Presence before the comparison, so a record that stops carrying the field
+    # reds as a named failure here rather than as a bare AttributeError, which
+    # reads like a broken test instead of a missing field.
+    assert hasattr(finished[0], "session_id"), "the completion record carries no session_id"
+    assert finished[0].session_id == body["session_id"]
+    assert finished[0].run_id, "a completion record with no run_id addresses nothing"
+
+    graph_finished = by_event.get("graph_finished", [])
+    assert len(graph_finished) == 1, f"expected one graph_finished, got {len(graph_finished)}"
+    assert not hasattr(graph_finished[0], "session_id"), (
+        "the graph reported a session identity it cannot know"
+    )
