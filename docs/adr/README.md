@@ -43,12 +43,19 @@ rather than reversing, that is a new record too.
 
 ## Index
 
-Eight of the eleven records are `Accepted` today. Three supersessions have actually
+Eight of the twelve records are `Accepted` today. Four supersessions have actually
 happened — ADR-0007 overturned ADR-0006 in Phase 12, ADR-0010 overturned ADR-0005 in
-Phase 16, and ADR-0011 overturned ADR-0003 in Phase 17 — and each was forecast by the
-record it overturned. With Phase 17 the reversal register in `.planning/ROADMAP.md` is
-spent: every supersession in the table below is now a fact, and no row carries an
-*expected* one any more.
+Phase 16, ADR-0011 overturned ADR-0003 in Phase 17, and ADR-0012 overturned ADR-0010 in
+Phase 18. **Three of the four were forecast by the record they overturned; the fourth was
+not.** ADR-0005, ADR-0003 and ADR-0006 each named the phase that would supersede them in an
+*Expected reversal* section. ADR-0010 carries no such section, because it was written into a
+register the project was closing: with Phase 17 the reversal register in
+`.planning/ROADMAP.md` was declared **spent**, every supersession in the table below a fact
+and no row carrying an *expected* one. Phase 18 reopened that register once, deliberately,
+by moving the eval judge off the critic's model — and [ADR-0012](0012-judge-independent-of-the-critic.md)
+states the reopening in its own text rather than letting the table quietly grow a row. So
+the honest reading of the table today is: no supersession here is *pending*, and the
+register is no longer closed.
 
 | # | Record | Title | Status | Superseded by |
 |---|--------|-------|--------|---------------|
@@ -61,16 +68,18 @@ spent: every supersession in the table below is now a fact, and no row carries a
 | 0007 | [0007-anonymous-identity-fairness-global-cap.md](0007-anonymous-identity-fairness-global-cap.md) | Fairness keys on an auto-issued anonymous identity; the global cap bounds the bill | Accepted — supersedes [ADR-0006](0006-separate-sessions-token-fails-closed.md) | — |
 | 0008 | [0008-embedding-migration-two-commands.md](0008-embedding-migration-two-commands.md) | Embedding migration is two commands: copy-only preserved, re-embed measured | Accepted | — |
 | 0009 | [0009-recorded-answer-quality-evals.md](0009-recorded-answer-quality-evals.md) | Answer quality is graded from recorded runs, and never claimed of the current model | Accepted | — |
-| 0010 | [0010-judge-rederived-for-an-independent-critic.md](0010-judge-rederived-for-an-independent-critic.md) | The judge is re-derived for an independent critic: a different job, not a compensating control | Accepted — supersedes [ADR-0005](0005-opus-5-eval-judge.md) | — |
+| 0010 | [0010-judge-rederived-for-an-independent-critic.md](0010-judge-rederived-for-an-independent-critic.md) | The judge is re-derived for an independent critic: a different job, not a compensating control | Superseded | [ADR-0012](0012-judge-independent-of-the-critic.md) (Phase 18) |
 | 0011 | [0011-followups-reach-for-new-information.md](0011-followups-reach-for-new-information.md) | Follow-ups reach for new information; grounding means sole source of truth, not no new search | Accepted — supersedes [ADR-0003](0003-followups-reuse-critic-no-prior-research.md) | — |
+| 0012 | [0012-judge-independent-of-the-critic.md](0012-judge-independent-of-the-critic.md) | The eval judge is independent of the critic by model identity, and the family residual is stated rather than solved | Accepted — supersedes [ADR-0010](0010-judge-rederived-for-an-independent-critic.md) | — |
 
 **ADR-0006 onward are the odd ones out.** Records 0001–0005 are promotions of
 existing `docs/DESIGN.md` passages and carry a `**Promoted from:**` line. ADR-0006 originates
 in the Phase 10.5 hotfix that closed the live endpoint exposure, ADR-0007 in Phase 12's
 identity work, ADR-0008 in Phase 13's embedding migration, ADR-0009 in Phase 15's
-answer-quality evals, ADR-0010 in Phase 16's independent critic model, and ADR-0011 in
-Phase 17's follow-up reach — there is no `docs/DESIGN.md` passage behind any of the six, so
-all six carry `**Source:**` instead. Do not go looking for one.
+answer-quality evals, ADR-0010 in Phase 16's independent critic model, ADR-0011 in
+Phase 17's follow-up reach, and ADR-0012 in Phase 18's independent eval judge — there is no
+`docs/DESIGN.md` passage behind any of the seven, so all seven carry `**Source:**` instead.
+Do not go looking for one.
 
 ADR-0011 is the one that could mislead, because the decision it reverses *did* come from
 `docs/DESIGN.md`: ADR-0003 was promoted from DEC-04. But a record's provenance line names
@@ -92,6 +101,17 @@ recorded in ADR-0007's *Carried forward from ADR-0006* section, not by editing 0
 is read the same way: its premise — that the in-graph critic shares the writer's model — was
 true when it was written and Phase 16 removed it, so what survives is in ADR-0010's *Carried
 forward from ADR-0005* section and 0005 itself is untouched below its status line.
+
+ADR-0010 is now read that way too, and it is the one case where the chain runs three deep.
+It carries the surviving half of ADR-0005 *and* has a surviving half of its own, recorded in
+ADR-0012's *Carried forward from ADR-0010* section — so a reader tracing the eval judge's
+rationale reads 0012 for what is current, 0010 for what survived 0005, and 0005 for the
+original argument. Two things in 0010 deserve naming here, because a `Superseded` status
+invites the assumption that everything under it is dead. Only one of its two positions was
+overturned: the eval judge deliberately running on the critic's own model, which ADR-0012
+ends. Its other position — the in-graph critic runs on a more capable model than the writer
+it gates — is untouched, still deployed, and still has no successor record. Nothing below
+0010's status line was edited when 0012 landed.
 
 ADR-0003 is the sharpest case of the rule, and the one most likely to look like an oversight.
 Its *Expected reversal* section ends "That reversal has not happened" — a sentence Phase 17

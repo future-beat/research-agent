@@ -799,10 +799,27 @@ alongside the pipeline and judge, and the replay staleness gate compares it —
 so a recording made before the cutover grades stale in any environment that
 sets `CRITIC_MODEL`, which is correct: it describes a pipeline that no longer
 exists. CI runs keyless with the variable unset, so the offline suite is
-unaffected. A record run made against production's configuration also prints
-one line noting that the judge and the critic share `claude-opus-5`; that is a
-statement about what those verdicts can claim, and an accepted one (ADR-0010),
-not something to correct.
+unaffected. Note what the gate compares and what it does not: the pipeline's
+model and the critic's, never the judge's. A fixture's judge verdicts are fixed
+data replayed as recorded grades, so moving the judge does not stale a single
+committed recording.
+
+**The collision note, and when it fires.** A record run prints one line only
+when the judge and the critic resolve to the *same* model — and since Phase 18
+that is no longer what ships. `EVAL_JUDGE_MODEL` defaults to `claude-opus-4-8`
+while production pins the critic to `claude-opus-5`, so a production-shaped
+record run prints nothing here. Landing both on one model is something an
+operator does by moving either knob. That is a legal configuration and the line
+does not call it a mistake; it states what those verdicts stop being able to
+claim — independence of the critic's model, since what one waves through the
+other is likelier to wave through — and points at
+[ADR-0012](adr/0012-judge-independent-of-the-critic.md), the record that
+separated the two.
+
+`EVAL_JUDGE_MODEL` overrides the model the eval judge runs on, defaulting to
+`claude-opus-4-8`. It is read by `python -m evals` and by nothing the service
+imports, so it belongs in the shell that runs a recording — not in the
+configuration table above, not in `fly.toml`, and not in `.env.example`.
 
 **Deployment:** this ships with the **next deploy** — no dedicated cutover, no
 migration step to run by hand. At neutral defaults (both variables unset, and

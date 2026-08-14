@@ -95,7 +95,7 @@
 
 **Pipeline model:** `claude-sonnet-5`, hardcoded as `graph.MODEL` (`graph.py:38`). Every node — classifier, researcher, writer, critic, reviser — runs on it.
 
-**Eval judge:** `claude-opus-5`, via `EVAL_JUDGE_MODEL` (`evals/graders.py:28`). This is the only place Opus appears, and it is deliberately a different and stronger model than the one being graded.
+**Eval judge:** `claude-opus-4-8`, via `EVAL_JUDGE_MODEL` (`evals/graders.py:45`). Deliberately a different and stronger model than the writer being graded — and, since Phase 18, deliberately a different model from the **critic** too ([ADR-0012](../../docs/adr/0012-judge-independent-of-the-critic.md)). The "only place Opus appears" claim this line used to carry died in Phase 16, when the critic moved to `claude-opus-5`.
 
 **Embedding model:** `voyage-3.5` via `VOYAGE_EMBEDDING_MODEL` (`memory.py:40`). Emits 1024 dimensions, which is why `VECTOR_DIMENSIONS` defaults to `1024` — the pgvector column width is validated against the embedder on first write (`memory.py:371`, `_check_dimensions`) rather than trusted.
 

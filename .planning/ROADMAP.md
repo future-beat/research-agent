@@ -137,7 +137,7 @@ record run (judge verdicts are recorded once, as fixture metadata), and the reco
 the README/records close-out sit at the end, since the close-out deletes bullets the other
 phases close.
 
-- [ ] **Phase 18: Independent eval judge** - `EVAL_JUDGE_MODEL` defaults to `claude-opus-4-8`, independent of the critic and the writer; ADR-0012 supersedes ADR-0010
+- [x] **Phase 18: Independent eval judge** - `EVAL_JUDGE_MODEL` defaults to `claude-opus-4-8`, independent of the critic and the writer; ADR-0012 supersedes ADR-0010
 - [ ] **Phase 19: Credential validity, log addressability, demo CSP** - `/health` reports whether keys actually work; `run_finished` carries `session_id`; the demo page ships a hash-based CSP header
 - [ ] **Phase 20: Note count bound** - A per-owner count cap with oldest-first eviction, identical across all four backends
 - [ ] **Phase 21: Forty recorded answers** - All 40 golden cases carry a real recorded answer, graded keylessly on every push
@@ -220,7 +220,21 @@ refusal surfaces as a finding rather than a misleading parse error
      reopens the reversal register v1.1 closed as spent.
   4. The price table carries an Opus 4.8 row, so a judge run's cost is reported rather than
      landing on `pricing_unknown`.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [x] 18-01-PLAN.md — PRICES row + `JUDGE_MODEL` default flip in one commit, independence pinned against the deployed critic
+- [x] 18-02-PLAN.md — the refusal guard: `stop_reason` checked before content, a decline is a graded finding reaching the recorder's failed-graders branch
+- [x] 18-03-PLAN.md — ADR-0012 supersedes ADR-0010, index re-derived with a derived-counts checker, the 0005→0010→0012 chain test extended in the same commit
+- [x] 18-04-PLAN.md — the collision line's premise re-derived (silent at shipped defaults, points at ADR-0012), every other judge==critic doc surface cleaned
+
+**Status: COMPLETE (2026-08-14).** All four success criteria hold, each with a measured gate.
+Final gate keyless: **749 passed / 67 skipped** exit 0; offline evals **41/41 (100% vs 90%
+required)** exit 0; ruff clean. Thirteen mutations observed red across the four waves, plus
+three honest greens with recorded reasons — ledger in `18-VALIDATION.md`. **Deferred and
+recorded, not silent:** a real Opus 4.8 judge verdict has never round-tripped (every path is
+fake-driven); the ~$0.06 one-verdict probe belongs to Phase 21's record run. **`README.md:285`
+is deliberately left contradicting the tree** — Phase 22 deletes that Limitations bullet.
 
 ### Phase 19: Credential validity, log addressability, demo CSP
 **Goal**: `/health` reports whether the API keys actually work without touching liveness, a

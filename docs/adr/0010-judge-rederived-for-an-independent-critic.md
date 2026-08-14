@@ -1,6 +1,6 @@
 # ADR-0010 — The judge is re-derived for an independent critic: a different job, not a compensating control
 
-**Status:** Accepted — supersedes ADR-0005
+**Status:** Superseded by ADR-0012 (Phase 18)
 **Source:** Phase 16 (2026-08-10), `REQ-independent-critic-model`
 
 ## Context

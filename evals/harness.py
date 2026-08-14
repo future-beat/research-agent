@@ -634,24 +634,34 @@ def _state_judge_critic_relation(judge: G.Judge | None) -> None:
     critic are the same model.
 
     This is a STATEMENT OF FACT about what the recordings can claim, not a
-    complaint about how the machine is set up -- and the distinction matters
-    because it fires on the DEPLOYED configuration: `JUDGE_MODEL` defaults to
-    claude-opus-5 and Phase 16's cutover pins `CRITIC_MODEL` to claude-opus-5
-    too, deliberately, so the critic is more capable than the writer it gates.
-    Every record run made against production's configuration sees this line.
-    Wording it as a misconfiguration would train the operator to ignore the one
-    line that tells them what their fixtures are worth.
+    complaint about how the machine is set up. Until Phase 18 it fired on the
+    deployed configuration -- judge and critic both on claude-opus-5 -- and the
+    wording had to avoid calling the operator's own arrangement a mistake.
+    ADR-0012 moved the judge to `claude-opus-4-8`, so the premise inverted
+    while the mechanism did not: production still pins `CRITIC_MODEL` to
+    claude-opus-5, the shipped judge is somewhere else, and a production-shaped
+    record run never reaches the print below.
+
+    A collision is therefore now OPERATOR-CREATED: someone exported
+    `EVAL_JUDGE_MODEL`, or moved `CRITIC_MODEL`, and landed both on one model.
+    That is still legal -- both are legitimate knobs, and there are honest
+    reasons to pair them deliberately -- so the wording rule is unchanged and
+    load-bearing for the same reason it always was: a line that calls the
+    operator's configuration a mistake teaches them to skip the one line that
+    tells them what their fixtures are worth.
 
     What it narrows: ADR-0005 claimed the judge is independent of the pipeline.
-    ADR-0010 keeps the load-bearing half -- the judge never shares the WRITER's
-    model, pinned at `JUDGE_MODEL != graph.MODEL` -- and records the other half
-    as accepted rather than met: a grounding failure the critic waved through
-    is likelier to be one the judge waves through too, because the same model
-    is looking at it twice.
+    ADR-0010 kept the load-bearing half -- the judge never shares the WRITER's
+    model, pinned at `JUDGE_MODEL != graph.MODEL` -- and recorded the other
+    half as accepted rather than met: a grounding failure the critic waved
+    through is likelier to be one the judge waves through too, because the same
+    model is looking at it twice. ADR-0012 supersedes the acceptance by
+    separating the models, which is why the line points there: the operator who
+    has re-created the collision is reading about the property the project
+    stopped accepting, not about a record that describes their situation.
 
-    Not an exception and not a refusal: both variables are legitimate operator
-    knobs and this combination is the chosen one. Policy belongs in the record,
-    not in a crash.
+    Not an exception and not a refusal. Policy belongs in the record, not in a
+    crash.
     """
     if judge is None:
         return
@@ -661,8 +671,9 @@ def _state_judge_critic_relation(judge: G.Judge | None) -> None:
     print(
         f"note: the judge and the in-graph critic both run on {critic}. These recorded "
         "verdicts are independent of the writer's model and not of the critic's -- what "
-        "one waves through, the other is likelier to wave through. This is the deployed "
-        "configuration and it is accepted, recorded in ADR-0010.",
+        "one waves through, the other is likelier to wave through. The shipped default "
+        f"separates them ({G.DEFAULT_JUDGE_MODEL} for the judge); pairing them is an "
+        "operator choice, and what it costs a verdict is recorded in ADR-0012.",
         file=sys.stderr,
     )
 

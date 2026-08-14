@@ -12,7 +12,7 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 740 tests
+backends, an eval harness that grades real recorded answers, and 749 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
@@ -37,7 +37,7 @@ the demo link never signs up for anything.
 **v1.1 — closing the limitations list.** Each entry below closes something the
 README used to list as a known gap, or reverses a design decision on purpose.
 
-- [x] **10 — Architectural record.** Nine numbered ADRs under `docs/adr/`, each with a status. Every later reversal supersedes a record instead of quietly contradicting prose. *(Nine then; eleven now, three of them superseded on the record — see 16 and 17.)*
+- [x] **10 — Architectural record.** Nine numbered ADRs under `docs/adr/`, each with a status. Every later reversal supersedes a record instead of quietly contradicting prose. *(Nine then; twelve now, four of them superseded on the record — see 16 and 17.)*
 - [x] **10.5 — Session endpoints closed.** The session read and delete routes were reachable by anyone; found by mapping the codebase, confirmed against production, fixed and redeployed.
 - [x] **11 — Multi-machine state.** `DATABASE_URL` points at Supabase Postgres; one pooled connection set per machine; two machines serving one shared session store.
 - [x] **12 — Identity, ownership, bounded stores.** An auto-issued signed cookie — no signup, no wall. Sessions and notes belong to a caller and expire after seven days; rate limits key on identity; the spend cap reserves against in-flight runs so concurrency can't overshoot it.
@@ -196,7 +196,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 740 tests, ~30s, no API keys, no network
+pytest                    # 749 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes

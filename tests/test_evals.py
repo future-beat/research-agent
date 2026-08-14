@@ -15,6 +15,11 @@ import types
 
 import pytest
 
+# Third-party by ruff's reckoning, not a mistake: `target-version = "py310"`,
+# and tomllib is stdlib only from 3.11. tests/test_deploy_config.py orders it
+# the same way.
+import tomllib
+
 from evals import __main__ as M
 from evals import fixtures as F
 from evals import graders as G
@@ -568,13 +573,24 @@ def test_the_refusal_grader_accepts_a_structural_forced_stop_only_when_expected(
 
 
 class FakeJudgeClient:
-    def __init__(self, *payloads):
+    """A judge client that answers normally: `stop_reason="end_turn"`.
+
+    `stop_reason` and `stop_details` are here because `Judge.verdict` reads the
+    stop reason before it reads a single content block, and a fake whose
+    response is missing the field the real `anthropic.types.Message` always
+    carries would AttributeError every test built on it. `stop_details` is
+    non-null ONLY for refusals in the SDK, so `None` is the honest value here.
+    """
+
+    def __init__(self, *payloads, stop_reason="end_turn"):
         self.payloads = list(payloads)
         self.prompts = []
         self.messages = self
+        self.stop_reason = stop_reason
 
     def create(self, **kwargs):
         self.prompts.append(kwargs["messages"][0]["content"])
+        stop_reason = self.stop_reason
 
         class Block:
             type = "text"
@@ -585,8 +601,62 @@ class FakeJudgeClient:
         class Response:
             def __init__(self, text):
                 self.content = [Block(text)]
+                self.stop_reason = stop_reason
+                self.stop_details = None
 
         return Response(self.payloads.pop(0))
+
+
+class RefusalStopDetails:
+    """Shaped after `anthropic.types.RefusalStopDetails` (SDK 0.120.0): the
+    three fields the guard is allowed to read, and nothing else."""
+
+    def __init__(self, category, explanation):
+        self.type = "refusal"
+        self.category = category
+        self.explanation = explanation
+
+
+class RefusingJudgeClient:
+    """A judge client whose model DECLINES to answer.
+
+    The documented shape of a safety-classifier refusal: a normal HTTP 200,
+    `stop_reason="refusal"`, `stop_details` naming the trigger, and content
+    that is empty or minimal -- which is why reading content first turns a
+    refusal into `unparseable verdict: ''` and blames the parse.
+
+    Unlike `FakeJudgeClient` this one never runs out of payloads: a recording
+    calls the judge once per judge grader per turn, and a client that popped
+    from a list would fail on the second call for reasons that have nothing to
+    do with refusals.
+    """
+
+    def __init__(
+        self,
+        *,
+        category="general_harms",
+        explanation="declined by the safety classifier",
+        with_details=True,
+    ):
+        self.prompts = []
+        self.messages = self
+        self.calls = 0
+        self.stop_details = (
+            RefusalStopDetails(category, explanation) if with_details else None
+        )
+
+    def create(self, **kwargs):
+        self.prompts.append(kwargs["messages"][0]["content"])
+        self.calls += 1
+        stop_details = self.stop_details
+
+        class Response:
+            def __init__(self):
+                self.content = []  # empty on refusal -- the documented shape
+                self.stop_reason = "refusal"
+                self.stop_details = stop_details
+
+        return Response()
 
 
 def test_judge_parses_a_structured_verdict():
@@ -603,11 +673,119 @@ def test_judge_raises_on_an_unparseable_verdict():
         judge.verdict("check this")
 
 
+def test_judge_says_truncated_rather_than_unparseable_when_it_ran_out_of_tokens():
+    """Cut-off JSON is not malformed JSON, and the fix is not the same.
+
+    `max_tokens=1500` is shared with adaptive thinking, so the plausible way a
+    real verdict fails to parse is that the model thought at length and the
+    object ended mid-string. Reported as "unparseable" that reads as a prompt
+    or schema problem; reported as TRUNCATED it names the budget. Both raise --
+    truncation is an operational failure, not a graded finding, and a run that
+    quietly scored nothing is the outcome the raise exists to prevent."""
+    client = FakeJudgeClient('{"passed": true, "rea', stop_reason="max_tokens")
+    judge = G.Judge(client)
+
+    with pytest.raises(ValueError, match="TRUNCATED") as exc:
+        judge.verdict("check this")
+
+    # Not the malformation message: the two diagnoses stay apart.
+    assert "unparseable" not in str(exc.value)
+    # And the partial text is quoted, because it is the evidence.
+    assert '{"passed": true, "rea' in str(exc.value)
+
+
+def test_judge_refusal_is_a_graded_finding_not_a_parse_error():
+    """A refusal is the model DECLINING, and it must say so in those words.
+
+    Three outcomes have to stay distinguishable downstream, because they call
+    for three different actions: a genuine FAILED verdict (the report is bad --
+    fix the pipeline), a MALFORMED verdict (raises -- fix the parse or the
+    prompt), and a REFUSAL (the judge never graded anything -- nothing about
+    the report has been measured at all). Before this guard the third was
+    reported as the second: `ValueError: Judge returned unparseable verdict:
+    ''`, blaming the parse for a decision the model made, on empty content the
+    parse never had a chance with.
+
+    The shape is pinned literally rather than against a constant imported from
+    the code, so a reworded detail reds here instead of agreeing with itself.
+    """
+    client = RefusingJudgeClient(
+        category="general_harms", explanation="the audit prompt quoted disallowed text"
+    )
+    judge = G.Judge(client)
+
+    passed, detail = judge.verdict("audit this")
+
+    assert passed is False
+    assert detail.startswith("the judge DECLINED to grade")
+    # The typed field, quoted -- so a reader of the eval report can tell this
+    # apart from a grader that decided the report was ungrounded.
+    assert "stop_reason=refusal" in detail
+    assert "general_harms" in detail
+    assert "the audit prompt quoted disallowed text" in detail
+    # A refusal still cost a call; the counter is what the record run's
+    # "N judge calls" line is built from.
+    assert judge.calls == 1
+
+
+def test_judge_refusal_without_details_still_names_the_refusal():
+    """`stop_details` is documented as refusal-only, not as refusal-always, and
+    the SDK types it `RefusalStopDetails | None`. A guard that reached straight
+    for `.category` would turn a refusal into an AttributeError -- which is a
+    crash inside the grader, i.e. straight back to the run-errored branch this
+    whole change exists to get out of."""
+    judge = G.Judge(RefusingJudgeClient(with_details=False))
+
+    passed, detail = judge.verdict("audit this")
+
+    assert passed is False
+    assert detail.startswith("the judge DECLINED to grade")
+    assert "stop_reason=refusal" in detail
+    assert "category" not in detail
+
+
 def test_the_judge_runs_on_a_different_model_than_the_pipeline():
     """A judge sharing the writer's model inherits the blind spots it exists
     to find. This is the independence ADR-0010 keeps: judge != WRITER."""
 
     assert G.JUDGE_MODEL != graph.MODEL
+
+
+def test_the_judge_runs_on_a_different_model_than_the_deployed_critic():
+    """The independence Phase 18 adds: judge != CRITIC, in production.
+
+    Compared against `fly.toml`'s parsed `[env]` value, not against
+    `graph.critic_model()`. In this suite `CRITIC_MODEL` is unset, so
+    `critic_model()` returns the writer's model and the comparison would be
+    green forever while saying nothing about the deployed configuration --
+    16-02's neutral-default blind spot, which is exactly the failure this pin
+    exists to avoid repeating.
+
+    Failing loud on an absent key rather than skipping: Fly's tooling has
+    regenerated `fly.toml` from the web UI's defaults twice, and a regenerated
+    `[env]` carries only the variables Fly knows about. Compared against a
+    silently missing value, `!= None` is true and the pin would report
+    independence from nothing at all.
+    """
+    fly_toml = pathlib.Path(__file__).resolve().parent.parent / "fly.toml"
+    assert fly_toml.exists(), (
+        "fly.toml is missing, so nothing in this repository states which model "
+        "the deployed critic runs on -- the judge's independence from it is "
+        "unverifiable rather than merely unproven."
+    )
+    deployed_critic = tomllib.loads(fly_toml.read_text()).get("env", {}).get("CRITIC_MODEL")
+
+    assert deployed_critic, (
+        "fly.toml's [env] no longer pins CRITIC_MODEL. The deployed critic "
+        "falls back to the writer's model and this pin has nothing to compare "
+        "the judge against -- see tests/test_deploy_config.py's critic pin."
+    )
+    assert deployed_critic != G.JUDGE_MODEL, (
+        f"the eval judge and the deployed critic both run on "
+        f"{deployed_critic!r}. A recorded verdict is then independent of the "
+        "writer's model and not of the critic's -- the arrangement ADR-0010 "
+        "accepted and Phase 18 supersedes."
+    )
 
 
 def test_grounding_judge_is_given_the_notes_and_the_draft():
@@ -2450,15 +2628,128 @@ class FakeJudge:
         return True, "grounded in the notes"
 
 
-def record_with_fakes(case_ids, tmp_path, *, refuse_task=None, force=False):
+def record_with_fakes(
+    case_ids, tmp_path, *, refuse_task=None, force=False, judge_model="claude-opus-5"
+):
+    """`judge_model` is a parameter because the collision note reads it. The
+    default is the historical one (claude-opus-5, what `FakeJudge` itself
+    defaults to) so every pre-existing call site is unmoved; the collision
+    tests pass it explicitly, because after Phase 18 which model the judge runs
+    on is the whole variable under test rather than set dressing."""
     return record_suite(
         [by_id(case_id) for case_id in case_ids],
         client_factory=offline_client_factory,
         memory_factory=offline_memory_factory,
-        judge=FakeJudge(refuse_task=refuse_task),
+        judge=FakeJudge(model=judge_model, refuse_task=refuse_task),
         force=force,
         directory=tmp_path,
     )
+
+
+def test_a_judge_refusal_reaches_the_recorders_failed_graders_branch(tmp_path):
+    """A declining judge must refuse the RECORD through the graders' door.
+
+    `_refuse_failing` has two branches and they blame different actors. The
+    run-errored branch says the pipeline broke; the failed-graders branch names
+    the graders that said no. Before the guard a refusal took the first one --
+    a ValueError out of `Judge.verdict`, swallowed by `run_case`'s blanket
+    except into `result.error` -- so an operator reading a $12 record run was
+    told their successful, paid pipeline run had errored, when what actually
+    happened is that the judge declined to look at it.
+
+    The REAL `G.Judge` over a refusing client, deliberately: `FakeJudge` has no
+    client and its `verdict` never reaches the guard, so a test built on it
+    would exercise none of this.
+
+    Which surface carries WHAT: the `FixtureError` names the graders, and the
+    refusal-shaped detail rides on the failed `Grade` objects -- the same
+    `result.failures` list `evals/__main__.py`'s `announce` prints from, and
+    the `turns[].grades[].detail` that `--report` serialises.
+    """
+    judge = G.Judge(RefusingJudgeClient(explanation="declined by the safety classifier"))
+
+    report = record_suite(
+        [by_id("technical-figures")],
+        client_factory=offline_client_factory,
+        memory_factory=offline_memory_factory,
+        judge=judge,
+        directory=tmp_path,
+    )
+
+    recording = report["recordings"][0]
+    case = report["cases"][0]
+
+    # (a) The failed-graders branch fired, and the run-errored one did not.
+    assert recording["written"] is False
+    assert "judge_grounding" in recording["refusal"]
+    assert "the run errored" not in recording["refusal"]
+    assert case["error"] == ""  # nothing about the RUN failed
+
+    # (b) The reason's CONTENT, not merely that there was one. A reason-blind
+    # assertion is green under both branches and would gate nothing: remove the
+    # guard and `written` is still False, the file is still absent, and the
+    # only thing that changes is who gets blamed.
+    failed = [g for turn in case["turns"] for g in turn["grades"] if not g["passed"]]
+    assert [g["grader"] for g in failed] == [
+        "judge_grounding",
+        "judge_answers_the_question",
+    ]
+    for grade in failed:
+        assert grade["detail"].startswith("the judge DECLINED to grade")
+        assert "stop_reason=refusal" in grade["detail"]
+        assert "declined by the safety classifier" in grade["detail"]
+        assert grade["judged"] is True
+
+    # (c) A refused write leaves no file (15-01) -- not a partial one, not an
+    # empty one.
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_record_console_names_the_judge_not_the_run_when_the_judge_declines(
+    tmp_path, monkeypatch, capsys
+):
+    """What the operator actually reads, through `main`, end to end.
+
+    The claim above is about data structures; this one is about the console a
+    person watches a paid record run in. It says SKIP, it names
+    `judge_grounding`, and it never says the run errored.
+
+    It also MEASURES the limit of that surface rather than assuming it: in
+    record mode `main` wires `announce_recording` (which prints the refusal
+    message -- grader names) and never calls `announce` (which is the function
+    that prints `grade.detail`). So the console says WHICH grader refused and
+    the word DECLINED travels in `--report`. Recorded as measured behaviour,
+    not repaired here: printing failed-grade details from a refused recording
+    means editing `evals/__main__.py`, and this plan's whole argument is that
+    the refusal composes with the existing paths without touching them.
+    """
+    report_path = tmp_path / "report.json"
+    code = cli_record(
+        monkeypatch,
+        tmp_path,
+        "technical-figures",
+        judge_refuses=True,
+        argv=("--min-pass-rate", "0", "--report", str(report_path)),
+    )
+
+    assert code == 1
+    assert not (tmp_path / "technical-figures.json").exists()
+    out = capsys.readouterr().out
+    assert "1 case(s) were NOT recorded" in out
+    assert "judge_grounding" in out
+    assert "the run errored" not in out
+    # The measured boundary of the console surface.
+    assert "DECLINED" not in out
+
+    failed = [
+        grade
+        for case in json.loads(report_path.read_text())["cases"]
+        for turn in case["turns"]
+        for grade in turn["grades"]
+        if not grade["passed"]
+    ]
+    assert failed
+    assert all(g["detail"].startswith("the judge DECLINED to grade") for g in failed)
 
 
 def test_record_writes_a_fixture_per_case_with_fakes(tmp_path):
@@ -2513,17 +2804,59 @@ def test_record_writes_the_models_map_critic_from_the_environment(tmp_path, monk
     assert fixture["models"]["pipeline"] == graph.MODEL
 
 
+def test_judge_critic_collision_warning_is_silent_at_the_shipped_defaults(
+    tmp_path, monkeypatch, capsys
+):
+    """A production-shaped record run prints NO collision line, and this is the
+    test that says so.
+
+    Until Phase 18 the collision was the deployed arrangement: the judge and
+    the critic both ran on claude-opus-5, so every real record run saw the
+    note. ADR-0012 separated them -- the judge ships on claude-opus-4-8 while
+    production still pins `CRITIC_MODEL` to claude-opus-5 -- which means the
+    line's premise inverted rather than its logic. The arrangement here is that
+    production one: the judge's own resolved model against production's pinned
+    critic.
+
+    If a future phase ever points them at the same model again, this is the
+    test that reds, and the question it asks is whether the wording below is
+    honest again -- not whether to delete the line."""
+    monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")  # production's pin
+
+    record_with_fakes(["technical-figures"], tmp_path, judge_model=G.JUDGE_MODEL)
+
+    err = capsys.readouterr().err
+    assert "both run on" not in err, f"a production-shaped run printed a collision note: {err!r}"
+    assert "ADR-0012" not in err
+    # Non-vacuity: the premise of this test is that the shipped judge is NOT
+    # the deployed critic. If that stops being true the assertions above red
+    # anyway, but the reason should not have to be reconstructed from a diff.
+    assert G.JUDGE_MODEL != "claude-opus-5", (
+        "the shipped judge is back on the deployed critic's model; this test no longer "
+        "describes a production-shaped run -- see ADR-0012"
+    )
+
+
 def test_judge_critic_collision_warning_fires_once_per_run(tmp_path, monkeypatch, capsys):
-    """`FakeJudge` grades on claude-opus-5 and production pins the critic to
-    claude-opus-5, so this is the DEPLOYED configuration, not a contrived one.
+    """A CONTRIVED configuration, driven on purpose -- which is the point after
+    ADR-0012. A collision is now something an operator creates by moving either
+    knob (`EVAL_JUDGE_MODEL` or `CRITIC_MODEL`); it is no longer what ships. So
+    the judge model is passed explicitly rather than inherited from a fake's
+    default: the collision has to be arranged, and arranging it through
+    `FakeJudge`'s `model` is the only honest way here, because
+    `Judge.__init__`'s default binds `JUDGE_MODEL` at import and a monkeypatched
+    env var would prove nothing.
+
     Once per run, not once per case: two cases here, one line."""
     monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
 
-    record_with_fakes(["technical-figures", "followups-chain"], tmp_path)
+    record_with_fakes(
+        ["technical-figures", "followups-chain"], tmp_path, judge_model="claude-opus-5"
+    )
 
     err = capsys.readouterr().err
     assert err.count("both run on claude-opus-5") == 1
-    assert "ADR-0010" in err
+    assert "ADR-0012" in err
 
 
 def test_judge_critic_collision_warning_is_silent_when_they_differ(tmp_path, monkeypatch, capsys):
@@ -2534,46 +2867,155 @@ def test_judge_critic_collision_warning_is_silent_when_they_differ(tmp_path, mon
     record_with_fakes(["technical-figures"], tmp_path)
 
     err = capsys.readouterr().err
-    assert "both run on" not in err and "ADR-0010" not in err
+    assert "both run on" not in err and "ADR-0012" not in err
 
 
 def test_judge_critic_collision_warning_states_a_fact_not_a_fault(tmp_path, monkeypatch, capsys):
-    """The wording is the deliverable here, not decoration. This line fires on
-    the configuration Hesam chose -- the critic is deliberately more capable
-    than the writer it gates, which puts it on the judge's model -- so calling
-    it a misconfiguration would be telling the operator their own decision is a
-    mistake, every single record run, until they learn to skip the line. It
-    names the shared model, says what the verdicts can still claim, and points
-    at the record that accepted it."""
+    """The wording is the deliverable here, not decoration -- and Phase 18
+    inverted what an honest wording says.
+
+    The line used to fire on the arrangement Hesam had chosen, so it said so:
+    accepted, deployed, recorded in ADR-0010. After ADR-0012 the shipped
+    default separates the two models, so a collision is the operator's own
+    doing. Both readings share one rule, which is why the fault words are
+    unchanged: a line that calls the operator's configuration a mistake teaches
+    them to skip the line, and it is the only line that tells them what their
+    fixtures are worth. Both knobs are legitimate; this is a statement about
+    what colliding verdicts can claim, not a complaint.
+
+    So the required tokens moved with the facts. It must name the shared model,
+    say that the shipped default separates them (naming that default, derived
+    from the constant rather than typed here), attribute the pairing to the
+    operator, and point at ADR-0012 -- the record that separated them, whose
+    existence and status are held by the chain test below."""
     monkeypatch.setenv("CRITIC_MODEL", "claude-opus-5")
 
-    record_with_fakes(["technical-figures"], tmp_path)
+    record_with_fakes(["technical-figures"], tmp_path, judge_model="claude-opus-5")
 
     err = capsys.readouterr().err.lower()
-    assert "claude-opus-5" in err and "adr-0010" in err
+    assert "claude-opus-5" in err and "adr-0012" in err
     for fault in ("misconfig", "error", "invalid", "should not", "must not", "fix"):
         assert fault not in err, f"the collision line implies fault: {fault!r}"
-    # And it says what it is: accepted, deployed, not a defect.
-    assert "accepted" in err and "deployed" in err
+    # The new facts, each pinned: the shipped default separates them, it is
+    # this model, and the pairing came from the operator.
+    assert "shipped default" in err
+    assert G.DEFAULT_JUDGE_MODEL in err, (
+        f"the line does not name the shipped default ({G.DEFAULT_JUDGE_MODEL}): {err!r}"
+    )
+    assert "operator" in err
 
 
 def test_judge_critic_collision_warning_points_at_a_record_that_exists():
-    """The three tests above pin a *string*, `ADR-0010`, in a line an operator
-    reads at the moment they are deciding whether to trust a recording. Nothing
-    checked that the string resolves to anything. A dangling pointer in an
-    operator-facing message is worse than no pointer: it spends the reader's
-    trust and then their time.
+    """The collision tests above pin a *string* naming an ADR in a line an
+    operator reads at the moment they are deciding whether to trust a
+    recording. Nothing checked that the string resolves to anything. A dangling
+    pointer in an operator-facing message is worse than no pointer: it spends
+    the reader's trust and then their time. The judge's rationale now lives in
+    ADR-0012, so that is where the line points, and this test is what
+    guarantees the pointer lands on a record that exists and agrees.
 
-    So: the record exists, it is the one that supersedes ADR-0005, and 0005's
-    own status line agrees. The supersession is a two-file claim and this is
-    the only thing in the tree that holds both halves together -- the
-    one-line-diff gate on 0005 lived in a plan, and plans stop being run."""
+    The chain is three deep and every status line is asserted, because a
+    supersession is a two-file claim and the middle record is half of two of
+    them. Phase 18 extended this test rather than adding a second one: the same
+    test keeps holding both halves of every supersession it names.
+
+    One assertion was REPLACED, not dropped. This test used to require
+    `supersedes ADR-0005` inside ADR-0010 -- text that lived only in 0010's
+    status line, which the supersession convention overwrites the day 0010 is
+    itself superseded. The 0005 -> 0010 half is now held from 0005's side,
+    where `Superseded by ADR-0010` is permanent. That deletion is the whole
+    reason this test had to move in the same commit as ADR-0012."""
     adr = pathlib.Path(__file__).resolve().parent.parent / "docs" / "adr"
-    record = adr / "0010-judge-rederived-for-an-independent-critic.md"
+    records = {
+        "0005": adr / "0005-opus-5-eval-judge.md",
+        "0010": adr / "0010-judge-rederived-for-an-independent-critic.md",
+        "0012": adr / "0012-judge-independent-of-the-critic.md",
+    }
+    for number, path in records.items():
+        assert path.exists(), f"the record trail names ADR-{number}; {path.name} is not on disk"
 
-    assert record.exists(), "record mode names ADR-0010; no such record on disk"
-    assert "supersedes ADR-0005" in record.read_text()
-    assert "Superseded by ADR-0010" in (adr / "0005-opus-5-eval-judge.md").read_text()
+    # 0005 -> 0010 (Phase 16), held from the superseded record's side.
+    assert "Superseded by ADR-0010" in records["0005"].read_text()
+    # 0010 -> 0012 (Phase 18), both halves.
+    assert "Superseded by ADR-0012" in records["0010"].read_text()
+    assert "supersedes ADR-0010" in records["0012"].read_text()
+
+
+_SPELLED = {
+    1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+    8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
+    14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
+    19: "nineteen", 20: "twenty",
+}
+
+
+def test_the_adr_index_counting_prose_is_derived_from_the_table():
+    """A gate that greps for the string you just typed is not a gate (17-04).
+    The ADR index opens with prose that COUNTS -- how many records exist, how
+    many are `Accepted`, how many supersessions have happened -- and a literal
+    grep for "Eight of the twelve" stays green forever once someone flips a
+    row's Status cell and forgets the paragraph, which is exactly the drift
+    every supersession since Phase 12 has produced.
+
+    So the numbers are DERIVED from the table's own Status cells and compared
+    against the prose. Nothing here hardcodes this phase's counts: add a
+    thirteenth record and the checker demands the prose say thirteen."""
+    index = pathlib.Path(__file__).resolve().parent.parent / "docs" / "adr" / "README.md"
+    text = index.read_text()
+
+    # The prose under test is the paragraph between `## Index` and the table.
+    heading, _, rest = text.partition("## Index")
+    assert heading, "docs/adr/README.md has no `## Index` section"
+    prose = rest.split("| # | Record |")[0].lower()
+
+    rows = [ln for ln in text.splitlines() if re.match(r"^\|\s*\d{4}\s*\|", ln)]
+    statuses = [ln.split("|")[4].strip() for ln in rows]
+    assert len(rows) >= 11, f"only parsed {len(rows)} index rows; the table shape moved"
+
+    accepted = sum(1 for s in statuses if s.startswith("Accepted"))
+    superseded = sum(1 for s in statuses if s.startswith("Superseded"))
+    # Every row is one or the other. A mis-parse would shrink both silently.
+    assert accepted + superseded == len(rows), f"unclassified Status cells: {statuses}"
+
+    def spelled(n: int) -> str:
+        assert n in _SPELLED, f"extend _SPELLED past {n}, or move the prose to digits"
+        return _SPELLED[n]
+
+    assert f"{spelled(accepted)} of the {spelled(len(rows))} records" in prose, (
+        f"the table says {accepted} of {len(rows)} records are Accepted; "
+        f"the counting prose does not say so:\n{prose}"
+    )
+    assert f"{spelled(superseded)} supersessions" in prose, (
+        f"the table carries {superseded} superseded records; "
+        f"the counting prose does not say so:\n{prose}"
+    )
+
+    # A `Superseded by` cell must name a record that is on disk and that owns
+    # the supersession the index credits it with -- the index is the third
+    # party to every supersession the chain test holds two halves of.
+    #
+    # The back-reference is NOT `supersedes ADR-NNNN`. That text lives in the
+    # superseder's status line, and the convention above replaces that line the
+    # day the superseder is itself superseded: ADR-0010 stopped claiming
+    # ADR-0005 the moment ADR-0012 landed. (That deletion is the same one that
+    # reds the chain test below.) The durable claim is the
+    # `Carried forward from ADR-NNNN` section, which lives in a body no
+    # supersession is ever allowed to edit. Either form counts.
+    for row in rows:
+        cells = [c.strip() for c in row.split("|")]
+        number, status, successor_cell = cells[1], cells[4], cells[5]
+        target = re.search(r"\((\d{4}-[a-z0-9-]+\.md)\)", successor_cell)
+        if not status.startswith("Superseded"):
+            assert not target, f"an Accepted row carries a successor link: {row}"
+            continue
+        assert target, f"superseded row names no successor file: {row}"
+        successor = index.parent / target.group(1)
+        assert successor.exists(), f"index points at a missing record: {target.group(1)}"
+        body = successor.read_text()
+        assert (
+            f"supersedes ADR-{number}" in body
+            or f"Carried forward from ADR-{number}" in body
+        ), f"{target.group(1)} never claims ADR-{number}, which the index credits it with"
 
 
 def test_judge_critic_collision_warning_leaves_the_judgeless_refusal_intact(tmp_path, capsys):
@@ -2764,27 +3206,52 @@ class RecordingFakeClient:
         def __init__(self, payload):
             self.content = [RecordingFakeClient._Block(json.dumps(payload))]
             self.usage = None
+            # This response is handed to the REAL `Judge.verdict`, which reads
+            # the stop reason before the content. Without these two fields the
+            # guard AttributeErrors inside the grader, `run_case`'s blanket
+            # except turns it into `result.error`, and the recorder refuses
+            # with "the run errored" -- the exact mislabelling Phase 18 exists
+            # to remove, arriving via the fake instead of via a refusal.
+            self.stop_reason = "end_turn"
+            self.stop_details = None
 
-    def __init__(self, case, judge_passes=True):
+    class _RefusedResponse:
+        """The judge half of the client, declining. Same fields, refusal
+        values -- the whole difference a safety classifier makes to the wire."""
+
+        def __init__(self):
+            self.content = []
+            self.usage = None
+            self.stop_reason = "refusal"
+            self.stop_details = RefusalStopDetails(
+                "general_harms", "declined by the safety classifier"
+            )
+
+    def __init__(self, case, judge_passes=True, judge_refuses=False):
         self.scripted = ScriptedClient(case)
         self.judge_passes = judge_passes
+        self.judge_refuses = judge_refuses
         self.judge_calls = 0
         self.messages = self
 
     def create(self, **kwargs):
         if kwargs["model"] == G.JUDGE_MODEL:
             self.judge_calls += 1
+            if self.judge_refuses:
+                return self._RefusedResponse()
             return self._Response(
                 {"passed": self.judge_passes, "reason": "a canned verdict"}
             )
         return self.scripted.create(**kwargs)
 
 
-def cli_record(monkeypatch, tmp_path, case_id, *, judge_passes=True, argv=()):
+def cli_record(
+    monkeypatch, tmp_path, case_id, *, judge_passes=True, judge_refuses=False, argv=()
+):
     """Drive `main`'s record branch end to end with fakes."""
     module = types.ModuleType("anthropic")
     module.Anthropic = lambda *a, **k: RecordingFakeClient(
-        by_id(case_id), judge_passes=judge_passes
+        by_id(case_id), judge_passes=judge_passes, judge_refuses=judge_refuses
     )
     monkeypatch.setitem(sys.modules, "anthropic", module)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")

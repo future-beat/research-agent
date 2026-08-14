@@ -12,11 +12,18 @@ cost money and vary run to run, so they only run under `--live`.
 
 The judge deliberately runs on a different model than the pipeline's *writer*
 (`JUDGE_MODEL` against `graph.MODEL`): a judge on the writer's own model would
-inherit exactly the blind spots it exists to find. The in-graph critic has had
-its own model since Phase 16 (`CRITIC_MODEL` -- unset means the writer's,
-production sets `claude-opus-5`), so in production the judge and the critic run
-on the same model. That is accepted rather than accidental, and recorded with
-the judge's re-derived rationale in ADR-0010.
+inherit exactly the blind spots it exists to find. That reasoning is carried
+forward unchanged; what Phase 18 added is the other half.
+
+The in-graph critic has had its own model since Phase 16 (`CRITIC_MODEL` --
+unset means the writer's, production sets `claude-opus-5`), and until Phase 18
+the judge sat on that same model, which was accepted rather than accidental.
+ADR-0012 ends the acceptance: the judge ships on `claude-opus-4-8`, a model of
+its own, so a recorded verdict is independent of the writer it grades AND of
+the critic's model *identity*. Not of the critic's model *family* -- Opus 4.8
+and the deployed Opus 5 critic are relatives, so a family-correlation skeptic
+still has an argument. The record states that residual in its own voice rather
+than solving it, and carries the re-derived rationale: ADR-0012.
 """
 
 from __future__ import annotations
@@ -30,7 +37,13 @@ from decimal import Decimal
 
 from evals.dataset import Case, Followup
 
-JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-opus-5")
+# The shipped default gets its own name because `JUDGE_MODEL` cannot speak for
+# it: `JUDGE_MODEL` is what THIS process resolved, and an operator who exported
+# `EVAL_JUDGE_MODEL` has moved it. The record run's collision note has to be
+# able to say what the default is while reporting a configuration that is not
+# the default -- that is the whole content of the note.
+DEFAULT_JUDGE_MODEL = "claude-opus-4-8"
+JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", DEFAULT_JUDGE_MODEL)
 
 
 @dataclass
@@ -729,6 +742,33 @@ class Judge:
         self.calls = 0
 
     def verdict(self, question: str) -> tuple[bool, str]:
+        """Ask the model, and read WHY it stopped before reading WHAT it said.
+
+        Three outcomes, deliberately kept apart because they call for three
+        different actions:
+
+        * **Refused** (`stop_reason="refusal"`) -- the model declined to grade.
+          Returned as a FAILED verdict whose reason says so. It is a graded
+          finding, not an error: the run succeeded, the pipeline produced an
+          answer, and the only thing that did not happen is the grading. It
+          must not raise -- `run_case`'s blanket `except` would turn it into
+          `result.error`, and the recorder would then refuse the fixture with
+          "the run errored", blaming a paid, successful run for the judge's
+          decision.
+        * **Truncated** (`stop_reason="max_tokens"`) -- the 1500-token budget
+          is shared with adaptive thinking, so a long deliberation can cut the
+          JSON off mid-object. Raises, but says TRUNCATED rather than letting
+          an operational failure masquerade as a malformed verdict.
+        * **Malformed** (a normal stop, unreadable content) -- still raises.
+          A harness that silently mis-parses a verdict reports a confident
+          wrong number, which is worse than crashing.
+
+        The refusal check runs BEFORE the content join because a refusal is a
+        normal HTTP 200 with empty or minimal content: parse first and the
+        decision arrives as `unparseable verdict: ''`, which names the parse
+        and hides the refusal. The stop reason is a typed field on the
+        response -- it is never inferred from the text.
+        """
         self.calls += 1
         response = self.client.messages.create(
             model=self.model,
@@ -740,12 +780,36 @@ class Judge:
             },
             messages=[{"role": "user", "content": question}],
         )
+        if response.stop_reason == "refusal":
+            return False, _refusal_detail(response)
         text = "".join(b.text for b in response.content if b.type == "text")
+        if response.stop_reason == "max_tokens":
+            raise ValueError(
+                "Judge verdict was TRUNCATED at max_tokens (the 1500-token budget is "
+                f"shared with adaptive thinking), not malformed: {text[:200]!r}"
+            )
         try:
             parsed = json.loads(text)
             return bool(parsed["passed"]), str(parsed.get("reason", ""))
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
             raise ValueError(f"Judge returned unparseable verdict: {text[:200]!r}") from exc
+
+
+def _refusal_detail(response) -> str:
+    """Say, in the verdict's own reason, that nothing was graded.
+
+    `stop_details` is populated only for refusals and is typed
+    `RefusalStopDetails | None`, so every field it carries is read defensively:
+    a guard that raised an AttributeError reaching for `.category` would land
+    the refusal right back in the run-errored branch it exists to avoid.
+    """
+    detail = "the judge DECLINED to grade this case (stop_reason=refusal"
+    details = getattr(response, "stop_details", None)
+    if details is None:
+        return detail + ")"
+    detail += f", category={getattr(details, 'category', None)}"
+    explanation = getattr(details, "explanation", "")
+    return f"{detail}): {explanation}" if explanation else detail + ")"
 
 
 def judge_grounding(judge: Judge, case: Case, state: dict) -> Grade:

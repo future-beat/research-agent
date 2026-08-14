@@ -83,6 +83,21 @@ def test_price_defaults_to_today():
     assert price_for("claude-opus-5").input == 5.0
 
 
+def test_the_eval_judges_model_is_priced():
+    """`evals/graders.py`'s `JUDGE_MODEL` defaults to `claude-opus-4-8` since
+    Phase 18, and a judge leg the table cannot price raises rather than costing
+    zero (DEC-12) -- which would fail every `--live`/`--record` run at the
+    preview. The table-wide loops in this file pass with the row ABSENT, so
+    this is the phase's own gate: all four rates, read directly.
+
+    Undated on purpose: the row is a single open-ended window, so the default
+    resolution is the only resolution there is."""
+    price = price_for("claude-opus-4-8")
+
+    assert (price.input, price.output) == (5.0, 25.0)
+    assert (price.cache_write_5m, price.cache_read) == (6.25, 0.50)
+
+
 # --------------------------------------------------------------------------
 # Which window, and what comes after it
 # --------------------------------------------------------------------------
