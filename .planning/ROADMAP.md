@@ -257,7 +257,7 @@ completed run is addressable from its logs, and the demo page's inline JS surviv
 
 Plans:
 - [x] 19-01-PLAN.md — the cached credential probe: fire-and-forget on the existing `_probes()` pool, invalid vs unreachable kept distinct, Voyage probe spend excluded and pinned (wave 1)
-- [ ] 19-02-PLAN.md — `csp.py` derives the policy from the page itself, attached to the one `FileResponse` branch, with the counts and handler gates that catch a shape change (wave 2)
+- [x] 19-02-PLAN.md — `csp.py` derives the policy from the page itself, attached to the one `FileResponse` branch, with the counts and handler gates that catch a shape change (wave 2)
 - [ ] 19-03-PLAN.md — `run_finished` moves to where `session_id` exists, the graph's terminal line renamed honestly, then the OPERATIONS/README doc pass (wave 3)
 
 **Sequencing note:** the three surfaces are conceptually independent but all three edit

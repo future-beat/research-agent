@@ -96,7 +96,7 @@ Every v1.2 requirement maps to exactly one phase. Filled by `/gsd:roadmap` on 20
 | REQ-judge-independent-of-critic | Phase 18 — Independent eval judge | **Complete** (verified, `18-VERIFICATION.md` status: passed) |
 | REQ-health-credential-validity | Phase 19 — Credential validity, log addressability, demo CSP | **Implemented** (19-01, wave 1; `19-01-SUMMARY.md`) — not yet Complete: the phase is unverified, and a real provider round trip is keyless-suite-invisible until the first deploy after merge (19-VALIDATION Manual-Only) |
 | REQ-run-finished-session-id | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
-| REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
+| REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | **Implemented** (19-02, wave 2; `19-02-SUMMARY.md`) — not yet Complete: the requirement says "verified against the live page", and browser CSP enforcement cannot run in pytest. The automated half is done (derived seven-directive policy, no `unsafe-` source, six gates, four mutation reds, `index.html` at zero edits); UI-SPEC acceptance checks 1–7 against the deployed page are 19-VALIDATION's Manual-Only row |
 | REQ-note-count-bound | Phase 20 — Note count bound | Pending |
 | REQ-forty-recorded-answers | Phase 21 — Forty recorded answers | Pending |
 | REQ-limitations-recorded | Phase 22 — Limitations recorded | Pending |
