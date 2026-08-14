@@ -6,7 +6,9 @@ these exercise genuine SQLite persistence and genuine graph traversal -- the
 only thing faked is the network.
 """
 
+import base64
 import concurrent.futures
+import hashlib
 import inspect
 import json
 import re
@@ -2804,14 +2806,24 @@ class _FirstPaintText(HTMLParser):
 # empty-state message, a "loading your sessions" placeholder -- adds or changes
 # a run here and turns this red.
 class _MarkupTags(HTMLParser):
-    """Every element the served markup declares."""
+    """Every element the served markup declares, and every attribute on it.
+
+    The attribute half was added for the CSP gates below: they need to know that
+    no tag carries an `on*` handler or a `style=`, and the walk that already
+    visits every start tag is the right place to learn it. `handle_starttag`
+    was always handed `attrs` and always dropped them; recording them opens no
+    second parser over the same file.
+    """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.tags: list[str] = []
+        self.attributes: list[tuple[str, str, str | None]] = []
 
     def handle_starttag(self, tag, attrs):
         self.tags.append(tag)
+        for name, value in attrs:
+            self.attributes.append((tag, name, value))
 
     def census(self) -> dict[str, int]:
         return dict(sorted(Counter(self.tags).items()))
@@ -3110,3 +3122,86 @@ def test_demo_page_is_served_with_a_hash_based_csp(make_client):
     assert served == [directive.split(" ", 1)[0] for directive in csp.DIRECTIVES]
 
     assert response.text == _demo_page()
+
+
+def test_csp_hashes_are_derived_from_the_page_not_hand_maintained(make_client):
+    """The load-bearing gate: recompute both hashes independently and compare.
+
+    Deliberately does NOT call csp.inline_blocks or csp.sha256_source for the
+    expected values. A test that runs the implementation's own helpers down both
+    sides asserts only that a function equals itself; recomputing from scratch is
+    what catches a wrong algorithm, a wrong encoding, a wrong extraction, the
+    wrong file, or a literal somebody pasted in by hand.
+
+    The unsafe-* assertions are against the SERVED string rather than a grep over
+    source, so csp.py's docstring stays free to discuss both without tripping a
+    gate that should only ever fire on what a browser is actually told.
+    """
+    page = _demo_page()
+
+    expected = {}
+    for tag in ("script", "style"):
+        blocks = re.findall(rf"<{tag}>(.*?)</{tag}>", page, re.S)
+        assert len(blocks) == 1, f"expected exactly one inline <{tag}>, found {len(blocks)}"
+        digest = hashlib.sha256(blocks[0].encode("utf-8")).digest()
+        expected[tag] = "sha256-" + base64.b64encode(digest).decode("ascii")
+
+    client, _ = make_client()
+    served = client.get("/", headers={"accept": "text/html"})
+    header = served.headers["content-security-policy"]
+
+    assert f"script-src '{expected['script']}'" in header, header
+    assert f"style-src '{expected['style']}'" in header, header
+
+    # A policy carrying either of these is decorative: 'unsafe-inline' permits
+    # exactly the injected script the hashes exist to exclude, and
+    # 'unsafe-hashes' exists to license inline handlers and style attributes,
+    # which the test below asserts the page has none of.
+    assert "unsafe-inline" not in header
+    assert "unsafe-hashes" not in header
+
+
+def test_demo_page_has_exactly_one_script_block_and_one_style_block():
+    """The gate on the policy's SHAPE, which derivation cannot follow.
+
+    A second inline block needs a second hash; a policy with one hash for two
+    blocks blocks half the page in every browser while the server looks fine.
+
+    Both forms are counted on purpose. The bare-tag count is what csp.py's
+    extraction sees; the `<script`-prefix count sees a tag with attributes too.
+    They must agree at one apiece, so `<script defer>` -- invisible to the
+    extraction, and enough to make the derived policy silently omit that block's
+    hash -- fails here rather than in production.
+    """
+    page = _demo_page()
+
+    assert len(re.findall(r"<script\b", page)) == 1
+    assert len(re.findall(r"<style\b", page)) == 1
+    assert len(re.findall(r"<script>", page)) == 1
+    assert len(re.findall(r"<style>", page)) == 1
+
+
+def test_demo_page_has_no_inline_handlers_or_style_attributes():
+    """Zero `on*` handlers, zero `style=`, zero `javascript:` URLs.
+
+    Each of the three would require loosening the policy -- an inline handler or
+    a style attribute needs 'unsafe-hashes' (or worse, 'unsafe-inline'), and a
+    `javascript:` URL needs 'unsafe-inline' outright. The loosening is the
+    regression this exists to prevent, so the gate is on the page, before anyone
+    reaches for the directive that would make it work.
+    """
+    parser = _MarkupTags()
+    parser.feed(_demo_page())
+
+    # Non-vacuity: prove the walk saw attributes at all before asserting which
+    # ones are absent. An empty list would pass all three assertions below.
+    assert ("input", "id", "q") in parser.attributes
+    assert len(parser.attributes) > 10
+
+    assert [(tag, name) for tag, name, _ in parser.attributes if name.startswith("on")] == []
+    assert [(tag, name) for tag, name, _ in parser.attributes if name == "style"] == []
+    assert [
+        (tag, name, value)
+        for tag, name, value in parser.attributes
+        if value and value.strip().lower().startswith("javascript:")
+    ] == []
