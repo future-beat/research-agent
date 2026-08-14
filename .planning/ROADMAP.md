@@ -253,7 +253,17 @@ completed run is addressable from its logs, and the demo page's inline JS surviv
      logs without cross-referencing another line.
   5. The demo page ships a hash-based Content-Security-Policy header (no `unsafe-inline`)
      and its inline JS still runs, verified against the live page.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — the cached credential probe: fire-and-forget on the existing `_probes()` pool, invalid vs unreachable kept distinct, Voyage probe spend excluded and pinned (wave 1)
+- [ ] 19-02-PLAN.md — `csp.py` derives the policy from the page itself, attached to the one `FileResponse` branch, with the counts and handler gates that catch a shape change (wave 2)
+- [ ] 19-03-PLAN.md — `run_finished` moves to where `session_id` exists, the graph's terminal line renamed honestly, then the OPERATIONS/README doc pass (wave 3)
+
+**Sequencing note:** the three surfaces are conceptually independent but all three edit
+`service.py` and `tests/test_service.py`, so they run as three sequential waves rather than in
+parallel. Success criterion 4's literal wording is honoured by plan 19-03's P-07: the
+service-side line is the one named `run_finished`, and the graph's becomes `graph_finished`.
 **UI hint**: yes
 
 ### Phase 20: Note count bound

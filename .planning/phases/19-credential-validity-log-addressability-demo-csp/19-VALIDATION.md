@@ -1,10 +1,11 @@
 ---
 phase: 19
 slug: credential-validity-log-addressability-demo-csp
-status: draft
+status: planned
 nyquist_compliant: false
 wave_0_complete: false
 created: 2026-08-14
+plans_assigned: 2026-08-14
 ---
 
 # Phase 19 — Validation Strategy
@@ -28,6 +29,19 @@ offline evals 41/41 exit 0; ruff clean.
 
 ---
 
+## Plan / Wave Map
+
+The three surfaces are independent in concept but all three edit `src/research_agent/service.py`
+and `tests/test_service.py`, so they run sequentially rather than in parallel.
+
+| Plan | Wave | Requirement | Surface |
+|------|------|-------------|---------|
+| 19-01 | 1 | REQ-health-credential-validity | The cached credential probe and `/health`'s new fields |
+| 19-02 | 2 | REQ-demo-csp-header | `csp.py`, the header on `index()`, and the derivation gates |
+| 19-03 | 3 | REQ-run-finished-session-id (+ the `/health` doc surface) | The completion log line, the doc pass, the README whole-file pass |
+
+---
+
 ## Sampling Rate
 
 - **After every task commit:** Run the quick command
@@ -39,21 +53,21 @@ offline evals 41/41 exit 0; ruff clean.
 
 ## Per-Task Verification Map
 
-*(Rows below are the researched gate set — the planner assigns Task IDs/Plan/Wave and the
-executor fills Status with measured evidence.)*
+*(Rows below are the researched gate set. Task IDs, Plan and Wave were assigned at planning
+2026-08-14; the executor fills Status with measured evidence.)*
 
 | Task ID | Plan | Wave | Requirement | Criterion | Test Type | Automated Command / Mutation | Status |
 |---------|------|------|-------------|-----------|-----------|------------------------------|--------|
-| TBD | TBD | TBD | REQ-health-credential-validity | `/health` carries validity fields beside the presence booleans, additive-only; keyless state reads `valid: null` (unknown), never `false` — a missing key is a presence fact, not a validity fact | unit (fake-driven, keyless) | mutation: make absent-key read `false` → the null-semantics test reds | pending |
-| TBD | TBD | TBD | REQ-health-credential-validity | Key-invalid and provider-down are distinguished: `AuthenticationError` → invalid; `APIConnectionError`/5xx → unknown-with-error, NOT invalid — a provider outage must never report a key as bad | unit | fakes raising each typed exception; mutation: collapse the two branches → the outage-is-not-invalid test reds | pending |
-| TBD | TBD | TBD | REQ-health-credential-validity | The liveness path never calls a provider: probe is fire-and-forget on the existing `_probes()` executor, `/health` serves the cache and never blocks on a provider call | unit + structural | mutation: make the probe synchronous on the read path → the never-blocks test reds; a fake provider that hangs must not change `/health` latency | pending |
-| TBD | TBD | TBD | REQ-health-credential-validity | Cold cache returns `checked_at: null` rather than blocking; a stale read kicks exactly one refresh (no thundering herd) | unit | mutation: remove the in-flight guard → the single-refresh test reds | pending |
-| TBD | TBD | TBD | REQ-health-credential-validity | Voyage probe spend is EXCLUDED from cost accounting, and the code states so — `report_embedding()` is meterless outside a run context, pinned as a fact not an accident | unit | test asserts a probe run leaves the embedding meter untouched; the decision comment named in the assertion message | pending |
-| TBD | TBD | TBD | REQ-run-finished-session-id | A completed run is addressable from the logs: the service-side emission carries `session_id`, including for brand-new sessions (the id is minted AFTER the graph returns — research finding: LangGraph drops undeclared state keys, so the graph-side site cannot carry it) | unit | log-capture test asserting `session_id` present on both new-session and follow-up paths | pending |
-| TBD | TBD | TBD | REQ-run-finished-session-id | No double-count: `run_finished` semantics preserved — one completion event per run, not one per call site | unit | mutation: emit at both sites → the exactly-once test reds | pending |
-| TBD | TBD | TBD | REQ-demo-csp-header | The demo page response carries the UI-SPEC's exact directive set; SSE and JSON routes carry NO CSP header | unit | header-presence test on `/` FileResponse branch + header-absence on `/research/stream`; mutation: attach globally → absence test reds | pending |
-| TBD | TBD | TBD | REQ-demo-csp-header | The derivation invariant: hashes in the policy are DERIVED from `static/index.html`'s real blocks by a test that also asserts block counts (1 script / 1 style) and zero inline-handler/`style=` attributes | unit | mutation: edit one byte inside the script block → hash test reds; add an `onclick=` → the handler-count test reds | pending |
-| TBD | TBD | TBD | REQ-demo-csp-header | index.html changes ZERO lines this phase (UI-SPEC change budget); the live page renders and streams identically | structural + manual | `git diff --stat` on the file at phase close = no entry; manual acceptance per UI-SPEC checks (zero violations attributable to page resources) | pending |
+| 19-01-T1, 19-01-T3 | 19-01 | 1 | REQ-health-credential-validity | `/health` carries validity fields beside the presence booleans, additive-only; keyless state reads `valid: null` (unknown), never `false` — a missing key is a presence fact, not a validity fact | unit (fake-driven, keyless) | `pytest tests/test_service.py -k credential`; mutation: delete the presence early-return in `_credential_status` so an absent key gets probed and reads `false` → `test_health_credential_absent_key_reads_null_and_never_probes` reds | pending |
+| 19-01-T2 | 19-01 | 1 | REQ-health-credential-validity | Key-invalid and provider-down are distinguished: `AuthenticationError` → invalid; `APIConnectionError`/5xx → unknown-with-error, NOT invalid — a provider outage must never report a key as bad | unit | fakes raising each typed exception; mutation: collapse the two branches in `_refresh_credential` → `test_health_credential_provider_down_reads_null_with_an_error` reds | pending |
+| 19-01-T3 | 19-01 | 1 | REQ-health-credential-validity | The liveness path never calls a provider: probe is fire-and-forget on the existing `_probes()` executor, `/health` serves the cache and never blocks on a provider call | unit + structural | mutation: replace the submit-and-return-cache with `submit(...).result(timeout=5)` → the cold-read assertion and `test_health_never_waits_on_a_hanging_credential_probe` red; a fake provider blocked on an Event must not change `/health` latency | pending |
+| 19-01-T1, 19-01-T3 | 19-01 | 1 | REQ-health-credential-validity | Cold cache returns `checked_at: null` rather than blocking; a stale read kicks exactly one refresh (no thundering herd) | unit | mutation: delete the `name not in _credential_inflight` clause → `test_health_credential_single_refresh_while_one_is_in_flight` reds | pending |
+| 19-01-T2 | 19-01 | 1 | REQ-health-credential-validity | Voyage probe spend is EXCLUDED from cost accounting, and the code states so — `report_embedding()` is meterless outside a run context, pinned as a fact not an accident | unit | test asserts a probe leaves an open meter at zero WHILE a direct `embed_query` on the same embedder in the same meter reports non-zero (the non-vacuity control); mutation: run the refresh inline on the request thread → the excluded-spend test reds | pending |
+| 19-03-T1, 19-03-T2 | 19-03 | 3 | REQ-run-finished-session-id | A completed run is addressable from the logs: the service-side emission carries `session_id`, including for brand-new sessions (the id is minted AFTER the graph returns — research finding: LangGraph drops undeclared state keys, so the graph-side site cannot carry it) | unit (caplog) | log-capture tests across all four routes; mutation: emit before `on_complete` resolves → the new-session test reds. Per P-07 the service line is the one NAMED `run_finished`; the graph's terminal line becomes `graph_finished` and is asserted to carry no `session_id` | pending |
+| 19-03-T2 | 19-03 | 3 | REQ-run-finished-session-id | No double-count: `run_finished` semantics preserved — one completion event per run, not one per call site | unit | mutation (a): restore the graph's old event value so two sites share the name → the exactly-once test reds with a count of 2; mutation (b): move the emission into a `finally` → the failed-run test reds | pending |
+| 19-02-T1, 19-02-T3 | 19-02 | 2 | REQ-demo-csp-header | The demo page response carries the UI-SPEC's exact directive set; SSE and JSON routes carry NO CSP header | unit | header-presence test on `/` FileResponse branch asserting the seven directive names in order + header-absence on the JSON index and both stream routes; mutation: attach via middleware → the absence test reds on all three | pending |
+| 19-02-T2 | 19-02 | 2 | REQ-demo-csp-header | The derivation invariant: hashes in the policy are DERIVED from `static/index.html`'s real blocks by a test that also asserts block counts (1 script / 1 style) and zero inline-handler/`style=` attributes | unit | mutation: hand-maintain one hash as a literal in `csp.py` → the derivation test reds; add an `onclick=` to the page → the handler-count test reds. **Mutation refined at planning (P-05):** the originally-researched byte-edit mutation cannot red under runtime derivation, because a byte edit moves both sides of a derivation together — that is the design working, not a gap. The two mutations above replace it and test the same property more directly | pending |
+| 19-02-T3 | 19-02 | 2 | REQ-demo-csp-header | index.html changes ZERO lines this phase (UI-SPEC change budget); the live page renders and streams identically | structural + manual | `git diff --stat "$(git merge-base main HEAD)" HEAD -- src/research_agent/static/index.html` prints nothing, and `git status --porcelain` on the same path prints nothing; manual acceptance per UI-SPEC checks (zero violations attributable to page resources) | pending |
 
 ---
 
