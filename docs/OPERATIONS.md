@@ -22,7 +22,22 @@ container, and the memory feature quietly becomes a no-op.
 
 **Credentials never reach an image layer.** `.env` is in `.dockerignore`,
 compose passes keys through from the environment, and Fly uses `fly secrets`.
-`/health` reports whether each key is *present*, never its value.
+`/health` reports two separate facts about each key and never the value itself:
+whether it is **present**, and whether it actually **works** (`anthropic_valid`
+and `voyage_valid`, with a `_checked_at` and a `_error` beside each). A key that
+is present but revoked or expired therefore stops looking healthy — the case
+that cost this service an outage in Phase 11, when presence was all `/health`
+could see.
+
+The validity half comes from a probe the endpoint kicks off in the background
+and never waits for; the answer is served from a cache and refreshed no more
+often than `CREDENTIAL_PROBE_TTL`, so a key that goes bad surfaces within one
+TTL rather than on the next real run. **The check still never blocks on
+Anthropic or Voyage**, which is the property to preserve if you touch this: a
+provider outage must leave `valid` as `null` — "could not determine", which is
+also what an absent key reads — and never turn into a restart loop on a
+container that is perfectly healthy. `false` means the provider actually
+rejected the key, and only that.
 
 ## Fly.io
 
@@ -591,7 +606,7 @@ path is the work, not a flag.
 ## CI
 
 ```
-lint · tests · evals            ruff, 470 tests, 12 offline eval cases
+lint · tests · evals            ruff, 772 tests, 41 offline eval cases
 image build · smoke test        docker build, boot the container, probe it
 ```
 
@@ -640,6 +655,7 @@ Environment variables:
 | `PG_STATEMENT_TIMEOUT` | Server-side statement bound, ms; `0` disables | `10000` |
 | `PG_TCP_USER_TIMEOUT` | Milliseconds of unACKed data before the socket is dropped; `0` disables | `2000` |
 | `HEALTH_PROBE_BUDGET` | Wall-clock seconds one `/health` store probe may take, end to end | `3.0` |
+| `CREDENTIAL_PROBE_TTL` | Seconds a provider credential verdict is served from cache before a refresh is kicked off — how **often** a provider is asked anything at all, where `HEALTH_PROBE_BUDGET` bounds how **long** one store probe may take. Floored at 30s, so probe volume tracks this value rather than request volume | `300.0` |
 | `CHROMA_PATH` · `CHROMA_COLLECTION` | Chroma location and collection | `chroma_store` / `research_notes` |
 | `VOYAGE_EMBEDDING_MODEL` | Embedding model | `voyage-3.5` |
 | `CRITIC_MODEL` | The model the in-graph critic runs on, read per call. Unset or blank means the critic runs on `MODEL`, exactly as before Phase 16. **Production pins `claude-opus-5`** (fly.toml `[env]`) — see below | *(unset — the critic runs on `MODEL`)* |
@@ -683,6 +699,13 @@ peer that keeps the socket alive and never answers: `statement_timeout` needs
 the server to be listening and `tcp_user_timeout` needs unACKed data. That case
 is why the wall-clock deadline exists. Measured: 0.32s against a store that
 never answers, versus 31.4s with the deadline removed.
+
+**The credential probe adds nothing to that ceiling.** It calls Anthropic and
+Voyage, which are far slower and far less reliable than any of the stores — but
+it runs on a pool thread the request never joins, so it contributes exactly zero
+to the bound above. The 9s figure is still the whole story. If a future change
+ever makes `/health` *wait* for a credential verdict, this paragraph stops being
+true and Fly's 15s check timeout becomes a provider's to spend.
 
 **Concurrency and the spend cap used to interact badly; Phase 12 fixed it.**
 The rolling daily cap once counted only *completed* runs, so a burst of 16 could
