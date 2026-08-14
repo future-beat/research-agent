@@ -62,6 +62,7 @@ DEFAULT_TOP_K = 3
 DEFAULT_MIN_SIMILARITY = 0.3
 
 NOTE_TTL_DAYS_DEFAULT = 7.0
+NOTE_CAP_PER_OWNER_DEFAULT = 100
 
 
 def note_ttl_seconds() -> float:
@@ -85,6 +86,31 @@ def note_ttl_seconds() -> float:
     except ValueError:
         days = NOTE_TTL_DAYS_DEFAULT
     return max(days, 0.0) * 86400.0
+
+
+def note_cap_per_owner() -> int:
+    """How many live notes one owner may hold before the oldest is evicted.
+
+    The second bound, and independent of the first: the TTL answers how long a
+    note survives, this answers how many an identity may accumulate. Read per
+    call, the note_ttl_seconds() convention, so a test can flip it with
+    monkeypatch.setenv and a reconfigured process answers the new number.
+
+    Unparseable OR <= 0 falls back to the default rather than being honoured.
+    Deliberately NOT note_ttl_seconds()'s floor-at-zero: there, zero is a
+    meaningful value the TTL tests use on purpose to put a note past the
+    cutoff without sleeping a week. A cap of zero has no such meaning -- every
+    add() would evict the note it just wrote, so memory recall would be
+    silently off with no error and no log line. That is the same shape of
+    foot-gun cost_discount_factor() clamps for the same reason. An operator who
+    wants no cap does not set this variable.
+    """
+    raw = os.environ.get("NOTE_CAP_PER_OWNER", "").strip()
+    try:
+        cap = int(raw) if raw else NOTE_CAP_PER_OWNER_DEFAULT
+    except ValueError:
+        return NOTE_CAP_PER_OWNER_DEFAULT
+    return cap if cap > 0 else NOTE_CAP_PER_OWNER_DEFAULT
 
 
 # --------------------------------------------------------------------------
@@ -181,7 +207,7 @@ class MemoryStore(ABC):
     to be written could steer another visitor's report. Scoping recall to the
     caller closes that path.
 
-    Two properties every backend must implement identically, because the
+    Three properties every backend must implement identically, because the
     behavioural suite asserts them on all four:
 
     * Owner matching is EXACT. `owner=""` retrieves only `owner=""` notes; it
@@ -190,21 +216,41 @@ class MemoryStore(ABC):
     * A note older than NOTE_TTL_DAYS is not recalled, and is physically
       removed by the next add(). Lazy filter plus opportunistic sweep, exactly
       as sessions do it -- the filter is what makes expiry immediate, the
-      sweep is what keeps the store from growing forever.
+      sweep is what stops an abandoned identity's notes outliving them.
+    * One owner holds at most NOTE_CAP_PER_OWNER live notes. Writing past the
+      cap evicts that owner's oldest, oldest-first, inside the same add() that
+      wrote the new one -- so the bound holds after every write rather than
+      eventually, and no scheduler is involved. Eviction is owner-scoped by
+      the same exact match recall uses: filling one identity's bucket never
+      touches another's. "Oldest" is decided by each backend's insertion-
+      ordered key (list index, an explicit seq, BIGSERIAL id) and never by
+      created_at alone, because a tight write loop collides on the wall clock
+      and four backends breaking that tie differently is precisely how
+      "identical behaviour" stops being true.
 
     Deliberately NOT here: dedup-on-write. It is one unique index in pgvector
     and four different hand-rolled approximations everywhere else, which is
     precisely the "backends quietly disagree" failure this suite exists to
-    prevent. The TTL is the bound.
+    prevent. Expiry and the count cap are the two bounds; there is no third,
+    and no semantic one.
     """
 
     @abstractmethod
     def add(self, text: str, owner: str = "") -> None:
-        """Embed and store one note for `owner`, sweeping expired notes.
+        """Embed and store one note for `owner`.
+
+        Three steps in one fixed order on every backend: sweep expired notes
+        (unconditionally -- an owner nowhere near the cap still gets their
+        stale rows removed), insert the new note, then evict this owner's
+        oldest while they hold more than NOTE_CAP_PER_OWNER. The sweep runs
+        first so the cap counts only live notes.
 
         The default keeps the REPL, the __main__ demo and the eval harness --
         none of which have a caller -- working unchanged; the service always
         passes a real identity.
+
+        Returns nothing about eviction: no caller needs it, and widening the
+        return type would move the one seam graph.py depends on.
         """
 
     @abstractmethod
@@ -266,13 +312,27 @@ class _BruteForceStore(MemoryStore):
         with self._lock:
             # Opportunistic sweep on the rare expensive event rather than on a
             # timer, mirroring the session store. A lazy filter alone hides
-            # expired notes; only this keeps the file from growing forever.
+            # expired notes; this is what physically removes them. It runs
+            # unconditionally and BEFORE the cap check below, so an owner
+            # nowhere near the cap still gets their stale rows collected --
+            # folding the two together would leave low-volume owners unswept.
             # Entries written before Phase 12 have no created_at, read as 0,
             # and are collected here -- which is how the orphaned notes go.
             self.entries = [e for e in self.entries if e.get("created_at", 0.0) > cutoff]
             self.entries.append(
                 {"text": text, "embedding": list(embedding), "owner": owner, "created_at": now}
             )
+            # The count bound, applied to this owner only and to the survivors
+            # of the sweep above -- never to expired rows, which are already
+            # gone. No timestamp is consulted to find "oldest": self.entries
+            # only ever grows by append() and shrinks by filters that preserve
+            # order, so list index order IS insertion order and the tie-break
+            # created_at cannot provide comes free by construction.
+            cap = note_cap_per_owner()
+            owned = [i for i, e in enumerate(self.entries) if e.get("owner", "") == owner]
+            if len(owned) > cap:
+                drop = set(owned[: len(owned) - cap])
+                self.entries = [e for i, e in enumerate(self.entries) if i not in drop]
             self._persist()
 
     def query(
@@ -379,14 +439,22 @@ class ChromaMemoryStore(MemoryStore):
             metadata={"hnsw:space": "cosine"},
         )
 
-    def _sweep(self, cutoff: float) -> None:
-        """Delete notes created at or before `cutoff`.
+    def _sweep(self, cutoff: float) -> tuple[list[tuple[str, dict]], int]:
+        """Delete notes created at or before `cutoff`; report what survived.
 
         Read back and filtered in Python rather than expressed as a chroma
         `where` clause on created_at. The TTL comparison then has exactly one
         implementation per store rather than one for the sweep and another for
         the filter, and the four backends stay observably identical -- which
         is the only claim the shared suite can make.
+
+        The survivors come back as (id, metadata) pairs, and with them the
+        next `seq` to hand out, because add()'s cap eviction needs both and
+        this get() is the only scan it may rely on. Re-fetching to find the
+        ids of the notes being evicted would put get()'s *return order* on the
+        critical path; deriving next_seq as a max over the survivors needs the
+        scan to be COMPLETE, which chroma does promise, rather than ORDERED,
+        which it does not.
         """
         got = self._collection.get(include=["metadatas"])
         ids = got.get("ids") or []
@@ -398,22 +466,47 @@ class ChromaMemoryStore(MemoryStore):
         ]
         if stale:
             self._collection.delete(ids=stale)
+        dead = set(stale)
+        survivors = [
+            (note_id, meta or {})
+            for note_id, meta in zip(ids, metadatas, strict=True)
+            if note_id not in dead
+        ]
+        next_seq = max((int(meta.get("seq", 0)) for _, meta in survivors), default=0) + 1
+        return survivors, next_seq
 
     def add(self, text: str, owner: str = "") -> None:
         embedding = self.embedder.embed_documents([text])[0]
         now = time.time()
-        self._sweep(now - note_ttl_seconds())
+        survivors, next_seq = self._sweep(now - note_ttl_seconds())
+        # A uuid rather than the old f"note-{count}-{hash(text)}". Once the
+        # sweep can shrink the collection, count() is no longer monotonic,
+        # so the same text added after an eviction could reproduce an id
+        # already in use -- and chroma treats a repeated id as an upsert,
+        # which would silently overwrite a live note instead of adding one.
+        note_id = uuid.uuid4().hex
         self._collection.add(
-            # A uuid rather than the old f"note-{count}-{hash(text)}". Once the
-            # sweep can shrink the collection, count() is no longer monotonic,
-            # so the same text added after an eviction could reproduce an id
-            # already in use -- and chroma treats a repeated id as an upsert,
-            # which would silently overwrite a live note instead of adding one.
-            ids=[uuid.uuid4().hex],
+            ids=[note_id],
             documents=[text],
             embeddings=[list(embedding)],
-            metadatas=[{"owner": owner, "created_at": now}],
+            # `seq` is this backend's answer to the tie-break the other three
+            # get for free (a list index, a BIGSERIAL id). It is not
+            # redundant with created_at: a tight write loop produces identical
+            # wall-clock stamps, and chroma's get() returning items in
+            # insertion order is observed behaviour of 1.4.1, not an API
+            # contract, so it must not be what decides which note is evicted.
+            metadatas=[{"owner": owner, "created_at": now, "seq": next_seq}],
         )
+        # The count bound, over this owner's post-sweep survivors plus the note
+        # just written. Rows predating this field read seq 0 -- correct, since
+        # they genuinely are the oldest, and transient, since the TTL retires
+        # them within a week.
+        cap = note_cap_per_owner()
+        owned = [(nid, meta) for nid, meta in survivors if meta.get("owner", "") == owner]
+        owned.append((note_id, {"owner": owner, "created_at": now, "seq": next_seq}))
+        if len(owned) > cap:
+            owned.sort(key=lambda pair: int(pair[1].get("seq", 0)))
+            self._collection.delete(ids=[nid for nid, _ in owned[: len(owned) - cap]])
 
     def query(
         self,
@@ -564,6 +657,36 @@ class PgVectorMemoryStore(MemoryStore):
         self.db.execute(
             f"INSERT INTO {self.table} (text, embedding, owner) VALUES (%s, %s::vector, %s)",
             (text, self._literal(embedding), owner),
+        )
+        # The count bound. Written as a subquery because Postgres has no
+        # ORDER BY / LIMIT / OFFSET on a DELETE target -- that is a MySQL
+        # extension, and the natural first draft of "delete the oldest N" is a
+        # syntax error here. Newest-first with OFFSET cap keeps exactly the
+        # newest `cap` rows and deletes precisely the excess oldest.
+        #
+        # `id DESC` is not decoration: created_at is a server clock with finite
+        # resolution and several notes written in one loop share a value, so
+        # the BIGSERIAL -- allocated atomically at insert, monotonic regardless
+        # of clock or concurrent writers -- is what makes "oldest" mean the
+        # same thing here as list order does in the brute-force stores.
+        #
+        # Owner and cap are bound; the only interpolation is self.table, which
+        # validate_table_name() checked in __init__ for exactly this reason.
+        # The three statements are separately autocommitted, deliberately: that
+        # is the same non-atomicity the sweep above has always had relative to
+        # the insert, and inheriting it is in the threat register rather than
+        # being fixed here by wrapping every backend's sweep in a transaction.
+        self.db.execute(
+            f"""
+            DELETE FROM {self.table}
+            WHERE id IN (
+                SELECT id FROM {self.table}
+                WHERE owner = %s
+                ORDER BY created_at DESC, id DESC
+                OFFSET %s
+            )
+            """,
+            (owner, note_cap_per_owner()),
         )
 
     def query(

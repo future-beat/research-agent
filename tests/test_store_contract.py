@@ -610,6 +610,56 @@ def test_note_ttl(notes, monkeypatch):
     assert notes.query("chroma voyage", owner="alice") == ["chroma voyage"]
 
 
+# -- the per-owner note cap (Phase 20) -------------------------------------
+#
+# The second bound. Expiry answers "how long", the cap answers "how many", and
+# both have to mean the same thing on all four backends or the swappability
+# claim is prose. These run on the same four arms for the same reason the two
+# above do.
+
+
+def _owned(notes, owner: str) -> set[str]:
+    """Every one of `owner`'s recallable notes, as a set.
+
+    Membership, never order: the notes these cases write all share one
+    vocabulary word and differ only in an out-of-vocabulary suffix, so they
+    embed IDENTICALLY under FakeEmbedder and similarity cannot rank them.
+    That is deliberate -- WHICH notes survive an eviction is the claim, and the
+    order of score-tied results is backend-defined and out of scope.
+    """
+    return set(notes.query("langgraph", top_k=50, min_similarity=0.0, owner=owner))
+
+
+def test_note_cap_evicts_the_oldest_first(notes, monkeypatch):
+    """One owner past the cap loses their oldest note, physically, everywhere.
+
+    Asserted on len(), which is unfiltered on all four backends: against
+    query() alone an eviction is indistinguishable from a filter, and only one
+    of them bounds the store.
+
+    Determinism here is not free. Four adds in a tight loop collide on
+    created_at by construction -- 200 rapid time.time() calls on this machine
+    produced 14 distinct values -- so "the oldest" cannot be decided by the
+    clock. Each backend breaks the tie with its own insertion-ordered key
+    (list index, an explicit seq, BIGSERIAL id), which is what makes all four
+    arms agree on the same survivors rather than agreeing by luck.
+    """
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "3")
+    for n in (1, 2, 3):
+        notes.add(f"langgraph note-{n}", owner="alice")
+
+    # Non-vacuity: all three are genuinely recallable first, so a backend
+    # returning [] for unrelated reasons cannot pass the eviction half below.
+    assert _owned(notes, "alice") == {"langgraph note-1", "langgraph note-2",
+                                      "langgraph note-3"}
+
+    notes.add("langgraph note-4", owner="alice")
+
+    assert len(notes) == 3, "the cap did not physically evict; len() is unfiltered"
+    assert _owned(notes, "alice") == {"langgraph note-2", "langgraph note-3",
+                                      "langgraph note-4"}
+
+
 # --------------------------------------------------------------------------
 # Backend selection and Postgres specifics
 # --------------------------------------------------------------------------
