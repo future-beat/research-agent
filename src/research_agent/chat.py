@@ -14,16 +14,6 @@ Usage:  .venv/bin/python chat.py
 Commands:  /ask  /help  /memory  /trace  /exit
 """
 
-# Load .env BEFORE importing the agent so the API keys are present by the time
-# anything reads them. (The clients are lazy now, so this is belt-and-braces
-# rather than load-bearing -- but it keeps the ordering obvious.)
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:  # python-dotenv absent -- fall back to a pre-exported env
-    pass
-
 import sys
 
 import anthropic
@@ -162,6 +152,18 @@ Ctrl-C during a run cancels it and returns you to the prompt.
 
 
 def main() -> int:
+    # Load .env here, not at module level: the clients are lazy (DEC-18), so
+    # the keys only need to exist before the first run -- and an import must
+    # not mutate the process environment. It did once, and the test suite paid:
+    # the first test to import this module injected the developer's real keys
+    # into every keyless test that ran after it.
+    try:
+        from dotenv import load_dotenv  # noqa: PLC0415 - deliberate: keeps import side-effect-free
+
+        load_dotenv()
+    except ImportError:  # python-dotenv absent -- fall back to a pre-exported env
+        pass
+
     print(_bold("Research agent") + _dim("  --  /help for commands, /exit to quit"))
     print()
 

@@ -7,7 +7,10 @@ the fields the supervisor reads, and a run terminates.
 """
 
 import logging
+import os
 import pathlib
+import subprocess
+import sys
 from contextlib import contextmanager
 
 import pytest
@@ -432,6 +435,41 @@ def test_the_sentinel_is_asked_for_only_before_the_pass(fake_client):
 
 def source_of(module) -> str:
     return pathlib.Path(module.__file__).read_text()
+
+
+def test_importing_chat_does_not_mutate_the_environment():
+    """Importing the REPL module must not load .env into os.environ.
+
+    It did, and the cost was concrete: `load_dotenv()` ran at chat.py's module
+    level, so the first test to import chat (the vocabulary gate below) silently
+    injected the developer's real API keys into the pytest process, and every
+    later test that asserted keylessness -- Phase 19's /health presence test
+    first among them -- saw keys nobody set. The keyless suite was only keyless
+    until test_graph_smoke ran.
+
+    A subprocess is the only honest probe here: in-process, a prior import of
+    chat is cached and the damage (or its absence) already done. The child
+    starts with the API keys scrubbed, imports chat, and asserts they are still
+    absent -- which also pins the DEC-18 property the fix restores: importing a
+    module must not construct or configure anything.
+    """
+    probe = (
+        "import os\n"
+        "assert 'ANTHROPIC_API_KEY' not in os.environ\n"
+        "assert 'VOYAGE_API_KEY' not in os.environ\n"
+        "import research_agent.chat\n"
+        "assert 'ANTHROPIC_API_KEY' not in os.environ, 'import injected a key'\n"
+        "assert 'VOYAGE_API_KEY' not in os.environ, 'import injected a key'\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "VOYAGE_API_KEY")}
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd=pathlib.Path(__file__).resolve().parent.parent,  # repo root, where .env lives
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_no_prior_research_redefined_out_of_the_stop_vocabulary():
