@@ -139,7 +139,7 @@ phases close.
 
 - [x] **Phase 18: Independent eval judge** - `EVAL_JUDGE_MODEL` defaults to `claude-opus-4-8`, independent of the critic and the writer; ADR-0012 supersedes ADR-0010
 - [x] **Phase 19: Credential validity, log addressability, demo CSP** - `/health` reports whether keys actually work; `run_finished` carries `session_id`; the demo page ships a hash-based CSP header
-- [ ] **Phase 20: Note count bound** - A per-owner count cap with oldest-first eviction, identical across all four backends
+- [x] **Phase 20: Note count bound** - A per-owner count cap with oldest-first eviction, identical across all four backends
 - [ ] **Phase 21: Forty recorded answers** - All 40 golden cases carry a real recorded answer, graded keylessly on every push
 - [ ] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the four closed bullets are deleted, not rewritten into release notes
 
@@ -291,14 +291,27 @@ every backend
 **Plans**: 2 plans
 
 Plans:
-- [ ] 20-01-PLAN.md — `NOTE_CAP_PER_OWNER` (default 100, discount-factor clamp) plus oldest-first eviction inside all four `add()` implementations, proven by four new 4-arm contract cases, a chroma reordered-`get()` gate, and a migration-bypass pin (wave 1)
-- [ ] 20-02-PLAN.md — OPERATIONS gains the knob row, DESIGN judged by reading, README whole-file pass with measured counts and the Limitations bullet untouched for Phase 22, 20-VALIDATION reconciled (wave 2)
+- [x] 20-01-PLAN.md — `NOTE_CAP_PER_OWNER` (default 100, discount-factor clamp) plus oldest-first eviction inside all four `add()` implementations, proven by four new 4-arm contract cases, a chroma reordered-`get()` gate, and a migration-bypass pin (wave 1)
+- [x] 20-02-PLAN.md — OPERATIONS gains the knob row, DESIGN judged by reading, README whole-file pass with measured counts and the Limitations bullet untouched for Phase 22, 20-VALIDATION reconciled (wave 2)
 
 **Sequencing note:** the two plans share no files but the dependency is real — the doc pass
 describes what Wave 1 shipped and README's counts can only be measured after Wave 1's tests
 land, so 20-02 runs as wave 2. Tie-breaking is the researched hazard (14 unique
 `time.time()` values per 200 calls, measured): eviction order is insertion-native on every
 backend — list order / an explicit chroma `seq` / BIGSERIAL id — never wall-clock alone.
+
+**Executed 2026-08-14** — both waves complete, 7 commits. All three success criteria hold:
+the cap evicts oldest-first per owner (criterion 1), byte-identically on all four arms with
+pgvector run **armed** at `:54329` rather than skipped (criterion 2), and the README
+limitation is falsified **by a passing test** rather than narrowed in prose (criterion 3).
+Final gates: keyless **796 passed / 71 skipped** (+23 / +4, reconciled test by test against a
+zero-removal `--collect-only` id diff); contract file armed **118 / 1**; offline evals 41/41
+real exit 0; ruff clean both forms. Seven mutations observed red for the six the plans named.
+**The phase's finding:** the shared 4-arm suite is *structurally blind* to a chroma
+`created_at`-vs-`seq` tie-break regression — chromadb 1.4.1 returns `get()` in insertion
+order, so the wrong sort passes anyway — which is why a stubbed reordered-`get()` gate ships
+beside it. **`README.md:291` is deliberately left contradicting the tree** ("Notes are bounded
+by expiry alone"), the third such bullet standing; Phase 22 deletes all three.
 
 ### Phase 21: Forty recorded answers
 **Goal**: All 40 golden cases carry a real recorded answer, replayed and graded keylessly on
