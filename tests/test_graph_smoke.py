@@ -51,6 +51,13 @@ class Response:
         self.usage = Usage(web_search_requests)
 
 
+class TokenCount:
+    """What `messages.count_tokens` returns: a billed-input estimate."""
+
+    def __init__(self, input_tokens):
+        self.input_tokens = input_tokens
+
+
 class FakeClient:
     """Replies based on which node is calling, recognised by its prompt.
 
@@ -71,7 +78,23 @@ class FakeClient:
         # ignore `model`, which is exactly why nothing here could catch a
         # mis-threaded one until this existed.
         self.calls_with_kwargs = []
+        # Set by a test that wants the credential probe to fail. None means
+        # `count_tokens` behaves like a healthy key.
+        self.count_tokens_error = None
         self.messages = self
+
+    def count_tokens(self, **kwargs):
+        """The credential probe's seam -- `self.messages = self` already routes
+        `client.messages.count_tokens` here.
+
+        Recorded under its own node name rather than `create`'s, so a test can
+        assert the probe actually reached the provider: a credential test that
+        went green without any call here would be passing vacuously.
+        """
+        self.calls_with_kwargs.append(("credential_probe", dict(kwargs)))
+        if self.count_tokens_error is not None:
+            raise self.count_tokens_error
+        return TokenCount(len(str(kwargs.get("messages", ""))))
 
     def create(self, **kwargs):
         prompt = kwargs["messages"][0]["content"]

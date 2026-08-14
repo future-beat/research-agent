@@ -6,8 +6,12 @@ these exercise genuine SQLite persistence and genuine graph traversal -- the
 only thing faked is the network.
 """
 
+import base64
+import concurrent.futures
+import hashlib
 import inspect
 import json
+import logging
 import re
 import threading
 import time
@@ -18,11 +22,16 @@ import anthropic
 import httpx
 import pytest
 import test_graph_smoke
+
+# Imported eagerly here on purpose, unlike in `service` and `memory`: the
+# credential tests need the SDK's own typed exceptions, and asserting against
+# anything else would be asserting against a stand-in for the contract.
+import voyageai.error
 from fastapi.testclient import TestClient
 from test_graph_smoke import FakeClient
-from test_memory_stores import FakeEmbedder
+from test_memory_stores import FakeEmbedder, voyage_embedder
 
-from research_agent import db, graph, identity, limits, service
+from research_agent import csp, db, graph, identity, limits, service
 from research_agent import memory as memory_module
 from research_agent import usage as usage_accounting
 from research_agent.memory import InMemoryStore, PgVectorMemoryStore
@@ -207,6 +216,10 @@ def make_client(tmp_path, monkeypatch):
 
     service.app.dependency_overrides.clear()
     graph.set_memory(None)
+    # The credential cache is module state: without this, a verdict one test
+    # probed for would be served warm to the next one in file order, and the
+    # cold-read assertions would pass or fail depending on collection order.
+    service._reset_credential_cache()
     for client, store, metrics in created:
         client.close()
         store.close()
@@ -1490,11 +1503,15 @@ def test_health_reports_credential_presence_never_values(make_client, monkeypatc
 
     body = client.get("/health").json()
 
-    assert body["credentials"] == {
-        "anthropic": True,
-        "voyage": False,
-        "identity_signing": True,
-    }
+    # Pinned by name rather than by whole-dict equality since Phase 19: the
+    # block now grows with validity fields, and an `==` here would turn every
+    # additive change into a failure while saying nothing about the property
+    # this test is actually for -- that presence is reported and the value
+    # never is.
+    credentials = body["credentials"]
+    assert credentials["anthropic"] is True
+    assert credentials["voyage"] is False
+    assert credentials["identity_signing"] is True
     assert "secret-value" not in json.dumps(body)
 
 
@@ -1514,6 +1531,322 @@ def test_health_treats_an_empty_key_as_absent(make_client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
 
     assert client.get("/health").json()["credentials"]["anthropic"] is False
+
+
+# --------------------------------------------------------------------------
+# Credential validity: does the key actually WORK
+#
+# Presence and validity are different facts. The block below is about the
+# second one, and every test here runs keyless-by-default with a fake provider
+# behind the same seam production calls -- a probe that reached the real
+# network would break the suite's keyless invariant, not just cost money.
+# --------------------------------------------------------------------------
+
+
+def settle_credential_probes(timeout=5.0):
+    """Wait for whatever refresh /health kicked off, instead of sleeping.
+
+    `_credential_inflight` is the single-refresh guard and the test seam in one
+    object. The worker writes the cache and only then pops itself in its
+    `finally`, so a snapshot that comes back empty means the write has already
+    happened rather than that nothing ran -- which is what makes this
+    deterministic rather than a race dressed up as a wait.
+    """
+    inflight = list(service._credential_inflight.values())
+    _, not_done = concurrent.futures.wait(inflight, timeout=timeout)
+    assert not not_done, "a credential refresh did not land inside the timeout"
+
+
+def test_health_credential_valid_true_after_the_probe_lands(make_client, monkeypatch):
+    """The whole path in one test: cold read, fire-and-forget refresh, warm read.
+
+    The cold read is the load-bearing half. /health must answer from the cache
+    it has -- `null`, meaning "not yet known" -- rather than waiting on a
+    provider, because the endpoint Fly restarts a machine over cannot be
+    allowed to inherit a third party's latency.
+    """
+    client, fake = make_client()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+
+    cold = client.get("/health").json()["credentials"]
+
+    assert cold["anthropic_valid"] is None
+    assert cold["anthropic_checked_at"] is None
+    assert cold["anthropic_error"] is None
+    # Additive only: the presence booleans keep their names, their type and
+    # their meaning beside the new fields.
+    assert cold["anthropic"] is True
+    assert cold["voyage"] is False
+    assert cold["identity_signing"] in (True, False)
+
+    settle_credential_probes()
+    warm = client.get("/health").json()["credentials"]
+
+    assert warm["anthropic_valid"] is True
+    assert isinstance(warm["anthropic_checked_at"], float)
+    assert warm["anthropic_error"] is None
+    assert warm["anthropic"] is True
+
+    probes = [kwargs for node, kwargs in fake.calls_with_kwargs if node == "credential_probe"]
+    assert probes, "green without a provider call would be a vacuous pass"
+    assert probes[0]["model"] == graph.MODEL
+
+
+def install_voyage(monkeypatch, total_tokens=25, error=None):
+    """A real VoyageEmbedder behind a fake client, reached the production way.
+
+    The probe finds its embedder through `graph.memory().embedder` and calls
+    `embed_query` on it, which is the same seam a run uses -- so these tests
+    exercise the wrapper that reports tokens, not a stand-in that doesn't.
+    """
+    monkeypatch.setenv("VOYAGE_API_KEY", "pa-dummy-not-a-real-key")
+    embedder = voyage_embedder(total_tokens=total_tokens, error=error)
+    graph.set_memory(InMemoryStore(embedder=embedder))
+    return embedder
+
+
+def test_health_credential_invalid_key_reads_false(make_client, monkeypatch):
+    """A provider that REJECTED us is the one case that is a verdict."""
+    client, _ = make_client()
+    install_voyage(monkeypatch, error=voyageai.error.AuthenticationError("401 unauthorized"))
+
+    client.get("/health")
+    settle_credential_probes()
+    credentials = client.get("/health").json()["credentials"]
+
+    assert credentials["voyage_valid"] is False
+    assert credentials["voyage"] is True
+
+
+def test_health_credential_provider_down_reads_null_with_an_error(make_client, monkeypatch):
+    """An outage is "could not determine", never "your key is bad".
+
+    Both halves are asserted because neither is sufficient alone: `null` by
+    itself does not distinguish an outage from a key nobody has probed yet,
+    and that distinction is the entire reason the error field exists. Report
+    this as `false` and an operator spends the outage rotating a key that was
+    never the problem.
+    """
+    client, _ = make_client()
+    install_voyage(monkeypatch, error=voyageai.error.APIConnectionError("connection refused"))
+
+    client.get("/health")
+    settle_credential_probes()
+    credentials = client.get("/health").json()["credentials"]
+
+    assert credentials["voyage_valid"] is None
+    assert credentials["voyage_error"] == "APIConnectionError"
+
+
+def test_health_credential_error_never_carries_the_sdk_message(make_client, monkeypatch):
+    """/health is deliberately unauthenticated, so this block is world-readable.
+
+    An SDK's error message is not guaranteed free of the request that caused
+    it. Storing the exception CLASS keeps the diagnostic and drops the payload.
+    """
+    leaked = "pa-l3aked-from-an-sdk-message"
+    client, _ = make_client()
+    install_voyage(
+        monkeypatch,
+        error=voyageai.error.AuthenticationError(f"401 for key {leaked}"),
+    )
+
+    client.get("/health")
+    settle_credential_probes()
+    response = client.get("/health")
+
+    assert leaked not in response.text
+    assert response.json()["credentials"]["voyage_error"] == "AuthenticationError"
+
+
+def test_health_credential_probe_spend_is_excluded_from_the_embedding_meter(
+    make_client, monkeypatch
+):
+    """The probe's tokens reach no run's bill, and that is by construction.
+
+    `report_embedding` is a no-op unless a meter is open in the calling
+    context, and the probe runs on a pool thread that has none -- so there is
+    no special case to keep in sync, and no run to attribute it to either.
+
+    The second half is the whole test. A meter reading zero is exactly what an
+    embedder that never reports anything would also produce, so the same
+    embedder is called directly inside the same meter and must report: without
+    that control this test would pass against a broken accounting seam.
+    """
+    client, _ = make_client()
+    embedder = install_voyage(monkeypatch, total_tokens=25)
+
+    with usage_accounting.embedding_meter() as meter:
+        client.get("/health")
+        settle_credential_probes()
+
+        assert embedder._client.calls, "the probe never embedded anything"
+        assert meter.total_tokens == 0
+
+        embedder.embed_query("the positive control")
+        assert meter.total_tokens == 25
+
+
+def test_health_credential_absent_key_reads_null_and_never_probes(make_client, monkeypatch):
+    """A missing key is a presence fact. It is never a validity verdict.
+
+    `false` here would send an operator hunting a bad key when what they have
+    is no key at all -- and would spend a provider call to say it. `null`
+    means "nobody asked", which is exactly true.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    probed = []
+
+    def never_call_me():
+        probed.append(1)
+
+    for name in service._CREDENTIAL_PROBES:
+        monkeypatch.setitem(service._CREDENTIAL_PROBES[name], "probe", never_call_me)
+
+    client, _ = make_client()
+    credentials = client.get("/health").json()["credentials"]
+
+    for name in ("anthropic", "voyage"):
+        assert credentials[name] is False
+        assert credentials[f"{name}_valid"] is None
+        assert credentials[f"{name}_checked_at"] is None
+        assert credentials[f"{name}_error"] is None
+    assert probed == [], "an unconfigured key was sent to a provider"
+
+
+def test_health_credential_single_refresh_while_one_is_in_flight(make_client, monkeypatch):
+    """Three reads, one refresh. Fly polls /health forever; without this guard
+    the probe rate would track request volume rather than the TTL, and a
+    provider's rate limit would be the thing that eventually stopped it."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    def blocking_probe():
+        calls.append(1)
+        started.set()
+        release.wait(30)  # a backstop; the `finally` is the mechanism
+
+    monkeypatch.setitem(service._CREDENTIAL_PROBES["anthropic"], "probe", blocking_probe)
+    client, _ = make_client()
+
+    try:
+        client.get("/health")
+        assert started.wait(5), "the first read never kicked a refresh"
+        client.get("/health")
+        client.get("/health")
+
+        assert calls == [1]
+        assert list(service._credential_inflight) == ["anthropic"]
+    finally:
+        release.set()
+
+    settle_credential_probes()
+
+    assert calls == [1]
+    assert client.get("/health").json()["credentials"]["anthropic_valid"] is True
+
+
+def test_health_credential_cache_is_reused_within_the_ttl(make_client, monkeypatch):
+    """A landed verdict is served, not re-earned -- and does get re-earned once
+    it goes stale, which is the half that keeps the first half honest.
+
+    Note the TTL is monkeypatched rather than set through CREDENTIAL_PROBE_TTL:
+    P-02's 30 s floor clamps the env var, so a test driving it that way would
+    be measuring the clamp and quietly proving nothing.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+    client, fake = make_client()
+
+    def probe_count():
+        return sum(1 for node, _ in fake.calls_with_kwargs if node == "credential_probe")
+
+    client.get("/health")
+    settle_credential_probes()
+    first = client.get("/health").json()["credentials"]["anthropic_checked_at"]
+    calls_after_first = probe_count()
+
+    second = client.get("/health").json()["credentials"]["anthropic_checked_at"]
+
+    assert second == first
+    assert probe_count() == calls_after_first
+
+    # Now expire it: the same read path must go back to the provider.
+    monkeypatch.setattr(service, "credential_probe_ttl", lambda: 0.0)
+    client.get("/health")
+    settle_credential_probes()
+
+    assert probe_count() == calls_after_first + 1
+    assert client.get("/health").json()["credentials"]["anthropic_checked_at"] > first
+
+
+def test_health_credential_probe_ttl_floors_at_flys_check_interval(monkeypatch):
+    """The floor is Fly's own 30 s check interval.
+
+    Below it every liveness check would find the cache stale, and a mistuned
+    env var would turn /health into a per-request prober against a provider's
+    rate limit. A garbage value falls back rather than raising: /health failing
+    to render because someone typed a word into a duration is the endpoint
+    failing at its one job.
+    """
+    monkeypatch.setenv("CREDENTIAL_PROBE_TTL", "0.5")
+    assert service.credential_probe_ttl() == 30.0
+
+    monkeypatch.setenv("CREDENTIAL_PROBE_TTL", "not-a-number")
+    assert service.credential_probe_ttl() == 300.0
+
+    monkeypatch.delenv("CREDENTIAL_PROBE_TTL", raising=False)
+    assert service.credential_probe_ttl() == 300.0
+
+
+def test_health_never_waits_on_a_hanging_credential_probe(make_client, monkeypatch):
+    """The invariant the whole design exists for.
+
+    Fly restarts a machine whose liveness check fails. If /health waited on a
+    provider, a provider's outage would become our restart loop -- taking down
+    the endpoints that were still working, and fixing nothing, because a
+    restart does not repair someone else's API.
+
+    The bound is three orders of magnitude above the store probes' measured
+    ~3 ms, so it is immune to CI jitter while still being falsified instantly
+    by a `.result()` anywhere on the read path.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+    release = threading.Event()
+
+    def never_answers():
+        release.wait(30)
+
+    monkeypatch.setitem(service._CREDENTIAL_PROBES["anthropic"], "probe", never_answers)
+    client, _ = make_client()
+
+    try:
+        started = time.perf_counter()
+        response = client.get("/health")
+        elapsed = time.perf_counter() - started
+    finally:
+        # Never leave a worker blocked into the next test.
+        release.set()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["credentials"]["anthropic_valid"] is None
+    assert elapsed < 1.0, f"/health waited {elapsed:.2f}s on a provider that never answered"
+
+
+def test_ready_carries_no_credentials_block(make_client, monkeypatch):
+    """Readiness is about stores. Mixing provider validity in here would
+    re-create the restart hazard one hop away: /ready returns 503, the load
+    balancer drains the machine, and a third party's outage takes the service
+    off the air even though every store it owns is answering fine."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy-not-a-real-key")
+    client, _ = make_client()
+
+    body = client.get("/ready").json()
+
+    assert "credentials" not in body
+    assert body["status"] == "ready"
 
 
 def test_the_root_url_is_not_a_404(make_client):
@@ -2474,14 +2807,24 @@ class _FirstPaintText(HTMLParser):
 # empty-state message, a "loading your sessions" placeholder -- adds or changes
 # a run here and turns this red.
 class _MarkupTags(HTMLParser):
-    """Every element the served markup declares."""
+    """Every element the served markup declares, and every attribute on it.
+
+    The attribute half was added for the CSP gates below: they need to know that
+    no tag carries an `on*` handler or a `style=`, and the walk that already
+    visits every start tag is the right place to learn it. `handle_starttag`
+    was always handed `attrs` and always dropped them; recording them opens no
+    second parser over the same file.
+    """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.tags: list[str] = []
+        self.attributes: list[tuple[str, str, str | None]] = []
 
     def handle_starttag(self, tag, attrs):
         self.tags.append(tag)
+        for name, value in attrs:
+            self.attributes.append((tag, name, value))
 
     def census(self) -> dict[str, int]:
         return dict(sorted(Counter(self.tags).items()))
@@ -2739,3 +3082,376 @@ def test_page_is_self_contained():
 
     assert not re.search(r'(src|href)\s*=\s*"\s*(https?:)?//', page, re.IGNORECASE)
     assert not re.search(r"@import|url\(\s*['\"]?https?:", page, re.IGNORECASE)
+
+
+# --------------------------------------------------------------------------
+# The demo page's Content-Security-Policy
+#
+# These sit below the static-file gates rather than inside them: that section
+# states in its own header that it needs no client, and half of these drive the
+# real app to read a real response header. They do reuse `_demo_page()` and
+# `_MarkupTags` from it, deliberately -- every assertion here is about the file
+# the service actually serves, never a fixture copy. A fixture is a copy that
+# can be right while the shipped page is wrong.
+# --------------------------------------------------------------------------
+
+
+def test_demo_page_is_served_with_a_hash_based_csp(make_client):
+    """The header exists, carries both element hashes, and changed nothing.
+
+    The last assertion is the UI-SPEC's whole premise -- the CSP is derived FROM
+    the page, the page is not adapted TO the CSP -- stated as an assertion on the
+    served bytes rather than left as trust.
+    """
+    client, _ = make_client()
+
+    response = client.get("/", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    # Membership before lookup, so a header that stops being sent reds as a named
+    # failure here rather than as a KeyError out of httpx's header mapping.
+    assert "content-security-policy" in response.headers, "the demo page carries no CSP"
+
+    header = response.headers["content-security-policy"]
+    assert "script-src 'sha256-" in header
+    assert "style-src 'sha256-" in header
+
+    # The directive NAMES, in order, are exactly the ones csp.DIRECTIVES
+    # declares -- so a directive silently dropped, added or reordered on the way
+    # to the wire fails here, not in a browser console someone happens to open.
+    served = [directive.strip().split(" ", 1)[0] for directive in header.split(";")]
+    assert served == [directive.split(" ", 1)[0] for directive in csp.DIRECTIVES]
+
+    assert response.text == _demo_page()
+
+
+def test_csp_hashes_are_derived_from_the_page_not_hand_maintained(make_client):
+    """The load-bearing gate: recompute both hashes independently and compare.
+
+    Deliberately does NOT call csp.inline_blocks or csp.sha256_source for the
+    expected values. A test that runs the implementation's own helpers down both
+    sides asserts only that a function equals itself; recomputing from scratch is
+    what catches a wrong algorithm, a wrong encoding, a wrong extraction, the
+    wrong file, or a literal somebody pasted in by hand.
+
+    The unsafe-* assertions are against the SERVED string rather than a grep over
+    source, so csp.py's docstring stays free to discuss both without tripping a
+    gate that should only ever fire on what a browser is actually told.
+    """
+    page = _demo_page()
+
+    expected = {}
+    for tag in ("script", "style"):
+        blocks = re.findall(rf"<{tag}>(.*?)</{tag}>", page, re.S)
+        assert len(blocks) == 1, f"expected exactly one inline <{tag}>, found {len(blocks)}"
+        digest = hashlib.sha256(blocks[0].encode("utf-8")).digest()
+        expected[tag] = "sha256-" + base64.b64encode(digest).decode("ascii")
+
+    client, _ = make_client()
+    served = client.get("/", headers={"accept": "text/html"})
+    header = served.headers["content-security-policy"]
+
+    assert f"script-src '{expected['script']}'" in header, header
+    assert f"style-src '{expected['style']}'" in header, header
+
+    # A policy carrying either of these is decorative: 'unsafe-inline' permits
+    # exactly the injected script the hashes exist to exclude, and
+    # 'unsafe-hashes' exists to license inline handlers and style attributes,
+    # which the test below asserts the page has none of.
+    assert "unsafe-inline" not in header
+    assert "unsafe-hashes" not in header
+
+
+def test_demo_page_has_exactly_one_script_block_and_one_style_block():
+    """The gate on the policy's SHAPE, which derivation cannot follow.
+
+    A second inline block needs a second hash; a policy with one hash for two
+    blocks blocks half the page in every browser while the server looks fine.
+
+    Both forms are counted on purpose. The bare-tag count is what csp.py's
+    extraction sees; the `<script`-prefix count sees a tag with attributes too.
+    They must agree at one apiece, so `<script defer>` -- invisible to the
+    extraction, and enough to make the derived policy silently omit that block's
+    hash -- fails here rather than in production.
+    """
+    page = _demo_page()
+
+    assert len(re.findall(r"<script\b", page)) == 1
+    assert len(re.findall(r"<style\b", page)) == 1
+    assert len(re.findall(r"<script>", page)) == 1
+    assert len(re.findall(r"<style>", page)) == 1
+
+
+def test_demo_page_has_no_inline_handlers_or_style_attributes():
+    """Zero `on*` handlers, zero `style=`, zero `javascript:` URLs.
+
+    Each of the three would require loosening the policy -- an inline handler or
+    a style attribute needs 'unsafe-hashes' (or worse, 'unsafe-inline'), and a
+    `javascript:` URL needs 'unsafe-inline' outright. The loosening is the
+    regression this exists to prevent, so the gate is on the page, before anyone
+    reaches for the directive that would make it work.
+    """
+    parser = _MarkupTags()
+    parser.feed(_demo_page())
+
+    # Non-vacuity: prove the walk saw attributes at all before asserting which
+    # ones are absent. An empty list would pass all three assertions below.
+    assert ("input", "id", "q") in parser.attributes
+    assert len(parser.attributes) > 10
+
+    assert [(tag, name) for tag, name, _ in parser.attributes if name.startswith("on")] == []
+    assert [(tag, name) for tag, name, _ in parser.attributes if name == "style"] == []
+    assert [
+        (tag, name, value)
+        for tag, name, value in parser.attributes
+        if value and value.strip().lower().startswith("javascript:")
+    ] == []
+
+
+def test_csp_header_is_absent_from_the_json_index_and_the_streams(make_client):
+    """P-06: one call site, and "absent everywhere else" is the testable half.
+
+    This is the gate that reds if anyone later reaches for middleware. A global
+    attachment is the one mechanism 19-UI-SPEC forbids, precisely because it is
+    the one that reaches responses this phase promised not to touch -- the two
+    SSE responses and their caching headers, asserted in the next test.
+    """
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    responses = {
+        "json index": client.get("/", headers={"accept": "*/*"}),
+        "research stream": client.post("/research/stream", json={"question": "why?"}),
+        "ask stream": client.post(f"/sessions/{session_id}/ask/stream", json={"question": "and?"}),
+    }
+
+    # Non-vacuity: three responses that all really happened, so an absence
+    # assertion cannot pass because a request 404'd or 429'd on the way.
+    assert [r.status_code for r in responses.values()] == [200, 200, 200]
+
+    carrying = [name for name, r in responses.items() if "content-security-policy" in r.headers]
+    assert carrying == [], f"the CSP escaped its one call site onto: {carrying}"
+
+
+def test_sse_responses_keep_their_caching_headers(make_client):
+    """19-UI-SPEC's must-not-change item 6, asserted rather than reasoned about.
+
+    Nothing before this phase asserted these, so "the CSP work did not disturb
+    them" was a claim resting on reading the code. Now a header a proxy needs --
+    without which a Fly or nginx buffer turns a progress stream into a long
+    silence followed by everything at once -- is pinned on both stream routes.
+    """
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    for label, response in (
+        ("research stream", client.post("/research/stream", json={"question": "why?"})),
+        (
+            "ask stream",
+            client.post(f"/sessions/{session_id}/ask/stream", json={"question": "and?"}),
+        ),
+    ):
+        assert response.status_code == 200, label
+        assert response.headers["content-type"].startswith("text/event-stream"), label
+        assert response.headers["cache-control"] == "no-cache", label
+        assert response.headers["x-accel-buffering"] == "no", label
+
+
+# --------------------------------------------------------------------------
+# Log addressability: a completed run is findable from its own log line
+#
+# The gap these gates close cost a wasted live run in Phase 17 -- a run
+# completed, and no single log record could say which session held it. The fix
+# is not a schema change: `session_id` simply does not exist while the graph
+# runs (for a new session `store.create()` mints it inside `on_complete`, AFTER
+# `graph.app.invoke` returns), so the completion record has to be emitted from
+# the one place that knows it, which is `service.py`.
+#
+# `service.log` and `graph.log` are the same singleton, so one caplog capture
+# sees records from both modules -- which is what lets these tests assert on the
+# RELATIONSHIP between the two lines rather than on either one alone.
+# --------------------------------------------------------------------------
+
+
+class _LogCapture:
+    """The captured records, grouped by their structured `event` field.
+
+    `events()` returns a dict of LISTS rather than a set of names on purpose:
+    every gate below is about a COUNT (exactly one, or exactly zero), and a set
+    silently turns a double-emission into a pass -- which is precisely the
+    failure P-07 exists to prevent.
+
+    `clear()` is what lets a test that needs a session to exist first assert
+    over one request rather than over the whole setup.
+    """
+
+    def __init__(self, caplog):
+        self._caplog = caplog
+
+    def clear(self) -> None:
+        self._caplog.clear()
+
+    def events(self) -> dict[str, list]:
+        grouped: dict[str, list] = {}
+        for record in self._caplog.records:
+            event = getattr(record, "event", "")
+            if event:
+                grouped.setdefault(event, []).append(record)
+        return grouped
+
+    def count(self, event: str) -> int:
+        return len(self.events().get(event, []))
+
+
+@pytest.fixture
+def capture_log(monkeypatch, caplog):
+    """The house idiom: the agent logger deliberately does not propagate (its
+    own handler is the only one that should fire), so propagation is turned on
+    for the duration rather than the log call being replaced by a fake. What is
+    under test is the real `log.info(..., extra={...})`.
+    """
+    monkeypatch.setattr(service.log, "propagate", True)
+    with caplog.at_level(logging.INFO, logger=service.log.name):
+        yield _LogCapture(caplog)
+
+
+def test_run_finished_carries_the_session_id_for_a_new_session(make_client, capture_log):
+    """The phase's central gate, on the hard route.
+
+    `/research` opens a session that does not exist until the graph has already
+    finished, so this is the case a graph-side emission structurally cannot
+    serve. The final assertion is what keeps the design honest: the graph's own
+    terminal line must carry NO session identity, so a future attempt to thread
+    the id back through `AgentState` fails a test instead of silently doing
+    nothing (LangGraph drops undeclared state keys without a word -- measured in
+    19-RESEARCH).
+    """
+    client, _ = make_client()
+
+    # The premise of capturing both modules' records in one place, asserted
+    # rather than assumed.
+    assert service.log is graph.log
+
+    body = client.post("/research", json={"question": "why?"}).json()
+    by_event = capture_log.events()
+
+    finished = by_event.get("run_finished", [])
+    assert len(finished) == 1, f"expected exactly one run_finished, got {len(finished)}"
+    # Presence before the comparison, so a record that stops carrying the field
+    # reds as a named failure here rather than as a bare AttributeError, which
+    # reads like a broken test instead of a missing field.
+    assert hasattr(finished[0], "session_id"), "the completion record carries no session_id"
+    assert finished[0].session_id == body["session_id"]
+    assert finished[0].run_id, "a completion record with no run_id addresses nothing"
+
+    graph_finished = by_event.get("graph_finished", [])
+    assert len(graph_finished) == 1, f"expected one graph_finished, got {len(graph_finished)}"
+    assert not hasattr(graph_finished[0], "session_id"), (
+        "the graph reported a session identity it cannot know"
+    )
+
+
+def test_run_finished_carries_the_session_id_on_the_streaming_path(make_client, capture_log):
+    """The stream emits from inside the generator, so the whole body has to be
+    consumed before anything is asserted -- a test that reads the headers and
+    walks away is asserting about a run that has not finished.
+
+    The comparison is against the id the terminal `result` event reported,
+    which is the one the caller actually holds.
+    """
+    client, _ = make_client()
+
+    response = client.post("/research/stream", json={"question": "why?"})
+    events = sse_events(response)  # consumes the body in full
+
+    terminal = [payload for name, payload in events if name == "result"]
+    assert len(terminal) == 1, "the stream did not finish -- nothing to compare against"
+
+    finished = capture_log.events().get("run_finished", [])
+    assert len(finished) == 1, f"expected exactly one run_finished, got {len(finished)}"
+    assert hasattr(finished[0], "session_id"), "the completion record carries no session_id"
+    assert finished[0].session_id == terminal[0]["session_id"]
+
+
+@pytest.mark.parametrize("route", ["ask", "ask/stream"])
+def test_run_finished_carries_the_session_id_for_a_followup(make_client, capture_log, route):
+    """The route where the id was ALREADY known must produce the identical
+    record shape as the route where it was not.
+
+    Uniformity across all four routes is the requirement -- an operator
+    counting completions or looking one up cannot be asked which entry point a
+    run came through. The capture is cleared after the setup run so this
+    asserts over one request rather than over two.
+    """
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+    capture_log.clear()
+
+    response = client.post(f"/sessions/{session_id}/{route}", json={"question": "and?"})
+    assert response.status_code == 200
+    if route.endswith("stream"):
+        assert [name for name, _ in sse_events(response)][-1] == "result"
+
+    finished = capture_log.events().get("run_finished", [])
+    assert len(finished) == 1, f"expected exactly one run_finished, got {len(finished)}"
+    assert hasattr(finished[0], "session_id"), "the completion record carries no session_id"
+    assert finished[0].session_id == session_id
+
+
+def test_exactly_one_run_finished_record_per_request(make_client, capture_log):
+    """One completion event per RUN, not one per call site.
+
+    This is the gate P-07 exists for. Two sites sharing one event name
+    double-counts every HTTP run for anyone counting completions out of the log
+    stream, and the count drifts silently -- nothing fails, the number is just
+    wrong, which is the failure family this project has hit before (the v1.1
+    audit's blind daily cap, and the Phase 17 run nobody could find). The
+    graph's terminal line keeps its own name so both facts stay countable
+    separately.
+    """
+    client, _ = make_client()
+
+    client.post("/research", json={"question": "why?"})
+
+    assert capture_log.count("run_finished") == 1
+    assert capture_log.count("graph_finished") == 1  # non-vacuity: the graph did run
+
+
+def test_a_failed_run_emits_run_failed_and_no_run_finished(make_client, capture_log, monkeypatch):
+    """P-08's complement, on both paths.
+
+    The completion line sits inside the `try`, after both writes, so a run that
+    fails must reach the failure line instead -- never both, never neither.
+    Without this the "exactly one" claim is only half checked: a `finally`
+    would satisfy every success-side gate above while emitting a completion
+    record for runs that did not complete.
+
+    The streaming arm needs its own assertion rather than inheriting the
+    blocking one: `_stream` swallows its exception to keep the SSE contract, so
+    the handler's except never runs and that arm is invisible from outside.
+    """
+    client, _ = make_client()
+
+    # Blocking. An upstream failure rather than a bug in ours, so _http_error
+    # maps it to a real response instead of TestClient re-raising it.
+    def explode(state):
+        raise anthropic.APIConnectionError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+
+    monkeypatch.setattr(graph.app, "invoke", explode)
+    assert client.post("/research", json={"question": "why?"}).status_code >= 500
+
+    assert capture_log.count("run_failed") == 1
+    assert capture_log.count("run_finished") == 0, "a run that failed reported itself finished"
+
+    # Streaming, same failure, its own arm.
+    capture_log.clear()
+    monkeypatch.setattr(graph.app, "stream", explode)
+    response = client.post("/research/stream", json={"question": "why?"})
+    assert [name for name, _ in sse_events(response)] == ["error"]  # it did fail
+
+    assert capture_log.count("run_failed") == 1, (
+        "a failed stream left no trace in the log stream at all"
+    )
+    assert capture_log.count("run_finished") == 0, "a run that failed reported itself finished"

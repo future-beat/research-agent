@@ -506,8 +506,12 @@ let a probe or a stream raise.
 ## Cross-Cutting Concerns
 
 **Logging:** `observability.get_logger()` returns a JSON-formatting logger
-(`observability.py:37`). Structured events: `model_call`, `run_finished`
-(`graph.py:450`), `startup`, `run_failed`. Every record carries `run_id`.
+(`observability.py:37`). Structured events: `model_call` and `graph_finished`
+from `graph.py`; `startup`, `run_finished` and `run_failed` from `service.py`.
+Every record carries `run_id`. The split is deliberate (Phase 19): the graph
+reports only that it reached its terminal state, and the service emits exactly
+one of `run_finished` / `run_failed` per HTTP-initiated run — `run_finished`
+alone carries `session_id`, because the id is minted after the graph returns.
 
 **Tracing:** `observability.span()` (`observability.py:101`) is a no-op unless
 the `otel` extra is installed; `call_model` opens `node.{name}` per call.

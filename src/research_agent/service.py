@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Respons
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from research_agent import db, graph, limits, memory
+from research_agent import csp, db, graph, limits, memory
 from research_agent import usage as usage_accounting
 from research_agent.graph import MAX_ITERATIONS, MAX_REVISIONS, followup_state, initial_state
 from research_agent.identity import IdentityMiddleware
@@ -265,6 +265,57 @@ def _failed_record(state: dict, exc: BaseException, started: float) -> RunRecord
     return record
 
 
+def _finished_log(state: dict, session_id: str, duration_ms: float) -> dict:
+    """The `extra=` payload of the completion log line.
+
+    Named for the log rather than for the run because `_failed_record` above is
+    a metrics row and this is not; the two live one screen apart and calling
+    both of them "record" would be a collision waiting to be misread.
+
+    One helper rather than two hand-maintained copies: the blocking and
+    streaming paths must emit the identical record shape, and an eleven-key
+    dict written twice drifts. A completion record whose fields depend on
+    whether the caller happened to stream is a worse artifact than either copy.
+
+    Read with `.get()` throughout, the same defaulting `RunRecord.from_state`
+    uses over the same state -- so the log line and the runs row it accompanies
+    cannot disagree about whether a field was there.
+    """
+    usage = state.get("usage") or {}
+    return {
+        "event": "run_finished",
+        "run_id": state.get("run_id", ""),
+        "session_id": session_id,
+        "mode": state.get("mode", ""),
+        "topic_type": state.get("topic_type", ""),
+        "approved": bool(state.get("approved")),
+        "forced_stop_reason": state.get("forced_stop_reason", ""),
+        "iterations": state.get("iteration", 0),
+        "revisions": state.get("revision_count", 0),
+        "model_calls": usage.get("calls", 0),
+        "cost_usd": round(usage.get("cost_usd", 0.0), 6),
+        "duration_ms": round(duration_ms, 2),
+    }
+
+
+def _failed_log(state: dict, exc: BaseException) -> dict:
+    """The `extra=` payload of the failure log line -- `_finished_log`'s exact
+    complement, and shared by both terminal paths for the same reason.
+
+    Deliberately narrow: a failure carries the run's identity and the exception
+    CLASS, never `str(exc)`. The message can hold a DSN with a password in it
+    (the SSE arm redacts and truncates for exactly that reason before putting
+    it on a wire a browser reads), and a log sink is a wider audience than that
+    browser, not a narrower one.
+    """
+    return {
+        "event": "run_failed",
+        "run_id": state.get("run_id", ""),
+        "mode": state.get("mode", ""),
+        "error": type(exc).__name__,
+    }
+
+
 def _execute(
     state: dict, metrics: MetricsStore, limits_store: LimitsStore, on_complete
 ) -> tuple[str, dict]:
@@ -293,6 +344,17 @@ def _execute(
         metrics.record(
             RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
         )
+        # HERE, and not in the graph. The graph's terminal line (`graph_finished`)
+        # cannot carry a session identity: for a new run the id is minted by
+        # `on_complete` above, after `app.invoke` has already returned, and
+        # threading it back through `AgentState` fails SILENTLY -- LangGraph
+        # drops undeclared state keys without a word. So the line that means
+        # "this run is addressable" is emitted from the one place that knows the
+        # id. And it sits after `metrics.record`, inside the try, so the record
+        # means BOTH writes landed; the `run_failed` line in the except arm below
+        # is its exact complement -- every HTTP-initiated run emits precisely one
+        # of the two, never both and never neither.
+        log.info("run finished", extra=_finished_log(final_state, session_id, duration_ms))
     except BaseException as exc:
         # `final_state`, not `state`: cost lives in `state["usage"]`, so a run
         # that finished and then failed to persist is worth its real spend to
@@ -300,15 +362,7 @@ def _execute(
         # table with cost 0.00 -- present, and just as blind.
         metrics.record(_failed_record(final_state, exc, started))
         limits.settle(limits_store, state.get("run_id", ""))
-        log.warning(
-            "run failed",
-            extra={
-                "event": "run_failed",
-                "run_id": state.get("run_id", ""),
-                "mode": state.get("mode", ""),
-                "error": type(exc).__name__,
-            },
-        )
+        log.warning("run failed", extra=_failed_log(state, exc))
         raise (_http_error(exc) or exc) from exc
 
     # Immediately after the record, never before it: the estimate stops
@@ -349,6 +403,10 @@ def _stream(
         metrics.record(
             RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
         )
+        # Same placement, same shape, same helper as `_execute` -- see the
+        # comment there. A completion record that differs by transport would
+        # make "count the completions" a question about the client.
+        log.info("run finished", extra=_finished_log(final_state, session_id, duration_ms))
         limits.settle(limits_store, state.get("run_id", ""))
         yield _sse("result", RunResponse.build(session_id, final_state).model_dump())
 
@@ -367,6 +425,16 @@ def _stream(
         # event. Missing it leaks $0.20 of budget per failed stream until the
         # staleness cutoff catches up.
         limits.settle(limits_store, state.get("run_id", ""))
+        # THE SAME ARM, THE SAME OMISSION, ONE LEVEL OVER. Until this phase a
+        # failed stream logged nothing at all: the row reached the ledger and
+        # the error reached the caller's browser, and `fly logs` showed a run
+        # that started and then simply stopped. The demo page runs on the
+        # streaming routes, so that was every failed demo run -- the Phase 17
+        # "a run happened and I cannot find it" problem in its worst form,
+        # since here there is no completion line to find either. Without this,
+        # "every HTTP-initiated run emits exactly one of the two" is true of
+        # the blocking path only.
+        log.warning("run failed", extra=_failed_log(state, exc))
         # Same treatment /health gives a probe failure, for the same reason:
         # first line only, because a psycopg error is multi-line and the DSN
         # tends to sit below the first; _redact, because the DSN carries a
@@ -408,7 +476,18 @@ def index(request: Request):
     URL gets something they can actually use.
     """
     if "text/html" in request.headers.get("accept", ""):
-        return FileResponse(DEMO_PAGE, media_type="text/html")
+        # The ONLY place the CSP is attached (19-02 P-06). Middleware would be
+        # the wrong mechanism here: it reaches every response, including the two
+        # SSE responses whose `Cache-Control`/`X-Accel-Buffering` headers this
+        # phase promised not to touch. Confining it to this one call site makes
+        # "absent everywhere else" a testable claim, and
+        # test_csp_header_is_absent_from_the_json_index_and_the_streams is the
+        # gate that reds if someone later reaches for the global mechanism.
+        return FileResponse(
+            DEMO_PAGE,
+            media_type="text/html",
+            headers={"Content-Security-Policy": csp.policy(DEMO_PAGE)},
+        )
     return _index_json()
 
 
@@ -565,6 +644,205 @@ def _probe(fn) -> dict:
     return {"reachable": True, **result}
 
 
+# --------------------------------------------------------------------------
+# Credential validity
+#
+# Presence and validity are different facts. `/health` has always reported the
+# first one -- a container with no keys boots healthy and then fails every real
+# request -- but a key that is present and *revoked* looked identical, which is
+# how Phase 11's outage ran for as long as it did: Fly called the container
+# healthy while every run failed upstream.
+#
+# What must not change while closing that gap: liveness must never WAIT on a
+# provider. A probe that blocked the response would put a third party's outage
+# on the path of the check that decides whether to restart this process --
+# turning someone else's bad afternoon into our restart loop, which is the
+# exact failure the presence-only design was protecting against. So the read
+# path serves a cache, the refresh runs on the probe pool, and nobody ever
+# calls `.result()`.
+# --------------------------------------------------------------------------
+
+
+def credential_probe_ttl() -> float:
+    """CREDENTIAL_PROBE_TTL -- seconds a credential verdict stays fresh.
+
+    Default 300.0, floor 30.0. Deliberately NOT `HEALTH_PROBE_BUDGET`: that
+    one bounds how LONG a single store probe may take, this one bounds how
+    OFTEN a provider is asked anything at all. They are different questions
+    with different failure modes, so they get different names.
+
+    The floor is Fly's own health-check interval (docs/OPERATIONS.md): below
+    it, every liveness check would find the cache stale and kick a refresh,
+    and a mistuned env var would quietly turn /health into a per-request
+    prober against a provider's rate limit.
+    """
+    try:
+        return max(30.0, float(os.environ.get("CREDENTIAL_PROBE_TTL", "300.0")))
+    except ValueError:
+        return 300.0
+
+
+# "Not yet known", which is what an absent key and an unprobed key both are.
+# Never `False`: that is a verdict, and we have not asked anyone.
+_COLD_CREDENTIAL = {"valid": None, "checked_at": None, "error": None}
+
+_credential_cache: dict[str, dict] = {}
+_credential_cache_lock = threading.Lock()
+# Membership answers "is a refresh already running for this provider" -- the
+# single-refresh guard -- and the Future it holds lets a test wait for a
+# verdict deterministically instead of sleeping. One object, both jobs.
+_credential_inflight: dict[str, concurrent.futures.Future] = {}
+
+
+def _reset_credential_cache() -> None:
+    """Forget every verdict. Module state would otherwise leak across tests."""
+    with _credential_cache_lock:
+        _credential_cache.clear()
+        _credential_inflight.clear()
+
+
+def _refresh_credential(name: str, probe, key_invalid) -> None:
+    """Ask one provider whether its key works. Runs on a probe-pool thread.
+
+    Three outcomes, and the split between the last two is the point:
+
+        the call returned            -> valid True
+        the provider REJECTED us     -> valid False   (the key is bad)
+        anything else went wrong     -> valid None    (we could not determine)
+
+    Collapsing the last two would report a perfectly good key as invalid for
+    the entire duration of a provider outage, which is worse than saying
+    nothing: an operator would go rotate a key that was never the problem.
+
+    Only `type(exc).__name__` is stored -- never `str(exc)`. An SDK's message
+    is not guaranteed free of request metadata, and /health is the one
+    endpoint deliberately left unauthenticated, so anything stored here is
+    world-readable (see `_redact` for the same posture on store errors).
+    """
+    try:
+        try:
+            probe()
+        except Exception as exc:  # noqa: BLE001 - a probe must never raise
+            try:
+                rejected = bool(key_invalid(exc))
+            except Exception:  # noqa: BLE001 - a predicate that cannot load
+                # its SDK is itself a "could not determine", not a verdict.
+                rejected = False
+            entry = {
+                "valid": False if rejected else None,
+                "checked_at": time.time(),
+                "error": type(exc).__name__,
+            }
+        else:
+            entry = {"valid": True, "checked_at": time.time(), "error": None}
+        with _credential_cache_lock:
+            _credential_cache[name] = entry
+    finally:
+        # Whatever happened, release the guard: a raising probe that left its
+        # own name in the in-flight dict would wedge that provider on its last
+        # verdict forever.
+        with _credential_cache_lock:
+            _credential_inflight.pop(name, None)
+
+
+def _credential_status(name: str, present: bool) -> dict:
+    """The read path: serve what we know, and maybe start finding out more."""
+    if not present:
+        # A key that was never configured is a PRESENCE problem. Reporting it
+        # as invalid would send an operator hunting a bad key when what they
+        # have is a missing one -- and would spend a provider call to say so.
+        return dict(_COLD_CREDENTIAL)
+
+    with _credential_cache_lock:
+        entry = _credential_cache.get(name)
+        stale = entry is None or (time.time() - entry["checked_at"]) >= credential_probe_ttl()
+        if stale and name not in _credential_inflight:
+            spec = _CREDENTIAL_PROBES[name]
+            # Submitted and never waited on. `.result()` here -- even with a
+            # generous timeout -- is the one change that would undo this whole
+            # design; see `_probe`'s docstring for what a bounded wait on
+            # /health still costs, and note a provider is not even bounded the
+            # way libpq is. The submit and the registration happen under the
+            # same lock so the worker cannot pop its own guard before it is
+            # recorded, which would leave a stale Future blocking every later
+            # refresh.
+            _credential_inflight[name] = _probes().submit(
+                _refresh_credential, name, spec["probe"], spec["key_invalid"]
+            )
+        return dict(entry) if entry is not None else dict(_COLD_CREDENTIAL)
+
+
+def _probe_anthropic() -> None:
+    """Does the Anthropic key authenticate?
+
+    `count_tokens` rather than a one-token `messages.create`: it authenticates,
+    it is free, and it is rate-limited separately from the Messages API -- so a
+    probe on a liveness cadence can never starve production traffic or show up
+    on the bill. The return value is deliberately discarded; the question is
+    whether the call was allowed, not what it said.
+    """
+    graph.client().messages.count_tokens(
+        model=graph.MODEL,
+        messages=[{"role": "user", "content": "ping"}],
+    )
+
+
+def _anthropic_key_invalid(exc: BaseException) -> bool:
+    """A 401 from Anthropic. `APIConnectionError` is deliberately NOT this."""
+    return isinstance(exc, anthropic.AuthenticationError)
+
+
+def _probe_voyage() -> None:
+    """Does the Voyage key authenticate? A one-word embed is the cheapest ask.
+
+    No embedder configured is raised as a plain RuntimeError rather than
+    reported as an invalid key: it is a "could not determine", and
+    `_refresh_credential` will read it as one.
+    """
+    embedder = getattr(graph.memory(), "embedder", None)
+    if embedder is None:
+        raise RuntimeError("no embedder configured")
+    # This call is deliberately made with NO meter open. `report_embedding` is
+    # a no-op outside one, so the probe's tokens are never folded into a run's
+    # totals, the runs table, the daily cap or /metrics. The spend is real at
+    # the provider and it is deliberately unattributed here, because a
+    # background probe has no run to attribute it to and inventing one would
+    # put a probe on some visitor's bill. This holds by construction rather
+    # than by special case -- the probe body runs on a pool thread, whose
+    # context has no meter to find. Pinned by
+    # test_health_credential_probe_spend_is_excluded_from_the_embedding_meter,
+    # so the next reader can check the gate instead of trusting this comment.
+    embedder.embed_query("ping")
+
+
+def _voyage_key_invalid(exc: BaseException) -> bool:
+    """A 401 from Voyage. `APIConnectionError` and `ServerError` are not."""
+    # Imported inside the function, the discipline `memory.VoyageEmbedder`
+    # keeps for the same reason: importing `service` must not require the SDK,
+    # or the routing table becomes untestable without a full set of keys.
+    import voyageai.error
+
+    return isinstance(exc, voyageai.error.AuthenticationError)
+
+
+# One row per provider: the env var that says a key is present, the call that
+# tests it, and the predicate that separates "rejected" from "no answer".
+# `health` iterates this, so adding a provider is a row rather than a fourth
+# copy of the same four lines.
+_CREDENTIAL_PROBES: dict[str, dict] = {
+    "anthropic": {
+        "env": "ANTHROPIC_API_KEY",
+        "probe": _probe_anthropic,
+        "key_invalid": _anthropic_key_invalid,
+    },
+    "voyage": {
+        "env": "VOYAGE_API_KEY",
+        "probe": _probe_voyage,
+        "key_invalid": _voyage_key_invalid,
+    },
+}
+
+
 def _dependencies(store: SessionStore, metrics: MetricsStore) -> dict:
     """Each store's identity always, its counts only if it answers."""
     memory = graph.memory()
@@ -605,10 +883,20 @@ def health(
     Use /ready for the question "should traffic come here", which is the one
     where an unreachable store genuinely means no.
 
-    Deliberately never calls Claude or Voyage. Credentials are reported as
-    present or absent, never by value: the clients are lazy, so a container
-    with no keys starts up perfectly healthy and then fails every real
-    request -- better to learn that from the deploy than from a user.
+    Credentials are reported as present or absent, never by value: the clients
+    are lazy, so a container with no keys starts up perfectly healthy and then
+    fails every real request -- better to learn that from the deploy than from
+    a user. Since Phase 19 they are also reported as valid or not, because a
+    present-and-revoked key looked exactly like a working one, and that is how
+    Phase 11's outage stayed invisible for as long as it did.
+
+    This response therefore never *waits* on a provider -- which is a weaker
+    claim than the "never calls one" this docstring used to make, and the
+    difference is deliberate rather than drift. A refresh runs on the probe
+    pool and its verdict is served from a cache on some LATER request; this
+    request returns whatever is already known, including "nothing yet". The
+    invariant that matters is unchanged: no third party's latency or outage
+    can reach the check that decides whether to restart this process.
 
     `machine` is FLY_MACHINE_ID, and it is what makes "the state is shared
     across machines" demonstrable in two curls rather than by reading
@@ -619,23 +907,33 @@ def health(
     """
     dependencies = _dependencies(store, metrics)
     degraded = [name for name, d in dependencies.items() if not d["reachable"]]
+    credentials = {
+        "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "voyage": bool(os.environ.get("VOYAGE_API_KEY")),
+        # Presence, never the value -- the same posture as the API keys,
+        # and it matters more here: this one signs identity cookies, so
+        # leaking it to anyone who can curl /health would let them forge
+        # any caller. False on a multi-machine fleet means each machine
+        # minted its own ephemeral secret and identities do not survive
+        # being bounced between them (ADR-0007).
+        "identity_signing": bool(os.environ.get("IDENTITY_SIGNING_SECRET")),
+    }
+    # Flat siblings rather than nesting each provider into an object: the
+    # presence keys above are booleans that shipped in Phase 5, and turning
+    # `anthropic` into `{present, valid, ...}` would change an existing
+    # field's TYPE. This block only ever grows.
+    for name in _CREDENTIAL_PROBES:
+        status = _credential_status(name, credentials[name])
+        credentials[f"{name}_valid"] = status["valid"]
+        credentials[f"{name}_checked_at"] = status["checked_at"]
+        credentials[f"{name}_error"] = status["error"]
     return {
         "status": "ok",
         "machine": os.environ.get("FLY_MACHINE_ID", ""),
         "dependencies": "degraded" if degraded else "ok",
         "unreachable": degraded,
         **dependencies,
-        "credentials": {
-            "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
-            "voyage": bool(os.environ.get("VOYAGE_API_KEY")),
-            # Presence, never the value -- the same posture as the API keys,
-            # and it matters more here: this one signs identity cookies, so
-            # leaking it to anyone who can curl /health would let them forge
-            # any caller. False on a multi-machine fleet means each machine
-            # minted its own ephemeral secret and identities do not survive
-            # being bounced between them (ADR-0007).
-            "identity_signing": bool(os.environ.get("IDENTITY_SIGNING_SECRET")),
-        },
+        "credentials": credentials,
     }
 
 

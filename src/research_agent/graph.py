@@ -632,10 +632,17 @@ def supervisor_node(state: AgentState) -> AgentState:
     state["trace"].append(decision)
 
     if state["next_step"] == "done":
+        # This graph reached its terminal state. That is all it says, and the
+        # name now says only that. What it deliberately does NOT carry is a
+        # session identity: a session is a store concept the graph has no
+        # access to, and for a brand-new run the id does not exist yet at this
+        # moment -- `store.create()` mints it after `app.invoke` returns. The
+        # record that means "the run is persisted and addressable" is
+        # `run_finished`, emitted by service.py once both writes have landed.
         log.info(
-            "run finished",
+            "graph finished",
             extra={
-                "event": "run_finished",
+                "event": "graph_finished",
                 "run_id": state.get("run_id", ""),
                 "mode": state["mode"],
                 "topic_type": state["topic_type"],

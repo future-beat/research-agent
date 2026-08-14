@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
-status: phase-complete
-stopped_at: "Phase 18 COMPLETE — all four waves landed on branch gsd/phase-18-independent-eval-judge (18-01 flip+price row, 18-02 refusal guard, 18-03 ADR-0012 + the supersession chain, 18-04 the collision line re-derived + every remaining judge==critic doc surface). Final gate keyless: 749 passed / 67 skipped exit 0, offline evals 41/41 (100% vs 90%) exit 0, ruff clean both forms. 18-VALIDATION reconciled, nyquist_compliant: true. Next: Phase 19 (credential validity, log addressability, demo CSP) — or merge the phase branch first."
-last_updated: "2026-08-14T00:20:00.000Z"
-last_activity: "2026-08-14 — Phase 18 wave 4 executed and the phase closed: the collision line kept its mechanism and lost its premise (silent at shipped defaults, proven by a new twin; fires once on an operator-created collision, pointing at ADR-0012), graders/OPERATIONS/DESIGN re-derived with measured 1->0 grep baselines, README's count measured at 749 and corrected at both sites. A third mutation beyond the plan's two proved the new wording tokens gate independently of the ADR citation."
+status: executing
+stopped_at: "Phase 19 COMPLETE — all three waves executed, 19-VALIDATION reconciled end to end (status: complete, nyquist_compliant: true). Wave 3 (19-03) moved the completion log line to service.py where session_id actually exists, renamed the graph's terminal line to graph_finished, and re-derived every doc surface the phase falsified. 772 passed / 67 skipped keyless (+6 this wave, +23 across the phase, every one accounted for test by test); evals 41/41 real exit 0; ruff clean both forms; 3 mutations observed red this wave, 13 across the phase. Wave 3's RED found a gap the plan had assumed away: _stream's except arm logged NOTHING, so every failed streaming run — which is every failed DEMO run — was invisible in fly logs. Fixed under Rule 2. Untouched as fenced: index.html (zero modifications, measured) and README's Limitations bullets (Phase 22's). Next: phase verification, then the PR."
+last_updated: "2026-08-14T08:05:00.000Z"
+last_activity: "2026-08-14 — Phase 19 closed: wave 3 shipped log addressability plus the OPERATIONS/README/ARCHITECTURE doc pass. The wave's most valuable finding was not the feature but its complement — the plan asserted the failure arm 'already emits run_failed (existing, untouched)', which was true of the blocking path and false of the streaming one, where a failed run left no log record at all."
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  completed_phases: 2
+  total_plans: 7
+  completed_plans: 7
+  percent: 40
 ---
 
 # Project State
@@ -25,10 +25,12 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 18 — Independent eval judge (v1.2 "Nothing uncovered", Phases 18-22) — **COMPLETE**
-Plan: 4 of 4 complete (18-01, 18-02, 18-03, 18-04)
-Status: Phase complete on gsd/phase-18-independent-eval-judge, not yet merged. Final gate keyless: **749 passed / 67 skipped** exit 0; offline evals **41/41 (100% vs 90% required)** real `$?` 0; ruff clean in both forms. 18-VALIDATION reconciled end to end — every row's Status filled with measured evidence, sign-off ticked, `nyquist_compliant: true`
-Last activity: 2026-08-14 — 18-04: the operator-facing collision line kept its MECHANISM (None guard, equality early-return, once-per-run placement) and lost its PREMISE. It is now silent on a production-shaped record run — proven by a new twin driving `FakeJudge(model=G.JUDGE_MODEL)` against production's pinned `CRITIC_MODEL` — and fires once on an operator-created collision, naming the shared model, saying what colliding verdicts stop being able to claim, naming the shipped default that separates them, and pointing at ADR-0012. `graders.DEFAULT_JUDGE_MODEL` is new and load-bearing: `JUDGE_MODEL` is what THIS process resolved, so the note must name the default while reporting a non-default configuration. Doc surfaces re-derived against measured 1→0 greps; README's test count measured at 749 and corrected at both sites; README `:285` left untouched as a deliberate transient Phase 22 owns
+Phase: 19 — Credential validity, log addressability, demo CSP (v1.2 "Nothing uncovered", Phases 18-22)
+Plan: 3 plans (19-01 probe ✅, 19-02 CSP ✅, 19-03 log line + docs ✅), 3 sequential waves (shared service.py/test_service.py ownership), checker-verified first-pass clean
+Status: **COMPLETE — all three waves executed and the validation contract reconciled.** 19-01 shipped the credential probe (5 commits); 19-02 shipped the demo CSP (4 commits); 19-03 shipped log addressability and the doc pass (6 commits). 19-VALIDATION.md is `status: complete` / `nyquist_compliant: true`: every automated row carries measured evidence and a recorded mutation, and **13 mutations were run across the phase for the 12 the plans named — three of which corrected something rather than confirming it.** Final gates: **772 passed / 67 skipped** keyless (749 → 760 → 766 → 772, +23 for the phase, accounted for test by test in each SUMMARY); offline evals **41/41, real `$?` 0**; `ruff check .` and `ruff check src tests evals` both clean. The page's zero-edit budget held to the end: `git diff --stat $(git merge-base main HEAD) HEAD -- src/research_agent/static/index.html` and `git status --porcelain` on the same path both still print nothing. Phase 18 is COMPLETE, verified, and merged as PR #26.
+
+**Still open on Phase 19, stated rather than dropped:** (1) phase verification has not been run — no `19-VERIFICATION.md` exists yet; (2) 19-VALIDATION's **two Manual-Only rows are OPEN** and both need the manual deploy — the live page under the CSP header (UI-SPEC acceptance checks 1–7) and a real provider probe round-trip (`/health` reading `valid: true` with a fresh `checked_at` inside one TTL); (3) the branch `gsd/phase-19-credential-validity` is unpushed and lands via a **pull request**, not a push.
+Last activity: 2026-08-14 — Phase 19 planned end to end: CONTEXT from milestone decisions; UI-SPEC written, checker-approved (CSP contract: 1 script + 1 style block, zero inline handlers, zero-edit budget on index.html, hashes recomputed byte-identical twice independently); RESEARCH proved the session_id structural constraint empirically (LangGraph 1.2.9 drops undeclared state keys — the fix must live in service.py) and settled probe mechanics (fire-and-forget on the existing _probes() executor, count_tokens free, typed-exception mapping); VALIDATION contract written; 3 PLANs with 7 planning decisions locked (P-01…P-07, including the P-05 mutation correction and the P-07 event-name inversion); plan-checker passed first-iteration with 0 blockers / 0 warnings
 
 **Deferred out of Phase 18, recorded rather than silent:** a real Opus 4.8 judge verdict has never round-tripped (every path is fake-driven) — the ~$0.06 one-verdict probe goes to Phase 21's record run. Also logged in `deferred-items.md`: the record console's missing DECLINED detail (18-02), three stale `.planning/codebase/` maps still naming a `claude-opus-5` judge, and PROJECT.md's unmeasurable with-Postgres count
 
@@ -54,6 +56,7 @@ Last activity: 2026-08-14 — 18-04: the operator-facing collision line kept its
 | 16 | 3 of 4 (16-01, 16-02, 16-03) | 120min | 40min |
 | 17 | 3 of 4 (17-01, 17-02, 17-03; 17-04 Tasks 1–2 only, T3 unstarted) | 165min | 41min |
 | 18 | 4 of 4 (18-01 … 18-04) — **complete** | 135min | 34min |
+| 19 | 3 of 3 (19-01, 19-02, 19-03) — **complete** | 105min | 35min |
 
 **Recent Trend:**
 
@@ -71,6 +74,16 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 19-03]: **The complement of a gate is a claim too, and this one was false.** The plan pinned "exactly one `run_finished` per run" and rested its other half on the failure arm, stating that path "already emits `run_failed` (existing, untouched)". True of `_execute`. **False of `_stream`**, whose except arm swallows its exception to keep the SSE contract and logged nothing at all — a failed stream recorded its row, settled its reservation, sent the caller an error event, and left no trace in `fly logs`. **The demo page runs on the streaming routes, so that was every failed demo run**: the Phase 17 "a run happened and I cannot find it" problem in its worst form, since there is not even a completion line to fail to find. Found because the test asserting the complement was written before the code was trusted, not after. **When a plan says a control "already exists", that is the sentence to test first.**
+- [Phase 19-03]: **Put the log line where the fact is, not where the work happened.** `session_id` cannot be carried by the graph's terminal line: for a new session `store.create()` mints it *after* `app.invoke` returns, and threading it back through `AgentState` fails **silently** (LangGraph drops undeclared state keys). So the service emits the completion record and takes the name `run_finished` — the requirement is met literally rather than by reinterpretation — while the graph's line becomes `graph_finished` and is **asserted to carry no session identity**, which turns a future silent workaround into a failing test. The rename was free, and that was re-measured (one occurrence repo-wide) rather than trusted from the plan.
+- [Phase 19-02]: **A mutation can red exactly as named and still disprove the reason it was feared.** P-06 confines the CSP to one call site partly because a broad mechanism "could disturb the SSE responses' own headers". The middleware mutation reds the absence test on all three requests as predicted — and under that same middleware the SSE caching-header test stayed **green**: Starlette's `@app.middleware("http")` added the CSP without touching `Cache-Control`/`X-Accel-Buffering`. The reach is real; the damage was not observed. So the absence test is what enforces P-06, and the SSE test is a pin on a promise nothing previously asserted rather than a tripwire for this mutation. **Recorded as a correction, not smoothed over — the wave had the chance to check a stated hazard and found it weaker than written.**
+- [Phase 19-02]: **The plan's mutation criterion is also a claim about the test, and this one was false.** Task 1 required a red that is "a missing-header failure, **not an error**". Run against the test as first written, dropping the `headers=` kwarg produced `KeyError: 'content-security-policy'` out of httpx's header mapping — right cause, wrong shape, and a `KeyError` in a security gate reads as a broken test rather than a missing control. A membership assertion ahead of the lookup fixed it (`AssertionError: the demo page carries no CSP`). **A mutation criterion is worth checking against the test, not just against the code.**
+- [Phase 19-02]: **Derive a security header from the artifact it protects; a frozen hash lets the SERVED policy disagree with the SHIPPED page.** A stale `sha256-` literal means the live demo's script blocked in every browser while the suite is green — and it reds on benign CSS tweaks, so whoever is updating the literal for the fourth time silences it. Runtime derivation makes disagreement structurally impossible. What it cannot follow is a change to the policy's SHAPE, so the tests carry that half: a second inline block, a first `onclick=`, a first `style=`. **Also count the tag in BOTH forms** — `<script>` and `<script\b` must agree at one, or a `<script defer>` block sits in the file invisible to the extraction and silently absent from the policy.
+- [Phase 19-02]: **A gate whose two sides both run the implementation asserts that a function equals itself.** The derivation test recomputes both digests inline with `re`/`hashlib`/`base64` and never calls `csp.inline_blocks` or `csp.sha256_source`. That is what makes it catch a wrong algorithm, a wrong encoding, a wrong extraction, the wrong file, or a pasted literal. Corollary from the same wave: **an absence assertion needs the requests it asserts over to have succeeded** — the CSP-absence test asserts three 200s before asserting three absences, or it would pass on a 404.
+- [Phase 19-01]: **A mutation that reds is not automatically a mutation that PROVED anything — check WHICH assertion it broke.** The plan's blocking mutation (`submit(...).result(timeout=5)` on `/health`'s read path) reds as specified. But run as written it reds with a 5s `TimeoutError` in a different test, because holding `_credential_cache_lock` across the wait deadlocks against the refresh worker's own `finally`, which needs that same lock to pop its in-flight guard. The named gate — the cold read returning `null` — was never exercised. Re-run with the wait moved outside the lock (the change a careless refactor would actually make), it produced the named `assert True is None` and `/health waited 5.01s on a provider that never answered`. **Both runs are recorded**: the deadlock is a real property of the lock ordering this plan introduced, and it is also the reason the submit-and-register must happen under one acquisition — otherwise the worker can pop its guard before it is recorded, leaving a stale Future that blocks every later refresh forever.
+- [Phase 19-01]: **An exclusion measured as a zero is worth nothing without a positive control, and the control belongs in the same meter on the same object.** The Voyage probe leaving an open embedding meter at 0 is exactly what a broken accounting seam also produces. The test calls `embed_query` directly inside that same meter on that same embedder and asserts 25 — and asserts the probe actually embedded, so neither half can pass vacuously. The mechanism turned out **stronger** than P-04 claimed: `_EMBEDDING_METER` is a `ContextVar` and a `ThreadPoolExecutor` worker starts with an empty context rather than a copy of the submitter's, so the probe could not observe a meter *even if the request thread had one open*. Measured by the inverse mutation (refresh run inline on the metered thread → `assert 25 == 0`).
+- [Phase 19-01]: **An `==` assertion over a payload block designed to grow is a defect, not a gate.** `test_health_reports_credential_presence_never_values` pinned the whole credentials dict; additive growth failed it while pytest reported the three presence items *identical*. The assertion said nothing about the property it existed for (presence reported, value never) and everything about the block's exact membership. Re-pinned name by name. **The additive-only constraint is only checkable if the tests are written to let the payload grow.**
+- [Phase 19-01]: **A threat-register mitigation with no gate is the shape this project keeps finding decorative.** T-19-03's mitigation names the 30s TTL floor, and the plan's five Task 3 tests left the floor pinned only by a comment. One test added (floor, `ValueError` fallback, default) — which is also why the plan's "roughly eleven tests" claim landed at exactly 11 while its own named set was ten. **The claim was right for a reason the plan did not state, which is not the same as the claim being right.**
 - [Phase 18-04]: **A wording gate that pins the CITATION does not pin the SENTENCE, and only a third mutation showed the difference.** The plan specified two probes — fire unconditionally (both silence tests red) and point back at ADR-0010 (both wording tests red). Both passed, and **neither exercised the new required tokens**: mutation 2 reds on the ADR string alone. Probe 3, added here, restores the stale *"This is the deployed configuration and it is accepted"* sentence while leaving the pointer **correctly** at ADR-0012 — and the wording test still reds, on `shipped default`. Without it the honest claim would have been "the line cites ADR-0012", not "the line says something true": a footnote-only gate passes a sentence whose every factual claim is false provided it ends with the right number. **When the wording IS the deliverable, the mutation that matters holds the citation constant and breaks the facts.**
 - [Phase 18-04]: **When a premise inverts, separate the mechanism from the sentence before editing either.** `_state_judge_critic_relation`'s None guard, `judge.model != critic` early return and once-per-run placement were all still correct after the judge left the critic's model — 18-RESEARCH Finding 3 called this ("logic survives, premise inverts") and it held exactly. The shipped diff is a docstring and a print. The corollary is the new twin: a collision test suite that only proves the line *fires* cannot notice that it stopped being able to fire at the defaults, so the phase that inverts the premise owes a **silent-at-the-new-defaults** test, with a non-vacuity assertion so it cannot quietly stop describing production.
 - [Phase 18-04]: **A constant naming the DEFAULT cannot be the constant that resolved the ENV.** `JUDGE_MODEL` is what *this process* got, so an operator who exported `EVAL_JUDGE_MODEL` has already moved it — and the collision note's entire content is reporting a non-default configuration while naming the default. Hence `graders.DEFAULT_JUDGE_MODEL`. The wording test asserts against the constant rather than a typed literal, so re-pointing the default re-points the gate instead of leaving it pinned to a string that has stopped being true.
@@ -384,8 +397,39 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-08-13T09:59:46.396Z
-Stopped at: **Phase 18 wave 3 complete (18-03).** Four commits on
+Last session: 2026-08-14T08:05:00.000Z
+Stopped at: **Phase 19 COMPLETE — all three waves executed, validation reconciled.** Six commits
+for 19-03 on `gsd/phase-19-credential-validity`: `7bc8295` (RED), `462a898` (the emission +
+the graph rename), `6ff6b7e` (RED for the other three routes), `114a28b` (the silent-stream
+fix), `9e4bb71` (the doc pass), `4fac670` (the validation reconciliation). Fifteen commits on
+the branch across the phase.
+**772 passed / 67 skipped** keyless (749 → 760 → 766 → 772; +23 for the phase, accounted for
+test by test in each SUMMARY); offline evals **41/41 with a real `$?` of 0**; `ruff check .`
+and `ruff check src tests evals` both clean; 2 suite warnings, both pre-existing.
+**The wave's finding was the complement, not the feature.** `_stream`'s except arm emitted no
+log record at all, so every failed streaming run — and the demo page streams — was invisible
+in `fly logs` while looking fine in the metrics table and to the caller. The plan had asserted
+that arm "already emits `run_failed`". Fixed under Rule 2 with `_failed_log()` shared by both
+arms; the exactly-one-of-two claim is now true of both paths instead of one.
+**P-07 re-measured before it was applied:** `run_finished` occurred exactly once repo-wide
+outside `.planning/` (`graph.py:638`), nothing reading it, so the rename was free as claimed —
+the service line takes the name and the graph's becomes `graph_finished`, asserted to carry no
+`session_id`.
+Mutations this wave, all observed red and reverted: emission hoisted above `on_complete` →
+`UnboundLocalError` (and the plan's alternative "mismatched id" red is **unreachable** —
+`_execute` takes no `session_id` parameter); the graph's old event name restored so two sites
+share it → `assert 2 == 1`; the emission moved into a `finally` → `assert 1 == 0`.
+**Scope fences held and were measured:** `src/research_agent/static/index.html` has **zero**
+modifications on the branch, and README's `/health` Limitations bullet is byte-identical
+(grep count still 1) — Phase 22 owns deleting it, and it is deliberately false in the meantime,
+exactly like the transient Phase 18 left at `:285`.
+Next: **phase verification** (no `19-VERIFICATION.md` exists yet), then the PR — one PR for the
+whole phase, **not** a push to `main`. 19-VALIDATION's **two Manual-Only rows stay OPEN** and
+need the manual deploy: the live page under the CSP header (UI-SPEC acceptance checks 1–7) and
+a real provider probe round-trip.
+Resume file: None
+
+Superseded — previously recorded session: **Phase 18 wave 3 complete (18-03).** Four commits on
 `gsd/phase-18-independent-eval-judge`: `06140a4` (18-01 flip + price row), `dd7b2e8` +
 `ca59b62` (18-02 refusal guard), and `bc7cf40` (18-03 — ADR-0012, ADR-0010's status line,
 the re-derived index, `README.md`'s ADR count, and the extended chain test, **one commit

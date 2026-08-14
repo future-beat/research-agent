@@ -138,7 +138,7 @@ the README/records close-out sit at the end, since the close-out deletes bullets
 phases close.
 
 - [x] **Phase 18: Independent eval judge** - `EVAL_JUDGE_MODEL` defaults to `claude-opus-4-8`, independent of the critic and the writer; ADR-0012 supersedes ADR-0010
-- [ ] **Phase 19: Credential validity, log addressability, demo CSP** - `/health` reports whether keys actually work; `run_finished` carries `session_id`; the demo page ships a hash-based CSP header
+- [x] **Phase 19: Credential validity, log addressability, demo CSP** - `/health` reports whether keys actually work; `run_finished` carries `session_id`; the demo page ships a hash-based CSP header
 - [ ] **Phase 20: Note count bound** - A per-owner count cap with oldest-first eviction, identical across all four backends
 - [ ] **Phase 21: Forty recorded answers** - All 40 golden cases carry a real recorded answer, graded keylessly on every push
 - [ ] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the four closed bullets are deleted, not rewritten into release notes
@@ -253,8 +253,28 @@ completed run is addressable from its logs, and the demo page's inline JS surviv
      logs without cross-referencing another line.
   5. The demo page ships a hash-based Content-Security-Policy header (no `unsafe-inline`)
      and its inline JS still runs, verified against the live page.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [x] 19-01-PLAN.md — the cached credential probe: fire-and-forget on the existing `_probes()` pool, invalid vs unreachable kept distinct, Voyage probe spend excluded and pinned (wave 1)
+- [x] 19-02-PLAN.md — `csp.py` derives the policy from the page itself, attached to the one `FileResponse` branch, with the counts and handler gates that catch a shape change (wave 2)
+- [x] 19-03-PLAN.md — `run_finished` moves to where `session_id` exists, the graph's terminal line renamed honestly, then the OPERATIONS/README doc pass (wave 3)
+
+**Sequencing note:** the three surfaces are conceptually independent but all three edit
+`service.py` and `tests/test_service.py`, so they run as three sequential waves rather than in
+parallel. Success criterion 4's literal wording is honoured by plan 19-03's P-07: the
+service-side line is the one named `run_finished`, and the graph's becomes `graph_finished`.
 **UI hint**: yes
+
+**Executed 2026-08-14** — all three waves complete; 19-VALIDATION reconciled (`status:
+complete`, `nyquist_compliant: true`). 772 passed / 67 skipped keyless (+23 for the phase),
+offline evals 41/41 real exit 0, ruff clean. All five success criteria met, criterion 4
+literally: the line named `run_finished` carries `session_id` on all four routes, exactly
+once per run, with `run_failed` as its complement on both the blocking and streaming paths —
+the streaming half of which this phase had to ADD, having found that a failed stream logged
+nothing at all. **Two Manual-Only verifications remain OPEN**, both awaiting the manual
+deploy: the live page under the CSP header (criterion 5's "verified against the live page"
+half, UI-SPEC acceptance checks 1–7) and a real provider probe round-trip.
 
 ### Phase 20: Note count bound
 **Goal**: Notes are bounded by count as well as expiry, with identical eviction behaviour on
