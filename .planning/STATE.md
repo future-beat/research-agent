@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
 status: phase-complete
-stopped_at: "Phase 18 COMPLETE — all four waves landed on branch gsd/phase-18-independent-eval-judge (18-01 flip+price row, 18-02 refusal guard, 18-03 ADR-0012 + the supersession chain, 18-04 the collision line re-derived + every remaining judge==critic doc surface). Final gate keyless: 749 passed / 67 skipped exit 0, offline evals 41/41 (100% vs 90%) exit 0, ruff clean both forms. 18-VALIDATION reconciled, nyquist_compliant: true. Next: Phase 19 (credential validity, log addressability, demo CSP) — or merge the phase branch first."
+stopped_at: "Phase 19 planned and checker-verified first-pass (0 blockers, 0 warnings). Three plans, three sequential waves (shared service.py/test_service.py ownership), UI-SPEC approved, on branch gsd/phase-19-credential-validity. Ready for /gsd:execute-phase 19."
 last_updated: "2026-08-14T00:20:00.000Z"
-last_activity: "2026-08-14 — Phase 18 wave 4 executed and the phase closed: the collision line kept its mechanism and lost its premise (silent at shipped defaults, proven by a new twin; fires once on an operator-created collision, pointing at ADR-0012), graders/OPERATIONS/DESIGN re-derived with measured 1->0 grep baselines, README's count measured at 749 and corrected at both sites. A third mutation beyond the plan's two proved the new wording tokens gate independently of the ADR citation."
+last_activity: "2026-08-14 — Phase 19 planned: CONTEXT, approved UI-SPEC (CSP contract, zero-edit budget), RESEARCH (session_id structural constraint proven empirically), VALIDATION, 3 PLANs, checker first-pass clean."
 progress:
   total_phases: 5
   completed_phases: 1
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 
 ## Current Position
 
-Phase: 18 — Independent eval judge (v1.2 "Nothing uncovered", Phases 18-22) — **COMPLETE**
-Plan: 4 of 4 complete (18-01, 18-02, 18-03, 18-04)
-Status: Phase complete on gsd/phase-18-independent-eval-judge, not yet merged. Final gate keyless: **749 passed / 67 skipped** exit 0; offline evals **41/41 (100% vs 90% required)** real `$?` 0; ruff clean in both forms. 18-VALIDATION reconciled end to end — every row's Status filled with measured evidence, sign-off ticked, `nyquist_compliant: true`
-Last activity: 2026-08-14 — 18-04: the operator-facing collision line kept its MECHANISM (None guard, equality early-return, once-per-run placement) and lost its PREMISE. It is now silent on a production-shaped record run — proven by a new twin driving `FakeJudge(model=G.JUDGE_MODEL)` against production's pinned `CRITIC_MODEL` — and fires once on an operator-created collision, naming the shared model, saying what colliding verdicts stop being able to claim, naming the shipped default that separates them, and pointing at ADR-0012. `graders.DEFAULT_JUDGE_MODEL` is new and load-bearing: `JUDGE_MODEL` is what THIS process resolved, so the note must name the default while reporting a non-default configuration. Doc surfaces re-derived against measured 1→0 greps; README's test count measured at 749 and corrected at both sites; README `:285` left untouched as a deliberate transient Phase 22 owns
+Phase: 19 — Credential validity, log addressability, demo CSP (v1.2 "Nothing uncovered", Phases 18-22)
+Plan: 3 plans (19-01 probe, 19-02 CSP, 19-03 log line + docs), 3 sequential waves (shared service.py/test_service.py ownership), checker-verified first-pass clean
+Status: Planned — ready for /gsd:execute-phase 19. Phase 18 is COMPLETE, verified (18-VERIFICATION.md status: passed, 4/4 criteria), and merged as PR #26.
+Last activity: 2026-08-14 — Phase 19 planned end to end: CONTEXT from milestone decisions; UI-SPEC written, checker-approved (CSP contract: 1 script + 1 style block, zero inline handlers, zero-edit budget on index.html, hashes recomputed byte-identical twice independently); RESEARCH proved the session_id structural constraint empirically (LangGraph 1.2.9 drops undeclared state keys — the fix must live in service.py) and settled probe mechanics (fire-and-forget on the existing _probes() executor, count_tokens free, typed-exception mapping); VALIDATION contract written; 3 PLANs with 7 planning decisions locked (P-01…P-07, including the P-05 mutation correction and the P-07 event-name inversion); plan-checker passed first-iteration with 0 blockers / 0 warnings
 
 **Deferred out of Phase 18, recorded rather than silent:** a real Opus 4.8 judge verdict has never round-tripped (every path is fake-driven) — the ~$0.06 one-verdict probe goes to Phase 21's record run. Also logged in `deferred-items.md`: the record console's missing DECLINED detail (18-02), three stale `.planning/codebase/` maps still naming a `claude-opus-5` judge, and PROJECT.md's unmeasurable with-Postgres count
 
