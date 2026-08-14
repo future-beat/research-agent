@@ -3205,3 +3205,52 @@ def test_demo_page_has_no_inline_handlers_or_style_attributes():
         for tag, name, value in parser.attributes
         if value and value.strip().lower().startswith("javascript:")
     ] == []
+
+
+def test_csp_header_is_absent_from_the_json_index_and_the_streams(make_client):
+    """P-06: one call site, and "absent everywhere else" is the testable half.
+
+    This is the gate that reds if anyone later reaches for middleware. A global
+    attachment is the one mechanism 19-UI-SPEC forbids, precisely because it is
+    the one that reaches responses this phase promised not to touch -- the two
+    SSE responses and their caching headers, asserted in the next test.
+    """
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    responses = {
+        "json index": client.get("/", headers={"accept": "*/*"}),
+        "research stream": client.post("/research/stream", json={"question": "why?"}),
+        "ask stream": client.post(f"/sessions/{session_id}/ask/stream", json={"question": "and?"}),
+    }
+
+    # Non-vacuity: three responses that all really happened, so an absence
+    # assertion cannot pass because a request 404'd or 429'd on the way.
+    assert [r.status_code for r in responses.values()] == [200, 200, 200]
+
+    carrying = [name for name, r in responses.items() if "content-security-policy" in r.headers]
+    assert carrying == [], f"the CSP escaped its one call site onto: {carrying}"
+
+
+def test_sse_responses_keep_their_caching_headers(make_client):
+    """19-UI-SPEC's must-not-change item 6, asserted rather than reasoned about.
+
+    Nothing before this phase asserted these, so "the CSP work did not disturb
+    them" was a claim resting on reading the code. Now a header a proxy needs --
+    without which a Fly or nginx buffer turns a progress stream into a long
+    silence followed by everything at once -- is pinned on both stream routes.
+    """
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    for label, response in (
+        ("research stream", client.post("/research/stream", json={"question": "why?"})),
+        (
+            "ask stream",
+            client.post(f"/sessions/{session_id}/ask/stream", json={"question": "and?"}),
+        ),
+    ):
+        assert response.status_code == 200, label
+        assert response.headers["content-type"].startswith("text/event-stream"), label
+        assert response.headers["cache-control"] == "no-cache", label
+        assert response.headers["x-accel-buffering"] == "no", label
