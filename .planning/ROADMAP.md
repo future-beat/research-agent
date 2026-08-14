@@ -288,7 +288,17 @@ every backend
      by the shared 4-arm contract suite (same inputs, same outcomes, all four backends).
   3. The README's notes-unbounded-by-count limitation is falsified by a passing test, not
      merely narrowed in prose.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 20-01-PLAN.md — `NOTE_CAP_PER_OWNER` (default 100, discount-factor clamp) plus oldest-first eviction inside all four `add()` implementations, proven by four new 4-arm contract cases, a chroma reordered-`get()` gate, and a migration-bypass pin (wave 1)
+- [ ] 20-02-PLAN.md — OPERATIONS gains the knob row, DESIGN judged by reading, README whole-file pass with measured counts and the Limitations bullet untouched for Phase 22, 20-VALIDATION reconciled (wave 2)
+
+**Sequencing note:** the two plans share no files but the dependency is real — the doc pass
+describes what Wave 1 shipped and README's counts can only be measured after Wave 1's tests
+land, so 20-02 runs as wave 2. Tie-breaking is the researched hazard (14 unique
+`time.time()` values per 200 calls, measured): eviction order is insertion-native on every
+backend — list order / an explicit chroma `seq` / BIGSERIAL id — never wall-clock alone.
 
 ### Phase 21: Forty recorded answers
 **Goal**: All 40 golden cases carry a real recorded answer, replayed and graded keylessly on
