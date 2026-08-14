@@ -94,7 +94,7 @@ Every v1.2 requirement maps to exactly one phase. Filled by `/gsd:roadmap` on 20
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | REQ-judge-independent-of-critic | Phase 18 — Independent eval judge | **Complete** (verified, `18-VERIFICATION.md` status: passed) |
-| REQ-health-credential-validity | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
+| REQ-health-credential-validity | Phase 19 — Credential validity, log addressability, demo CSP | **Implemented** (19-01, wave 1; `19-01-SUMMARY.md`) — not yet Complete: the phase is unverified, and a real provider round trip is keyless-suite-invisible until the first deploy after merge (19-VALIDATION Manual-Only) |
 | REQ-run-finished-session-id | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
 | REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | Pending |
 | REQ-note-count-bound | Phase 20 — Note count bound | Pending |

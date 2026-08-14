@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
-status: phase-planned
-stopped_at: "Phase 19 planned and checker-verified first-pass (0 blockers, 0 warnings). Three plans, three sequential waves (shared service.py/test_service.py ownership), UI-SPEC approved, on branch gsd/phase-19-credential-validity. Ready for /gsd:execute-phase 19."
-last_updated: "2026-08-14T00:20:00.000Z"
-last_activity: "2026-08-14 — Phase 19 planned: CONTEXT, approved UI-SPEC (CSP contract, zero-edit budget), RESEARCH (session_id structural constraint proven empirically), VALIDATION, 3 PLANs, checker first-pass clean."
+status: executing
+stopped_at: "Phase 19 wave 1 of 3 complete. 19-01 (credential probe) executed and summarised: /health carries six validity fields beside the unchanged presence booleans, fire-and-forget on the existing _probes() executor. 760 passed / 67 skipped keyless (+11), evals 41/41 exit 0, ruff clean, 7 mutations observed red. Next: wave 2 (19-02, demo CSP)."
+last_updated: "2026-08-14T06:45:00.000Z"
+last_activity: "2026-08-14 — Phase 19 wave 1 executed: the credential probe shipped tracer-first, 11 new tests, 7 mutation reds including one the plan mispredicted (the blocking mutation deadlocks against the cache lock rather than merely serialising /health)."
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 5
   percent: 20
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-08-04)
 ## Current Position
 
 Phase: 19 — Credential validity, log addressability, demo CSP (v1.2 "Nothing uncovered", Phases 18-22)
-Plan: 3 plans (19-01 probe, 19-02 CSP, 19-03 log line + docs), 3 sequential waves (shared service.py/test_service.py ownership), checker-verified first-pass clean
-Status: Planned — ready for /gsd:execute-phase 19. Phase 18 is COMPLETE, verified (18-VERIFICATION.md status: passed, 4/4 criteria), and merged as PR #26.
+Plan: 3 plans (19-01 probe ✅, 19-02 CSP, 19-03 log line + docs), 3 sequential waves (shared service.py/test_service.py ownership), checker-verified first-pass clean
+Status: Executing — **wave 1 of 3 complete**. 19-01 shipped the credential probe (5 commits, 19-01-SUMMARY.md written, 19-VALIDATION's five 19-01 rows filled with measured evidence). Wave 2 (19-02, demo CSP) is next; `src/research_agent/static/index.html` is confirmed at zero modifications on this branch, so its zero-edit budget is intact. Phase 18 is COMPLETE, verified (18-VERIFICATION.md status: passed, 4/4 criteria), and merged as PR #26.
 Last activity: 2026-08-14 — Phase 19 planned end to end: CONTEXT from milestone decisions; UI-SPEC written, checker-approved (CSP contract: 1 script + 1 style block, zero inline handlers, zero-edit budget on index.html, hashes recomputed byte-identical twice independently); RESEARCH proved the session_id structural constraint empirically (LangGraph 1.2.9 drops undeclared state keys — the fix must live in service.py) and settled probe mechanics (fire-and-forget on the existing _probes() executor, count_tokens free, typed-exception mapping); VALIDATION contract written; 3 PLANs with 7 planning decisions locked (P-01…P-07, including the P-05 mutation correction and the P-07 event-name inversion); plan-checker passed first-iteration with 0 blockers / 0 warnings
 
 **Deferred out of Phase 18, recorded rather than silent:** a real Opus 4.8 judge verdict has never round-tripped (every path is fake-driven) — the ~$0.06 one-verdict probe goes to Phase 21's record run. Also logged in `deferred-items.md`: the record console's missing DECLINED detail (18-02), three stale `.planning/codebase/` maps still naming a `claude-opus-5` judge, and PROJECT.md's unmeasurable with-Postgres count
@@ -54,6 +54,7 @@ Last activity: 2026-08-14 — Phase 19 planned end to end: CONTEXT from mileston
 | 16 | 3 of 4 (16-01, 16-02, 16-03) | 120min | 40min |
 | 17 | 3 of 4 (17-01, 17-02, 17-03; 17-04 Tasks 1–2 only, T3 unstarted) | 165min | 41min |
 | 18 | 4 of 4 (18-01 … 18-04) — **complete** | 135min | 34min |
+| 19 | 1 of 3 (19-01) | 30min | 30min |
 
 **Recent Trend:**
 
@@ -71,6 +72,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Full ingested set (23, a
 
 Recent decisions affecting current work:
 
+- [Phase 19-01]: **A mutation that reds is not automatically a mutation that PROVED anything — check WHICH assertion it broke.** The plan's blocking mutation (`submit(...).result(timeout=5)` on `/health`'s read path) reds as specified. But run as written it reds with a 5s `TimeoutError` in a different test, because holding `_credential_cache_lock` across the wait deadlocks against the refresh worker's own `finally`, which needs that same lock to pop its in-flight guard. The named gate — the cold read returning `null` — was never exercised. Re-run with the wait moved outside the lock (the change a careless refactor would actually make), it produced the named `assert True is None` and `/health waited 5.01s on a provider that never answered`. **Both runs are recorded**: the deadlock is a real property of the lock ordering this plan introduced, and it is also the reason the submit-and-register must happen under one acquisition — otherwise the worker can pop its guard before it is recorded, leaving a stale Future that blocks every later refresh forever.
+- [Phase 19-01]: **An exclusion measured as a zero is worth nothing without a positive control, and the control belongs in the same meter on the same object.** The Voyage probe leaving an open embedding meter at 0 is exactly what a broken accounting seam also produces. The test calls `embed_query` directly inside that same meter on that same embedder and asserts 25 — and asserts the probe actually embedded, so neither half can pass vacuously. The mechanism turned out **stronger** than P-04 claimed: `_EMBEDDING_METER` is a `ContextVar` and a `ThreadPoolExecutor` worker starts with an empty context rather than a copy of the submitter's, so the probe could not observe a meter *even if the request thread had one open*. Measured by the inverse mutation (refresh run inline on the metered thread → `assert 25 == 0`).
+- [Phase 19-01]: **An `==` assertion over a payload block designed to grow is a defect, not a gate.** `test_health_reports_credential_presence_never_values` pinned the whole credentials dict; additive growth failed it while pytest reported the three presence items *identical*. The assertion said nothing about the property it existed for (presence reported, value never) and everything about the block's exact membership. Re-pinned name by name. **The additive-only constraint is only checkable if the tests are written to let the payload grow.**
+- [Phase 19-01]: **A threat-register mitigation with no gate is the shape this project keeps finding decorative.** T-19-03's mitigation names the 30s TTL floor, and the plan's five Task 3 tests left the floor pinned only by a comment. One test added (floor, `ValueError` fallback, default) — which is also why the plan's "roughly eleven tests" claim landed at exactly 11 while its own named set was ten. **The claim was right for a reason the plan did not state, which is not the same as the claim being right.**
 - [Phase 18-04]: **A wording gate that pins the CITATION does not pin the SENTENCE, and only a third mutation showed the difference.** The plan specified two probes — fire unconditionally (both silence tests red) and point back at ADR-0010 (both wording tests red). Both passed, and **neither exercised the new required tokens**: mutation 2 reds on the ADR string alone. Probe 3, added here, restores the stale *"This is the deployed configuration and it is accepted"* sentence while leaving the pointer **correctly** at ADR-0012 — and the wording test still reds, on `shipped default`. Without it the honest claim would have been "the line cites ADR-0012", not "the line says something true": a footnote-only gate passes a sentence whose every factual claim is false provided it ends with the right number. **When the wording IS the deliverable, the mutation that matters holds the citation constant and breaks the facts.**
 - [Phase 18-04]: **When a premise inverts, separate the mechanism from the sentence before editing either.** `_state_judge_critic_relation`'s None guard, `judge.model != critic` early return and once-per-run placement were all still correct after the judge left the critic's model — 18-RESEARCH Finding 3 called this ("logic survives, premise inverts") and it held exactly. The shipped diff is a docstring and a print. The corollary is the new twin: a collision test suite that only proves the line *fires* cannot notice that it stopped being able to fire at the defaults, so the phase that inverts the premise owes a **silent-at-the-new-defaults** test, with a non-vacuity assertion so it cannot quietly stop describing production.
 - [Phase 18-04]: **A constant naming the DEFAULT cannot be the constant that resolved the ENV.** `JUDGE_MODEL` is what *this process* got, so an operator who exported `EVAL_JUDGE_MODEL` has already moved it — and the collision note's entire content is reporting a non-default configuration while naming the default. Hence `graders.DEFAULT_JUDGE_MODEL`. The wording test asserts against the constant rather than a typed literal, so re-pointing the default re-points the gate instead of leaving it pinned to a string that has stopped being true.
