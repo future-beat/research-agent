@@ -713,6 +713,39 @@ def _anthropic_key_invalid(exc: BaseException) -> bool:
     return isinstance(exc, anthropic.AuthenticationError)
 
 
+def _probe_voyage() -> None:
+    """Does the Voyage key authenticate? A one-word embed is the cheapest ask.
+
+    No embedder configured is raised as a plain RuntimeError rather than
+    reported as an invalid key: it is a "could not determine", and
+    `_refresh_credential` will read it as one.
+    """
+    embedder = getattr(graph.memory(), "embedder", None)
+    if embedder is None:
+        raise RuntimeError("no embedder configured")
+    # This call is deliberately made with NO meter open. `report_embedding` is
+    # a no-op outside one, so the probe's tokens are never folded into a run's
+    # totals, the runs table, the daily cap or /metrics. The spend is real at
+    # the provider and it is deliberately unattributed here, because a
+    # background probe has no run to attribute it to and inventing one would
+    # put a probe on some visitor's bill. This holds by construction rather
+    # than by special case -- the probe body runs on a pool thread, whose
+    # context has no meter to find. Pinned by
+    # test_health_credential_probe_spend_is_excluded_from_the_embedding_meter,
+    # so the next reader can check the gate instead of trusting this comment.
+    embedder.embed_query("ping")
+
+
+def _voyage_key_invalid(exc: BaseException) -> bool:
+    """A 401 from Voyage. `APIConnectionError` and `ServerError` are not."""
+    # Imported inside the function, the discipline `memory.VoyageEmbedder`
+    # keeps for the same reason: importing `service` must not require the SDK,
+    # or the routing table becomes untestable without a full set of keys.
+    import voyageai.error
+
+    return isinstance(exc, voyageai.error.AuthenticationError)
+
+
 # One row per provider: the env var that says a key is present, the call that
 # tests it, and the predicate that separates "rejected" from "no answer".
 # `health` iterates this, so adding a provider is a row rather than a fourth
@@ -722,6 +755,11 @@ _CREDENTIAL_PROBES: dict[str, dict] = {
         "env": "ANTHROPIC_API_KEY",
         "probe": _probe_anthropic,
         "key_invalid": _anthropic_key_invalid,
+    },
+    "voyage": {
+        "env": "VOYAGE_API_KEY",
+        "probe": _probe_voyage,
+        "key_invalid": _voyage_key_invalid,
     },
 }
 
