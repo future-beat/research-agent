@@ -265,6 +265,35 @@ def _failed_record(state: dict, exc: BaseException, started: float) -> RunRecord
     return record
 
 
+def _finished_record(state: dict, session_id: str, duration_ms: float) -> dict:
+    """The `extra=` payload of the completion log line.
+
+    One helper rather than two hand-maintained copies: the blocking and
+    streaming paths must emit the identical record shape, and an eleven-key
+    dict written twice drifts. A completion record whose fields depend on
+    whether the caller happened to stream is a worse artifact than either copy.
+
+    Read with `.get()` throughout, the same defaulting `RunRecord.from_state`
+    uses over the same state -- so the log line and the runs row it accompanies
+    cannot disagree about whether a field was there.
+    """
+    usage = state.get("usage") or {}
+    return {
+        "event": "run_finished",
+        "run_id": state.get("run_id", ""),
+        "session_id": session_id,
+        "mode": state.get("mode", ""),
+        "topic_type": state.get("topic_type", ""),
+        "approved": bool(state.get("approved")),
+        "forced_stop_reason": state.get("forced_stop_reason", ""),
+        "iterations": state.get("iteration", 0),
+        "revisions": state.get("revision_count", 0),
+        "model_calls": usage.get("calls", 0),
+        "cost_usd": round(usage.get("cost_usd", 0.0), 6),
+        "duration_ms": round(duration_ms, 2),
+    }
+
+
 def _execute(
     state: dict, metrics: MetricsStore, limits_store: LimitsStore, on_complete
 ) -> tuple[str, dict]:
@@ -293,6 +322,17 @@ def _execute(
         metrics.record(
             RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
         )
+        # HERE, and not in the graph. The graph's terminal line (`graph_finished`)
+        # cannot carry a session identity: for a new run the id is minted by
+        # `on_complete` above, after `app.invoke` has already returned, and
+        # threading it back through `AgentState` fails SILENTLY -- LangGraph
+        # drops undeclared state keys without a word. So the line that means
+        # "this run is addressable" is emitted from the one place that knows the
+        # id. And it sits after `metrics.record`, inside the try, so the record
+        # means BOTH writes landed; the `run_failed` line in the except arm below
+        # is its exact complement -- every HTTP-initiated run emits precisely one
+        # of the two, never both and never neither.
+        log.info("run finished", extra=_finished_record(final_state, session_id, duration_ms))
     except BaseException as exc:
         # `final_state`, not `state`: cost lives in `state["usage"]`, so a run
         # that finished and then failed to persist is worth its real spend to
@@ -349,6 +389,10 @@ def _stream(
         metrics.record(
             RunRecord.from_state(final_state, session_id=session_id, duration_ms=duration_ms)
         )
+        # Same placement, same shape, same helper as `_execute` -- see the
+        # comment there. A completion record that differs by transport would
+        # make "count the completions" a question about the client.
+        log.info("run finished", extra=_finished_record(final_state, session_id, duration_ms))
         limits.settle(limits_store, state.get("run_id", ""))
         yield _sse("result", RunResponse.build(session_id, final_state).model_dump())
 
