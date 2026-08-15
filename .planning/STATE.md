@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
 status: executing
-stopped_at: "Phase 20 COMPLETE — both waves executed, 20-VALIDATION reconciled (all 8 automated rows carry measured Status evidence; the Manual-Only row disposed of in writing). Wave 1 (20-01) shipped NOTE_CAP_PER_OWNER (default 100, cost_discount_factor clamp) plus oldest-first per-owner eviction written four times, one per backend; wave 2 (20-02) gave OPERATIONS the knob row, judged DESIGN by reading and left it untouched with the reason recorded, and re-measured README's counts. 796 passed / 71 skipped keyless (+23 / +4 for the phase, reconciled test by test against a zero-removal --collect-only id diff); contract file armed at :54329 118/1; evals 41/41 real exit 0; ruff clean both forms; 7 mutations observed red for the 6 the plans named. The phase's finding: the shared 4-arm suite is STRUCTURALLY BLIND to a chroma created_at-vs-seq tie-break regression (chromadb 1.4.1 returns get() in insertion order, so the wrong sort passes anyway) — only the stubbed reordered-get gate catches it. README:291 ('Notes are bounded by expiry alone') is now KNOWINGLY FALSE and deliberately byte-identical, the third such bullet standing after 18's :285 and 19's :289; Phase 22 deletes all three. Next: phase verification, then the PR."
-last_updated: "2026-08-14T11:40:00.000Z"
-last_activity: "2026-08-14 — Phase 20 closed: notes gained their second bound and the doc surfaces were re-derived by measurement rather than by assumption. The wave-2 pass found a third stale test count the plan had not named (docs/OPERATIONS.md:609) and recorded two absences as results — DESIGN makes no note-lifecycle claim at all, and nothing in OPERATIONS ever said expiry was the only bound."
+stopped_at: "Phase 21 COMPLETE (merged PR #30, deployed Fly v20) and Phase 21.5 DEFINED. The record run executed in five user-approved paid stages: $9.9019 actual vs $17.4812 quoted (56.6%), metered pipeline only. Criterion amended mid-run, user-ratified: batch A refused 3/10, exposing REQ-forty-recorded-answers' two clauses (all forty recorded; only grader-approved fixtures committed) as incompatible on the real pipeline — landed 19 recorded / 21 documented refusals in evals/REFUSALS.json, union enforced by test, three mutations observed red, nothing forced. Findings: (1) classifier drift — six identical topic_type mismatches (general read as technical), structurally invisible to the keyless suite; a $0.053 probe over all 38 labelled cases measured an Opus 5 classifier at 34/38 vs Sonnet 5's 29/38 with zero regressions at +$0.0005/run, so Phase 21.5 (classifier on Opus 5 + label resolution + checkpointed re-record of the six) was defined mid-milestone, the 10.5/17.5 precedent; (2) judge verdicts truncated twice at max_tokens=1500 shared with adaptive thinking, exactly as graders.py:758 predicted — still open, Phase 22 records it; (3) record-time and replay-time grading disagree: six fixtures passed record-time and failed replay — five on contested pins (re-authoring tried and REVERTED; the pins must also satisfy dataset.py's hand-authored reference reports, so dataset.py ended the phase unmodified), one a hedged half-answer record-time grading approved, kept as a finding rather than passed by widening REFUSAL_PATTERNS. Gates: 59/59 evals exit 0 (denominator 41→59, honestly grown), 806/72 keyless, ruff clean. Next: /gsd:plan-phase 22 (in progress on this branch), then plan+execute 21.5, then execute 22 last."
+last_updated: "2026-08-15T14:30:00.000Z"
+last_activity: "2026-08-15 — Phase 21 shipped and deployed; Phase 21.5 defined after the user's classifier-upgrade proposal was measured and confirmed (the orchestrator's initial skepticism was wrong; the $0.05 probe settled it). Phase 22 now runs LAST, after 21.5, so the close-out records only what survives."
 progress:
-  total_phases: 5
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
-  percent: 60
+  total_phases: 6
+  completed_phases: 4
+  total_plans: 12
+  completed_plans: 12
+  percent: 67
 ---
 
 # Project State
@@ -21,11 +21,29 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-04)
 
 **Core value:** The pipeline never answers from model knowledge when it should be answering from research — and it is demonstrable to a stranger in one click.
-**Current focus:** Phase 20 — Note count bound (v1.2 roadmap created 2026-08-13)
+**Current focus:** Phase 22 planning + Phase 21.5 (classifier on Opus 5), then 22 executes last
 
 ## Current Position
 
-Phase: 20 — Note count bound (v1.2 "Nothing uncovered", Phases 18-22)
+Phase: 21 complete → 21.5 defined → 22 in planning (v1.2 "Nothing uncovered", Phases 18–22 + 21.5)
+
+**Phase 21 (2026-08-15, PR #30, Fly v20):** the paid record run, five user-approved stages,
+$9.9019 vs $17.4812 quoted. Criterion amended mid-run (user-ratified): every golden case is
+**recorded or carries a documented refusal** — 19 recorded, 21 in `evals/REFUSALS.json`,
+union enforced by test (three mutations observed red), nothing forced. Three findings:
+classifier drift (six identical `general`→`technical` mismatches; a $0.053 all-38-case
+probe measured Opus 5 at 34/38 vs Sonnet 5's 29/38, zero regressions → Phase 21.5); judge
+verdicts truncated twice at `max_tokens=1500` (the `graders.py:758` prediction, still open,
+Phase 22 records it); and six record-time-approved fixtures failing replay (five contested
+pins — re-authoring tried and REVERTED because the pins must also satisfy `dataset.py`'s
+reference reports; one hedged half-answer kept as a finding). Evals denominator 41 → 59.
+
+**Phase 21.5 (defined 2026-08-15, the 10.5/17.5 precedent):** classifier to `claude-opus-5`
+(REQ-classifier-model), probe repeated before trusting, the four both-models-disagree
+labels resolved deliberately, six topic_type-refused recordings re-attempted at one paid
+checkpoint (~$2.40 re-quoted). Runs BEFORE 22 so the close-out records what survives.
+
+--- prior position (Phase 20), kept for the record ---
 Plan: 2 plans (20-01 the cap ✅, 20-02 the doc pass ✅), 2 waves — wave 2 depends on wave 1 for both the shipped behaviour it documents and the test counts it measures
 Status: **COMPLETE — both waves executed and the validation contract reconciled.** 20-01 shipped `NOTE_CAP_PER_OWNER` (default 100, `cost_discount_factor()`'s clamp, read per call) plus owner-scoped oldest-first eviction inside all four `add()` implementations, in the fixed order sweep → insert → evict (3 commits + the record); 20-02 gave OPERATIONS the knob row, judged DESIGN by reading and left it untouched, re-measured README's counts and left the Limitations bullet byte-identical (2 commits + the record). 20-VALIDATION.md's **eight automated rows all carry measured Status evidence** — command, observed result, and what the recorded mutation did — and the Manual-Only row is disposed of in writing. **7 mutations were run for the 6 the plans named.** Final gates: **796 passed / 71 skipped** keyless (773 → 796, +23 / +4, reconciled test by test against a zero-removal `--collect-only` id diff); `tests/test_store_contract.py` armed at `:54329` **118 / 1**; offline evals **41/41, real `$?` 0**; `ruff check .` and `ruff check src tests evals` both clean. `git diff --stat HEAD -- src tests` printed **0 lines** at both wave-2 commits.
 

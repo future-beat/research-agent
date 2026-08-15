@@ -34,11 +34,29 @@ about to be replaced would file verdicts from an abandoned judge.
   `graders.py:733`), and the price table carries an Opus 4.8 row. ADR-0012 records the
   supersession of ADR-0010 and the reopening of the reversal register.
 
-- [ ] **REQ-forty-recorded-answers**: All 40 golden cases carry recorded real answers,
+- [x] **REQ-forty-recorded-answers** *(Phase 21 — complete under the amended criterion,
+  shipped and deployed 2026-08-15)*: All 40 golden cases carry recorded real answers,
   replayed and graded keylessly on every push. The record run is a paid operator checkpoint
   (quoted **$17.48** on 2026-08-13; re-quote at run time), sequenced after the judge
   settles. A case the recorder refuses (failed graders or judge) is surfaced as a finding,
   not retried into silence — refusals are the machinery working.
+  **Amendment, user-ratified mid-execution 2026-08-15:** the run measured this
+  requirement's two clauses in tension — 15 of 40 cases satisfy "only grader-approved
+  fixtures are committed" only by failing "all forty recorded". The criterion became:
+  every case is **recorded or carries a documented refusal** (`evals/REFUSALS.json`),
+  the union enforced by test. Landed 19 recorded / 21 documented, $9.9019 actual against
+  the $17.4812 quote. Nothing was forced.
+
+- [ ] **REQ-classifier-model** *(defined mid-milestone 2026-08-15 as Phase 21.5, after
+  Phase 21's record run surfaced the drift)*: The classifier runs on `claude-opus-5` —
+  measured against all 38 golden cases carrying an expected label: 34/38 correct versus
+  Sonnet 5's 29/38, five fixes, zero regressions, +$0.0005 per run (~0.2% of a measured
+  run). The measurement is repeated at execution before the switch is trusted (the probe
+  was n=1 per case). The four cases BOTH models label `technical` against a golden
+  `general` are resolved deliberately — stale labels corrected or the divergence recorded
+  — never papered over. Ends with a user-approved paid checkpoint re-attempting the six
+  `topic_type`-refused recordings under the fixed classifier; successes move from
+  `evals/REFUSALS.json` to fixtures, failures stay documented.
 
 ### Observability
 
@@ -97,8 +115,10 @@ Every v1.2 requirement maps to exactly one phase. Filled by `/gsd:roadmap` on 20
 | REQ-health-credential-validity | Phase 19 — Credential validity, log addressability, demo CSP | **Verified** (`19-VERIFICATION.md` status: passed, criteria 1–3). Automated half complete and independently re-measured — 20 concurrent `/health` reads against two hanging providers peaked at 0.016s. **Awaiting deploy** for the one thing a keyless suite cannot show: a real provider round trip (19-VALIDATION Manual-Only) |
 | REQ-run-finished-session-id | Phase 19 — Credential validity, log addressability, demo CSP | **COMPLETE** — verified (`19-VERIFICATION.md`, criterion 4), and unlike the other two Phase 19 requirements this one has **no** Manual-Only dependency and needs no deploy. Met literally rather than by reinterpretation (P-07): the line NAMED `run_finished` carries `session_id` on all four routes, exactly once per run, alongside `run_id`; the graph's terminal line is renamed `graph_finished` and asserted to carry no session identity, since it structurally cannot know one. Six test items, three mutation reds |
 | REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | **Verified** (`19-VERIFICATION.md`, criterion 5) — both hashes re-derived a fourth time by the verifier, byte-identical. **Awaiting deploy**: the requirement says "verified against the live page", and browser CSP enforcement cannot run in pytest. The automated half is done (derived seven-directive policy, no `unsafe-` source, six gates, four mutation reds, `index.html` at zero edits); UI-SPEC acceptance checks 1–7 against the deployed page are 19-VALIDATION's Manual-Only row |
-| REQ-note-count-bound | Phase 20 — Note count bound | Pending |
-| REQ-forty-recorded-answers | Phase 21 — Forty recorded answers | Pending |
+| REQ-note-count-bound | Phase 20 — Note count bound | **Complete** (verified, `20-VERIFICATION.md` status: passed, 3/3 criteria + the post-verification orphan-bucket gap closed; deployed Fly v19, 2026-08-15) |
+| REQ-forty-recorded-answers | Phase 21 — Forty recorded answers | **Complete under the amended criterion** (19 recorded / 21 documented refusals, union enforced by `test_every_golden_case_is_recorded_or_documented_as_refused`; $9.9019 actual vs $17.4812 quoted; merged PR #30, deployed Fly v20, 2026-08-15) |
+| REQ-classifier-model | Phase 21.5 — Classifier on Opus 5 (defined 2026-08-15) | Pending |
 | REQ-limitations-recorded | Phase 22 — Limitations recorded | Pending |
 
-**Coverage:** 7/7 v1.2 requirements mapped. No orphans.
+**Coverage:** 8/8 v1.2 requirements mapped (7 at milestone open + REQ-classifier-model,
+defined mid-milestone 2026-08-15). No orphans.
