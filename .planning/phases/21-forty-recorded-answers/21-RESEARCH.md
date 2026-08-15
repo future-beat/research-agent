@@ -665,7 +665,8 @@ See the dedicated section below.
 
 ## Open Questions
 
-1. **Exact per-batch chunking for the bulk 39-case stage.**
+1. **Exact per-batch chunking for the bulk 39-case stage.** *(RESOLVED by P-05, plan
+   21-02: four batches by case family, follow-ups last — 10+11+10+8.)*
    - What we know: the recorder is resumable at the file level (Finding 4), and `--case` accepts
      repeats, so any chunking scheme works mechanically.
    - What's unclear: whether the plan should use one `--case`-enumerated command for all 39
@@ -677,6 +678,8 @@ See the dedicated section below.
      `followup-*` batch") without needing to diff `evals/fixtures/` against `dataset.GOLDEN` by hand.
 
 2. **Whether the new completeness gate belongs in `tests/test_evals.py` or `evals/__main__.py`.**
+   *(RESOLVED by P-01, plan 21-01: pytest repo-state pin; the CLI's zero-fixtures-is-legal
+   property is load-bearing shipped design pinned by existing tests, so the exit rule stays.)*
    - What we know: both satisfy "graded keylessly on every push" per `ci.yml`'s existing steps.
    - What's unclear: which reading of REQ-forty-recorded-answers's "replayed and graded keylessly
      on every push" the planner should treat as binding — the requirement text does not
