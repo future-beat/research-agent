@@ -1,0 +1,158 @@
+{
+  "mode": "record",
+  "model": "claude-sonnet-5",
+  "judge_model": "claude-opus-4-8",
+  "judge_calls": 2,
+  "generated_at": "2026-08-15T13:37:42+0800",
+  "cases": [
+    {
+      "case_id": "technical-figures",
+      "why": "Technical topics must reach the rubric that hunts for numbers absent from the notes; the wrong rubric lets an invented figure through.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.249561,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.249561,
+          "duration_ms": 440445.7,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "2771 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2496",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3647 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is traceable to the research notes. Opus 4.5 pricing ($5/$25), prior Opus 4/4.1 pricing ($15/$75), API ID claude-opus-4-5-20251101, and the note that its context window was not specified all match. Sonnet 4/4.5/4.6 with 1M context and $3/$15 pricing (beta for 4.6), batch processing 50% savings, and 'first to reach 1M' all match. Haiku 4.5 details (200K context, $1/$5, Oct 15 2025 release, claude-haiku-4-5) match. Cost-saving mechanisms (90% prompt caching, 50% batch), the Claude 4.6/Mythos Preview standard-pricing note with the 900K vs 9K example, and the unverified models list (Opus 4.6/4.7/4.8, Opus 5, Sonnet 5, Fable 5) with Sonnet 4.6 as the confirmed exception all faithfully reflect the notes. No unsupported numbers, dates, or entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the question by providing a summary table and detailed breakdown of context window sizes and pricing (input/output per million tokens) for the Claude model family. It covers Opus, Sonnet, and Haiku tiers, notes where information could not be found (Opus 4.5 context window), and honestly flags which models/figures could not be verified. This is on-topic and responsive to the question, so it passes regardless of possible accuracy concerns.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "errored": 0,
+    "by_grader": {
+      "terminates": {
+        "passed": 1,
+        "failed": 0
+      },
+      "never_silently_unapproved": {
+        "passed": 1,
+        "failed": 0
+      },
+      "topic_type": {
+        "passed": 1,
+        "failed": 0
+      },
+      "approval": {
+        "passed": 1,
+        "failed": 0
+      },
+      "forced_stop": {
+        "passed": 1,
+        "failed": 0
+      },
+      "revisions": {
+        "passed": 1,
+        "failed": 0
+      },
+      "answer_present": {
+        "passed": 1,
+        "failed": 0
+      },
+      "within_budget": {
+        "passed": 1,
+        "failed": 0
+      },
+      "notes_stored": {
+        "passed": 1,
+        "failed": 0
+      },
+      "judge_grounding": {
+        "passed": 1,
+        "failed": 0
+      },
+      "judge_answers_the_question": {
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    "cost_usd": 0.249561,
+    "duration_ms": 440445.7,
+    "ok": true,
+    "min_pass_rate": 0.9
+  },
+  "recordings": [
+    {
+      "case_id": "technical-figures",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/technical-figures.json",
+      "refusal": "",
+      "cost_usd": 0.249561
+    }
+  ]
+}

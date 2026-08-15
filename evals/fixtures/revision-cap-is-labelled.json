@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "case_id": "revision-cap-is-labelled",
+  "recorded_at": "2026-08-15T14:00:10+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "218dabf",
+  "pipeline_cost_usd": 0.30046,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "29d63ee779ed4cd6b80e7dfe24cc5fe0",
+        "owner": "",
+        "task": "Explain the internal architecture of a proprietary system with no public docs.",
+        "mode": "research",
+        "topic_type": "sparse",
+        "research_notes": "Based on my research, here's a summary of recent, concrete facts relevant to explaining the internal architecture of proprietary systems lacking public documentation \u2014 this is a well-established practice area (reverse engineering) that spans both hardware and software/AI systems:\n\n**1. AI is now being used to reconstruct undocumented instruction set architectures.** Faraday Security researchers described a hybrid AI-assisted pipeline that recovered a proprietary instruction set architecture, generated a working Ghidra processor specification, and transformed unreadable firmware into actionable security research. They note that \"Reverse engineering undocumented processors has traditionally required months of manual work\", and that behind many everyday devices \u2014 cars, medical devices, security cameras, routers, connected toys \u2014 there is a chip running code that nobody outside the manufacturer can read. This shows AI-assisted tooling is a genuinely new (2026) development for uncovering closed architectures with zero public docs.\n\n**2. GPT-4's architecture was reconstructed almost entirely from leaks/rumors, not official documentation.** According to reporting compiled from leaked information, OpenAI implemented a mixture of experts (MoE) model, utilizing 16 experts with 111 billion parameters for multi-layer perceptrons, with an efficient inference process utilizing 280 billion parameters and 560 TFLOPs per forward pass. Separately it was reported that GPT-4 utilizes 16 experts within their model, each with ~111B parameters for MLP, with two of these experts routed per forward pass to keep costs manageable, and that GPT-4 is said to be roughly 10x the size of GPT-3, with roughly 1.8 trillion parameters across 120 layers. This is a prime example of a proprietary system's internal architecture being pieced together entirely from indirect evidence/leaks rather than official disclosure \u2014 and it remains unconfirmed by OpenAI.\n\n**3. Academic hardware reverse-engineering research has matured into a two-decade discipline with formal taxonomies.** A 2024/2025 survey paper titled \"SoK: From Silicon to Netlist and Beyond\" catalogs two decades of methods for reconstructing chip designs from silicon up through gate-level netlists, including recent work like graph-learning-based arithmetic block identification and structural interpretation of cryptographic cores \u2014 indicating that hardware architecture recovery from black-box chips is now a systematized field with peer-reviewed methodology rather than ad hoc hacking.\n\n**4. Real-world IP theft cases show FPGA bitstreams (a common \"no public docs\" proprietary format) can be reverse-engineered at scale.** Research presented at ACM CCS 2024, \"Stealing Maggie's Secrets \u2014 On the Challenges of IP Theft Through FPGA Reverse Engineering,\" documents the practical challenges and successes in recovering proprietary logic from FPGA bitstreams, a format vendors intentionally keep undocumented to protect IP.\n\n**5. Firmware/IoT reverse engineering has an established toolchain and rising stakes.** Industry analysis notes that disassembly tools have evolved significantly, with platforms like IDA Pro setting the commercial standard while NSA's Ghidra provides a powerful free alternative, and decompiler functionality has become increasingly sophisticated at transforming assembly back into higher-level representations. The stakes are notable: in the first five months of 2024, attacks on IoT endpoints grew by 107% year over year, with breaches often costing $5\u201310 million per incident.\n\n**Gaps in available information:** I found no case studies of a *named, currently-in-production* commercial software platform (e.g., a specific SaaS product's internal microservice architecture) being fully reverse-engineered and published with technical fidelity in the last year \u2014 most concrete, citable recent material clusters around (a) hardware/firmware/chip reverse engineering (academic and industry) and (b) AI model architecture speculation (especially GPT-4). If you had a specific proprietary system in mind (a particular chip, application, game engine, or AI model), a narrower search would likely surface more directly applicable results.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# Explaining the Internal Architecture of a Proprietary System with No Public Docs\n\n## Overview\n\nWhen a system's internal architecture is not officially disclosed, understanding of it must be reconstructed through indirect means \u2014 reverse engineering. This applies across domains: undocumented processor instruction sets, closed AI model internals, hardware chip designs, FPGA bitstreams, and IoT/embedded firmware. Methods vary by system type and include manual disassembly, decompilation, silicon-level imaging, and, in at least one recent reported case, an AI-assisted analysis pipeline. Below are five illustrative, disparate cases from recent research; they are presented individually rather than as evidence of a unified methodology across the field.\n\n## 1. Undocumented Processor ISAs: AI-Assisted Reconstruction\n\nFaraday Security researchers reported a hybrid AI-assisted pipeline that recovered a proprietary instruction set architecture, produced a working Ghidra processor specification, and converted otherwise unreadable firmware into analyzable form. The researchers characterized traditional reverse engineering of undocumented processors as requiring \"months of manual work,\" and framed their approach as a way to address chips \u2014 found in cars, medical devices, security cameras, routers, and connected toys \u2014 whose code is otherwise unreadable outside the manufacturer. This characterization of AI-assisted tooling as a new development comes from the researchers' own framing of their single reported pipeline; the research notes do not establish this as an already-widespread or independently verified industry trend, and the case is a single example rather than a general method in current use across the field.\n\n## 2. AI Model Internals: GPT-4 Reconstructed from Leaks\n\nGPT-4's architecture has never been officially documented by OpenAI. What is publicly discussed is drawn from leaked information and reporting, not confirmed disclosure. According to this leaked material, GPT-4 is described as a mixture-of-experts (MoE) model with 16 experts, each holding roughly 111 billion MLP parameters, with two experts routed per forward pass \u2014 yielding a reported effective inference footprint of about 280 billion parameters and 560 TFLOPs per pass. Total parameter count is reported at roughly 1.8 trillion across 120 layers, about 10x the size of GPT-3. It is important to note that **none of these figures have been confirmed by OpenAI**; they represent an architecture pieced together entirely from leaks and rumor rather than official documentation, and should be treated as unverified throughout.\n\n## 3. Hardware Reverse Engineering: A Systematized Academic Field\n\nA 2024/2025 survey, \"SoK: From Silicon to Netlist and Beyond,\" catalogs roughly two decades of methods for reconstructing chip designs \u2014 from silicon imaging up through gate-level netlists. Cited techniques include graph-learning-based identification of arithmetic blocks and structural interpretation of cryptographic cores. This indicates hardware architecture recovery from black-box chips is documented in the literature as a field with formal taxonomies and peer-reviewed methodology, rather than solely ad hoc, informal hacking.\n\n## 4. FPGA Bitstream Recovery: A Documented IP-Theft Case\n\nResearch presented at ACM CCS 2024, \"Stealing Maggie's Secrets \u2014 On the Challenges of IP Theft Through FPGA Reverse Engineering,\" documents practical challenges and successes in recovering proprietary logic from FPGA bitstreams \u2014 a format vendors deliberately leave undocumented to protect intellectual property. This is presented in the notes as a concrete, named case study of bitstream-level reverse engineering rather than a general claim about FPGA security overall.\n\n## 5. Firmware/IoT Reverse Engineering: Toolchain and Stakes\n\nIndustry analysis describes an established toolchain for firmware and IoT reverse engineering, centered on disassembly platforms such as IDA Pro (described as the commercial standard) and NSA's Ghidra (a free alternative), with decompiler capability having become more sophisticated at converting assembly into higher-level representations. The notes also cite rising stakes: IoT endpoint attacks grew 107% year-over-year in the first five months of 2024, with breaches reported to cost $5\u201310 million per incident.\n\n## Synthesis\n\nThese five examples are drawn from different domains \u2014 processor ISAs, a large language model, general chip silicon, FPGA bitstreams, and IoT firmware \u2014 and each uses a different primary method (AI-assisted specification generation, leak analysis, academic taxonomy-building, bitstream extraction, and disassembly/decompilation, respectively). The research notes do not provide a comparative analysis linking specific reverse-engineering methods to specific system types, and no such correlation should be inferred from these five disparate cases. What the notes do support is a general pattern: in the absence of public documentation, understanding of proprietary internal architecture is built through indirect evidence \u2014 technical analysis of the system's outputs or artifacts (firmware, bitstreams, leaked details, silicon structure) \u2014 rather than through vendor-provided disclosure, and confidence in the resulting picture is correspondingly lower and often explicitly unconfirmed (as with GPT-4).\n\n## Gap Noted\n\nThe research notes found no case of a *named, currently-in-production* commercial software platform (e.g., a specific SaaS product's microservice architecture) being fully reverse-engineered and published with technical fidelity within the last year. Current citable material clusters around hardware/firmware/chip reverse engineering and AI model architecture speculation. A narrower search targeting a specific named system (a particular chip, application, game engine, or model) would likely be needed to produce more directly applicable findings.",
+        "critic_feedback": "REVISE: A few unsupported/overstated claims:\n\n1. The claim \"This indicates that AI-assisted tooling is a genuinely new (2026) development\" is stated as a direct fact in section 1, but the research notes only attribute this characterization to the researchers' framing (\"They note that...This shows AI-assisted tooling is a genuinely new...\"). The draft should preserve that this is the researchers'/source's characterization, not an independently verified fact, especially given the odd future-dated \"(2026)\" label which appears unexamined/uncritically carried over from notes.\n\n2. In \"Synthesis,\" the statement \"aligns with the type of undocumented system involved\" and the framing of a \"pattern observed in the five cases reviewed\" is a claim of correlation/pattern that the research notes do not actually support \u2014 the notes present five disparate, unconnected examples without any comparative analysis showing method-to-system-type alignment. This synthesis claim goes beyond what's in the notes, even with the hedge added; it should be flagged as the draft's own inference more explicitly or removed, since notes contain no such comparative claim.\n\n3. The GPT-4 section states parameter/TFLOP figures fairly confidently in prose (e.g., \"yielding an effective inference footprint of roughly 280 billion parameters and 560 TFLOPs per forward pass\") \u2014 this matches the notes' content, but the draft should more strongly foreground uncertainty earlier in the paragraph rather than only caveating at the end, since notes emphasize \"unconfirmed by OpenAI\" as a key qualifier throughout.\n\n4. The overview line \"increasingly, AI-assisted inference\" as a general established method (not just one 2026 pipeline example) slightly overstates generality \u2014 notes only describe one specific instance (Faraday Security), not a broad trend across the field.\n\nPlease revise to keep confidence levels tightly matched to what the notes support, and avoid introducing comparative/synthesis claims not present in the source notes.",
+        "approved": false,
+        "reviewed": false,
+        "revision_count": 3,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "max_revisions_exceeded",
+        "next_step": "done",
+        "iteration": 10,
+        "usage": {
+          "input_tokens": 78185,
+          "output_tokens": 11404,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 3,
+          "web_fetch_requests": 0,
+          "calls": 9,
+          "cost_usd": 0.3004604,
+          "embedding_tokens": 840,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 5.04e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "sparse"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 4214,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 4980,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 5385,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 4974,
+            "revision_count": 2
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 5915,
+            "revision_count": 3
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is traceable to the research notes. Section 1 (Faraday Security AI-assisted pipeline, Ghidra spec, 'months of manual work' quote, device examples) matches the notes; the report appropriately hedges on the trend claim. Section 2's GPT-4 figures (16 experts, 111B MLP params, 2 experts routed, 280B inference params, 560 TFLOPs, 1.8T params, 120 layers, 10x GPT-3, unconfirmed by OpenAI) all appear verbatim in the notes. Section 3 (SoK survey title, two decades, graph-learning arithmetic blocks, cryptographic cores), Section 4 (ACM CCS 2024, 'Stealing Maggie's Secrets' title, FPGA bitstream IP theft), and Section 5 (IDA Pro, Ghidra, 107% YoY first five months of 2024, $5\u201310 million per incident) are all grounded. The synthesis and gap sections faithfully reflect the notes' caveats. No unsupported numbers, dates, or named entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The question is generic (no specific system named), essentially asking how to explain/understand the internal architecture of an undocumented proprietary system. The report directly addresses this by explaining that such understanding is reconstructed through reverse engineering, detailing methods (disassembly, decompilation, silicon imaging, leak analysis, AI-assisted pipelines) and providing concrete examples across domains\u2014including an actual reconstructed architecture (GPT-4's MoE structure with parameter details). It is on-topic, provides substantive relevant content, and honestly flags the limitations and gaps in available material rather than fabricating. This constitutes a legitimate answer to the question as posed.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

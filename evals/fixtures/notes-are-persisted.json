@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "case_id": "notes-are-persisted",
+  "recorded_at": "2026-08-15T14:12:28+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "218dabf",
+  "pipeline_cost_usd": 0.310252,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "366c36fcd5f64f2ea110fd8d48460800",
+        "owner": "",
+        "task": "How do LLM agents implement long-term memory?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Now I have solid, well-sourced material. Here's a summary of concrete, recent facts on how LLM agents implement long-term memory:\n\n**1. Mem0's hybrid memory layer shows measurable gains over full-context and OpenAI's memory system.** In comprehensive benchmarks using the LOCOMO evaluation framework, Mem0 achieved 26% higher accuracy compared to OpenAI's memory system while maintaining 91% lower latency than full-context approaches. The system also delivers 90% token cost savings by sending only relevant memory information rather than entire conversation histories. Mem0 was created by Taranjeet Singh and Deshraj Yadav, building on lessons from their earlier RAG framework Embedchain, and has since gained significant open-source traction on GitHub.\n\n**2. MemGPT/Letta uses an OS-inspired memory hierarchy rather than a flat vector store.** MemGPT treats context windows as a constrained memory resource and implements a memory hierarchy similar to operating systems, providing function calls that allow the LLM to manage its own memory autonomously. Agents can move data between in-context core memory (analogous to RAM) and externally stored archival and recall memory (analogous to disk storage), creating an illusion of unlimited memory while working within fixed context limits. A newer evolution, \"sleep-time agents,\" decouples memory upkeep from the conversation loop: unlike MemGPT, where memory management, conversation, and other tasks are bundled into a single agent, sleep-time agents handle memory management asynchronously, improving response times, and other agents can rewrite core memory blocks to consolidate important information over time.\n\n**3. Zep/Graphiti replaces static RAG retrieval with a temporal knowledge graph and outperforms MemGPT on a standard benchmark.** Zep is a memory layer service for AI agents that outperforms MemGPT in the Deep Memory Retrieval (DMR) benchmark, addressing the limitation that existing RAG frameworks are limited to static document retrieval, through its core component Graphiti \u2014 a temporally-aware knowledge graph engine that dynamically synthesizes both unstructured conversational data and structured business data while maintaining historical relationships. In the DMR benchmark, which the MemGPT team established as their primary evaluation metric, Zep demonstrates superior performance (94.8% vs 93.4%). (Paper: Rasmussen et al., arXiv:2501.13956, Jan 20, 2025.)\n\n**4. OpenAI's ChatGPT now maintains two distinct memory mechanisms \u2014 explicit \"saved memories\" and implicit \"chat history\" referencing.** As of an April 10, 2025 update, memory in ChatGPT became more comprehensive: in addition to saved memories, it now references all past conversations to deliver more relevant, tailored responses, meaning memory works in two ways \u2014 explicitly saved memories and insights ChatGPT gathers from past chats. A June 3, 2025 update extended a lightweight, short-term version of this to free users, while Plus/Pro users get a longer-term understanding of the user, with user controls to disable either mechanism.\n\n**5. Frameworks like LangGraph/LangMem are formalizing persistent, database-backed memory stores for agents.** Recent integration work (e.g., MongoDB's August 2025 blog on \"Powering Long-Term Memory For Agents With LangGraph And MongoDB,\" and Mamezou's March 2025 post on persisting LangMem's memory to PostgreSQL/pgvector) shows a trend toward decoupling agent memory from any single vector DB, instead persisting structured long-term memories in general-purpose databases that support both semantic (vector) and structured queries \u2014 though I could not verify specific performance figures for LangMem itself from these sources, so treat that framework's quantitative claims as unverified.\n\n**Flag:** I could not independently verify Mem0's precise GitHub star count or the exact wording of its \"LOCOMO\" benchmark methodology beyond the InfoWorld summary \u2014 for authoritative details, Mem0's own benchmark blog post should be checked directly. Similarly, several dated search results returned suspiciously future-dated timestamps (e.g., 2026 blog posts), which may reflect indexing artifacts rather than actual publication dates; I relied only on content I could cross-check for factual claims.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# How LLM Agents Implement Long-Term Memory\n\nLLM agents are fundamentally limited by fixed context windows, so long-term memory requires architectures that store information outside the prompt and selectively retrieve it. Current approaches converge on a few distinct strategies, summarized below.\n\n## Summary Table\n\n| System | Core Approach | Key Evidence |\n|---|---|---|\n| **Mem0** | Hybrid memory layer that retrieves only relevant memory fragments rather than replaying full history | 26% higher accuracy vs. OpenAI's memory system, 91% lower latency than full-context, 90% token cost savings (LOCOMO benchmark) |\n| **MemGPT / Letta** | OS-inspired hierarchy: in-context \"core memory\" (RAM-like) vs. external \"archival/recall memory\" (disk-like), managed via LLM function calls | Introduced the concept of agent-managed memory paging; newer \"sleep-time agents\" handle consolidation asynchronously, outside the conversation loop |\n| **Zep / Graphiti** | Temporal knowledge graph that fuses conversational and structured data while preserving historical relationships, replacing static RAG | Outperforms MemGPT on Deep Memory Retrieval benchmark (94.8% vs. 93.4%); Rasmussen et al., arXiv:2501.13956 |\n| **ChatGPT (OpenAI)** | Dual mechanism: explicit \"saved memories\" plus implicit referencing of past chat history | April 2025 update added full chat-history referencing; June 2025 extended lightweight version to free users, longer-term memory to paid tiers |\n| **LangGraph / LangMem** | Persist structured long-term memories in general-purpose databases (e.g., MongoDB, PostgreSQL/pgvector) supporting both semantic and structured queries | Reflects an industry trend toward decoupling memory from any single vector DB; no verified quantitative benchmarks found |\n\n## Key Patterns Across Implementations\n\n**1. Separation of \"working\" and \"long-term\" memory.** Nearly every system distinguishes between what's actively in the context window and what's stored externally \u2014 whether via MemGPT's RAM/disk analogy, Mem0's selective retrieval, or Zep's knowledge graph.\n\n**2. Retrieval over replay.** Rather than feeding entire conversation histories back into the model, systems increasingly retrieve only the most relevant memory fragments, cutting both latency and token costs (as seen concretely in Mem0's benchmarks).\n\n**3. Structured/temporal representations over flat vector stores.** Zep's Graphiti engine exemplifies a shift from static document-chunk retrieval toward knowledge graphs that track how information and relationships change over time.\n\n**4. Asynchronous memory management.** The evolution from MemGPT to \"sleep-time agents\" reflects a broader move toward decoupling memory consolidation from real-time conversation, improving responsiveness.\n\n**5. Database-backed persistence.** Frameworks like LangGraph/LangMem point toward storing memory in general-purpose databases (supporting both vector and structured queries) rather than being locked into a single vector store.\n\n**6. Consumer products are adopting layered memory too.** ChatGPT's April and June 2025 updates show explicit (user-saved) and implicit (auto-referenced history) memory operating side by side, with user-facing controls to toggle each.\n\n## Caveats on Source Reliability\n\n- Mem0's exact GitHub star count and the precise methodology behind its \"LOCOMO\" benchmark could not be independently verified beyond a secondary (InfoWorld) summary; the benchmark figures should be confirmed against Mem0's own blog post.\n- Some search results returned suspiciously future-dated timestamps (e.g., purported 2026 blog posts), which may be indexing artifacts rather than genuine publication dates. These were excluded from the factual claims above, but readers should be aware that not all retrieved sources could be date-verified.\n- LangMem's specific performance claims are unverified in the sources reviewed and are presented here only as a directional/architectural trend, not a benchmarked result.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 81219,
+          "output_tokens": 6776,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 8,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.31025188,
+          "embedding_tokens": 898,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 5.388e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 4272,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3864,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3981,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every specific factual claim in the report is supported by the research notes. Mem0's figures (26% higher accuracy vs OpenAI, 91% lower latency, 90% token savings, LOCOMO) match. MemGPT/Letta's OS-inspired hierarchy, RAM/disk analogy, function-call memory management, and sleep-time agents match. Zep/Graphiti's temporal knowledge graph, DMR benchmark figures (94.8% vs 93.4%), and arXiv:2501.13956 match. ChatGPT's April and June 2025 dual-memory updates match the noted April 10 and June 3, 2025 dates. LangGraph/LangMem's MongoDB and PostgreSQL/pgvector persistence with unverified benchmarks matches. The caveats section faithfully reproduces the notes' flags about GitHub stars, LOCOMO methodology, future-dated sources, and LangMem's unverified claims. No unsupported numbers, dates, or named entities appear.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers how LLM agents implement long-term memory, detailing multiple concrete implementation strategies (Mem0's selective retrieval, MemGPT/Letta's OS-inspired memory hierarchy, Zep/Graphiti's temporal knowledge graphs, ChatGPT's saved/referenced memory, LangGraph/LangMem's database-backed persistence) and synthesizing cross-cutting patterns like working/long-term separation, retrieval over replay, and asynchronous consolidation. It stays on topic throughout and even includes appropriate caveats on source reliability.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

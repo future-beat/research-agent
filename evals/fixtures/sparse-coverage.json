@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "case_id": "sparse-coverage",
+  "recorded_at": "2026-08-15T13:45:52+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "218dabf",
+  "pipeline_cost_usd": 0.358517,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "bb65695e74724ca69d89712ddc8da9fb",
+        "owner": "",
+        "task": "What is the adoption of LangGraph among Icelandic public-sector teams?",
+        "mode": "research",
+        "topic_type": "sparse",
+        "research_notes": "## Summary of Findings\n\nAfter extensive searching in both English and Icelandic (including terms like \"LangGraph \u00edslensk stj\u00f3rns\u00fdsla,\" \"LangGraph Iceland public sector,\" and direct site/agency names), **I could not find any concrete evidence that LangGraph specifically has been adopted by Icelandic public-sector teams**. There is no mention of LangGraph in Icelandic government documents, tech blogs, procurement notices, or news coverage that turned up in search. This appears to be a genuine information gap rather than a search limitation \u2014 Icelandic public AI initiatives that are documented publicly reference chatbot platforms (like boost.ai) and general \"gervigreind\" (AI) strategy, not the LangGraph/LangChain agent-orchestration framework by name.\n\nThat said, here are 4\u20135 concrete, recent, *adjacent* facts about AI/agent adoption in the Icelandic public sector that are relevant context, since they represent the closest verifiable ground truth:\n\n1. **National digital-services chatbot \"Askur\" is a benchmark metric for agencies.** Iceland's digital government progress reports track institutions by whether they've implemented a shared set of digital building blocks \u2014 a digital mailbox, universal login, the \u00cdsland.is application system, \"My Pages,\" a website on \u00cdsland.is, the chatbot Askur, a service portal, the \u00cdsland.is app, and \"Straumurinn\". Several agencies (Icelandic Transport Authority, Icelandic Health Insurance, District Commissioners) have completed all these steps, while others like the Financial Management Authority (\"Fj\u00e1rs\u00fdslan\") have completed all digital steps except the Ask chatbot, and the Social Insurance Administration has likewise completed all steps except ASK \u2014 indicating a shared chatbot platform, not LangGraph, is the standard framework being tracked.\n\n2. **Iceland published a formal national AI Action Plan for 2025\u20132027 (public administration is one of five pillars).** Iceland has advanced from consultation to execution of its Artificial Intelligence Action Plan 2024\u20132026, originally released in draft form in November 2024, with the final version published on July 2, 2025 by the Ministry of Culture, Innovation and Higher Education, and the plan retains 25 targeted measures across five areas, including public administration. This plan does not name specific agentic frameworks like LangGraph.\n\n3. **Iceland joined a new Nordic-Baltic AI center in October 2025, aimed at accelerating public and private AI adoption.** A new joint Nordic and Baltic AI center, New Nordics AI, was opened this week at a ceremonial event in Helsinki, Finland, with headquarters in Stockholm, aiming to strengthen cooperation in the region, accelerate AI adoption, and boost the region's international competitiveness. New Nordics AI was founded in cooperation with five leading AI organizations in the region: Almannar\u00f3mur (Iceland), AI Sweden, AI Finland, Digital Dogme (Denmark), and TEK Norge \u2014 again, framework-agnostic and no LangGraph reference.\n\n4. **Reykjavik City Council has an active internal proposal for expanding AI/chatbot use, but it discusses generic \"spjallmenni\" (chatbots), not agent frameworks.** A Reykjavik city council agenda document proposes building information repositories that chatbots can access, ensuring they only draw on information the city has approved as correct and usable to answer inquiries, plus expanded AI use in HR and payroll processes, such as automating forms to eliminate change forms and various temporary arrangements, and using AI in software development under certain conditions to speed up programming work and testing. No agent-orchestration framework is named.\n\n5. **Existing Icelandic conversational-AI deployments run on commercial platforms (boost.ai), not open-source agent frameworks.** Reykjavik-based Advania has led the charge, partnering with boost.ai to deploy the country's first virtual agents and launch seven live bots across banking, insurance, tourism and public services by spring 2022, with Menntasj\u00f3\u00f0ur's student-loan bot L\u00edna going from a winter-rush lifeline to automating roughly 85% of chat traffic. This is the dominant documented AI-agent technology stack in Iceland's public-facing services \u2014 a proprietary platform rather than LangGraph.\n\n**Bottom line / gap statement:** There is no publicly available evidence \u2014 in English or Icelandic sources \u2014 of LangGraph specifically being piloted, adopted, or even discussed by name within Icelandic public-sector or government teams. Iceland's documented public-sector AI activity centers on a national chatbot standard (Askur), a formal AI Action Plan, Nordic-Baltic AI cooperation, and commercial conversational-AI vendors (boost.ai) \u2014 none of which reference the LangGraph/LangChain ecosystem. If you have a specific source (e.g., a conference talk, GitHub repo, or procurement listing) suggesting LangGraph use in Iceland, sharing it would help me verify and expand on it.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# LangGraph Adoption Among Icelandic Public-Sector Teams\n\n## Direct Answer\n\nNo evidence of LangGraph adoption by Icelandic public-sector teams could be found in available sources. Extensive searching in both English and Icelandic \u2014 covering government documents, tech blogs, procurement notices, news coverage, and targeted queries (e.g., \"LangGraph \u00edslensk stj\u00f3rns\u00fdsla,\" \"LangGraph Iceland public sector\") \u2014 turned up no mention of LangGraph by name in connection with Icelandic government or public-agency work. This should be understood as an absence of documented evidence rather than a confirmed absence of use: it is not possible to confirm whether adoption exists, only that no public record of it does.\n\n## Relevant Context: What Iceland's Public Sector Actually Documents\n\nWhile LangGraph itself is undocumented, the public record shows substantial AI/agent-related activity through other channels:\n\n1. **A shared national chatbot standard, not agent frameworks, is the tracked benchmark.** Iceland's digital government progress reports measure agencies against a common set of digital building blocks \u2014 including the chatbot \"Askur\" \u2014 alongside tools like the digital mailbox and \u00cdsland.is login system. Agencies such as the Icelandic Transport Authority and Icelandic Health Insurance have completed all steps; others (Fj\u00e1rs\u00fdslan, Social Insurance Administration) have completed everything except the Ask chatbot integration. This indicates a shared, named chatbot platform is the recognized standard \u2014 not LangGraph.\n\n2. **A national AI Action Plan (2025\u20132027) covers public administration but names no specific frameworks.** Iceland's Ministry of Culture, Innovation and Higher Education finalized its AI Action Plan on July 2, 2025, with 25 measures across five pillars, including public administration. The plan does not reference LangGraph, LangChain, or agent-orchestration tooling specifically.\n\n3. **Iceland joined a Nordic-Baltic AI cooperation body in October 2025.** Iceland (via Almannar\u00f3mur) is a founding member of \"New Nordics AI,\" alongside AI Sweden, AI Finland, Digital Dogme (Denmark), and TEK Norge. This initiative is framework-agnostic in its public messaging.\n\n4. **Reykjavik City Council's internal AI proposals discuss generic chatbots, not agent frameworks.** Council agenda documents describe plans for chatbot-accessible information repositories and expanded AI use in HR/payroll and software development \u2014 again without naming any specific orchestration framework.\n\n5. **Iceland's dominant public-facing conversational-AI stack is commercial, not open-source.** Advania's partnership with boost.ai has powered Iceland's public-facing virtual agents since 2022, including seven live bots across banking, insurance, tourism, and public services (e.g., Menntasj\u00f3\u00f0ur's student-loan bot L\u00edna, which handles ~85% of chat traffic). This proprietary platform, not LangGraph/LangChain, is the documented technology stack.\n\n## Bottom Line\n\nLangGraph adoption in the Icelandic public sector cannot be confirmed one way or the other based on available sources. Iceland's documented public-sector AI activity centers on the Askur chatbot standard, the national AI Action Plan, Nordic-Baltic AI cooperation, and commercial vendors like boost.ai \u2014 none of which reference the LangGraph/LangChain ecosystem. This represents a genuine information gap rather than evidence of non-adoption. If a specific source (conference talk, GitHub repository, or procurement listing) indicates LangGraph use in Iceland, further verification would be needed to update this assessment.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 75222,
+          "output_tokens": 5801,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 15,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.35851712,
+          "embedding_tokens": 1052,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 6.312e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "sparse"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 4939,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2838,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3593,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is supported by the notes. The chatbot standard 'Askur' benchmark, named agencies (Transport Authority, Health Insurance, Fj\u00e1rs\u00fdslan, Social Insurance Administration), the AI Action Plan (July 2, 2025, 25 measures, five pillars, 2025\u20132027 as stated in the notes' header), the October 2025 New Nordics AI cooperation with the listed partners (Almannar\u00f3mur, AI Sweden, AI Finland, Digital Dogme, TEK Norge), Reykjavik City Council AI proposals, and the Advania/boost.ai deployment (2022, seven live bots, L\u00edna ~85%) all appear in the notes. The core conclusion \u2014 no documented LangGraph adoption \u2014 matches the notes. No unsupported numbers, dates, or entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses the question of LangGraph adoption among Icelandic public-sector teams. It honestly reports that no documented evidence of adoption could be found despite extensive searching, while distinguishing absence of evidence from confirmed non-use. It also provides relevant context about the actual documented AI/agent activity in Iceland's public sector. This is a legitimate 'honest research found little' answer that passes.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "case_id": "unknown-label-falls-back",
+  "recorded_at": "2026-08-15T13:54:33+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "218dabf",
+  "pipeline_cost_usd": 0.211601,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "8fe9071a5f464ae7bda4e748ee8f68ed",
+        "owner": "",
+        "task": "Summarise the history of the printing press.",
+        "mode": "research",
+        "topic_type": "general",
+        "research_notes": "Based on my search, here are 5 concrete, well-supported facts about the history of the printing press:\n\n**1. The world's oldest surviving metal-type printed book predates Gutenberg by decades and comes from Korea.** Two volumes of the Jikji document were produced in 1377, during the reign of Goryeo Dynasty King U, at Heungdeoksa Temple in Cheongju, with the first volume now lost and the second held in France. In 1972, UNESCO's International Year of the Book recognized Jikji as the world's oldest surviving book printed with metal type. The National Library of France holds the surviving copy, which was brought to France by a French consul during King Gojong's reign in the late 19th century.\n\n**2. Jikji has been formally enshrined in UNESCO's global heritage record.** The document, dating from 1377 and printed at Heungdeok-sa temple in Cheongju using movable, cast metal characters, has been included in UNESCO's Memory of the World Register since September 4, 2001.\n\n**3. Gutenberg's key technical innovation was breaking text down into reusable, individually cast components.** Gutenberg broke woodblocks down into their components of individual letters, punctuation marks, spaces, and so on, and cast the individual pieces in an alloy of lead, antimony, and tin. This alloy allowed for durable, precisely reproducible type that could be rearranged for different texts\u2014a major advance over prior block-printing methods.\n\n**4. Legal records from a 1438-39 lawsuit provide rare documentary evidence of Gutenberg's invention process.** When Andreas Dritzehn died at Christmas 1438, his heirs, trying to circumvent the terms of the contract, began a lawsuit against Gutenberg in which they demanded to be made partners; they lost the suit, but the trial revealed that Gutenberg was working on a new invention. Witnesses testified that a carpenter named Conrad Saspach had advanced sums for the building of a wooden press, and a goldsmith named Hans D\u00fcnne declared that he had sold Gutenberg materials as early as 1436\u2014giving historians a documented timeline for the press's development years before the famous 1455 Bible.\n\n**5. Surviving fragments of the Gutenberg Bible remain extraordinarily valuable and continue to surface at auction.** In one notable sale, eight pages from the first edition of the Gutenberg Bible sold in New York, far surpassing their $500,000-700,000 estimate, ultimately reaching nearly $970,000\u2014underscoring how scarce complete or partial original copies remain more than 500 years after printing, and how actively collectors and institutions still trade in Gutenberg-era artifacts.\n\n**Bonus note:** Interest in the press's legacy remains active institutionally\u2014for example, a seminary in New Orleans recently received and put on display a facsimile replica of the Gutenberg Bible, one of the most significant artifacts in Christian history, showing ongoing public and educational engagement with this history today.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# A Brief History of the Printing Press\n\n## Origins Before Gutenberg: Korea's Jikji\n\nWhile Johannes Gutenberg is often credited as the father of printing, the world's oldest surviving book printed with metal type actually predates his work by decades. The *Jikji* document was produced in 1377, during the reign of Goryeo Dynasty King U, at Heungdeoksa Temple in Cheongju, Korea, using movable, cast metal characters. Of the two original volumes, the first is now lost, but the second survives and is held today at the National Library of France, having been brought there by a French consul during King Gojong's reign in the late 19th century.\n\nIn recognition of its historical significance, UNESCO's International Year of the Book named *Jikji* the world's oldest surviving metal-type printed book in 1972. It was later formally included in UNESCO's Memory of the World Register on September 4, 2001.\n\n## Gutenberg's Innovation in Europe\n\nJohannes Gutenberg's central contribution was not the invention of printing itself, but a specific technical breakthrough: breaking text down into reusable, individually cast components. He took the concept of woodblock printing and broke it into its constituent parts\u2014individual letters, punctuation marks, and spaces\u2014casting each piece in an alloy of lead, antimony, and tin. This alloy produced durable type that could be precisely reproduced and rearranged for different texts, marking a major advance over earlier block-printing methods.\n\n## Documented Development of the Press\n\nRare legal records offer a window into Gutenberg's invention process. A lawsuit arose after Andreas Dritzehn died at Christmas 1438, when his heirs sought to be made partners in Gutenberg's enterprise, circumventing their original contract. Though the heirs lost the suit, testimony from the trial revealed valuable details: a carpenter named Conrad Saspach had advanced funds for building a wooden press, and a goldsmith named Hans D\u00fcnne testified he had sold Gutenberg materials as early as 1436. These records give historians a documented timeline showing Gutenberg's invention was underway years before his famous 1455 Bible was completed.\n\n## Enduring Legacy\n\nArtifacts from Gutenberg's printing enterprise remain highly valued more than 500 years later. In one notable auction, eight pages from the first edition of the Gutenberg Bible sold in New York for nearly $970,000, far exceeding their $500,000\u2013$700,000 estimate\u2014demonstrating the continued scarcity and desirability of original Gutenberg-era material among collectors and institutions.\n\nPublic and institutional interest in this history also persists today: a seminary in New Orleans recently received and displayed a facsimile replica of the Gutenberg Bible, reflecting ongoing educational engagement with the history of printing.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 52021,
+          "output_tokens": 3752,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 7,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.21160136,
+          "embedding_tokens": 656,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 3.936e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "general"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 2950,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2821,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report\u2014Jikji's 1377 origin, King U, Heungdeoksa Temple, Cheongju, the lost first volume, National Library of France, King Gojong, UNESCO 1972 recognition, Memory of the World Register (Sept 4, 2001), Gutenberg's alloy of lead/antimony/tin and component-based typesetting, the Dritzehn lawsuit (Christmas 1438), Conrad Saspach, Hans D\u00fcnne (1436), the 1455 Bible, the auction of eight pages for nearly $970,000 with a $500,000-700,000 estimate, and the New Orleans seminary facsimile\u2014all appear in the notes with matching numbers, dates, and names. No unsupported entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses the history of the printing press, covering pre-Gutenberg metal type printing (Korea's Jikji), Gutenberg's technical innovation of movable type, documented evidence of the press's development, and its lasting legacy. While it focuses heavily on early history and omits later developments (e.g., steam and rotary presses), it substantively and on-topic answers the question of summarising the printing press's history.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

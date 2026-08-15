@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "case_id": "contested-viewpoints",
+  "recorded_at": "2026-08-15T13:43:47+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "218dabf",
+  "pipeline_cost_usd": 0.1842,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "27ce1b70d9334a0d9c7baf06e1c6134a",
+        "owner": "",
+        "task": "Are AI agent frameworks worth adopting, or is direct API orchestration better?",
+        "mode": "research",
+        "topic_type": "contested",
+        "research_notes": "Here's a summary of concrete, recent developments relevant to this debate, with sources on both sides.\n\n## 1. Adoption is broad but shallow \u2014 frameworks aren't guaranteeing success\nAccording to PwC's 2025 AI Agent Survey, 79% of organizations have adopted AI agents, but broad adoption hasn't meant deep impact. Many deployments stall precisely because the framework underneath can't handle production requirements: state, cost, and oversight at real volume. This suggests framework adoption alone isn't the deciding factor in production success.\n\n## 2. Practitioners increasingly report framework choice matters less than people assume\nA production comparison piece based on shipping agents across 7 industries found that the choice of framework accounts for maybe 20% of production success. The other 80%: Retrieval quality. An agent with bad context will fail regardless of the orchestration framework. This directly counters the framing that picking the \"right\" framework is the key decision.\n\n## 3. A vocal \"just use the API directly\" camp has grown, fueled by a recent security incident\nThere's been a resurgence of skepticism toward heavyweight frameworks. A widely discussed Hacker News post argued \"i've been using loads of ai agent frameworks (crewai, langgraph, autogen) and i just don't get why they are so popular. i can literally do everything what they offer spending a few hours with cursor, and better.\" This skepticism sharpened after a critical LangChain deserialization vulnerability (CVE-2025-68664) made the rounds in December 2025, disclosed by security firm Cyata, which reignited \"framework fatigue\" discussions.\n\n## 4. Model providers' native capabilities have reduced the original case for frameworks\nOne analysis notes that as function calling and instruction-following improved, native function calling improved dramatically, making the agent scaffolding that LangChain provided redundant. Better instruction following made complex prompt management less necessary, and that this wasn't ideological \u2014 it was practical. The frameworks had compensated for immature APIs. As those APIs matured, the compensation became unnecessary overhead.\n\n## 5. Counter-trend: official \"lightweight\" SDKs from OpenAI/Anthropic are absorbing the hard infrastructure work\nOn the pro-framework side, both major labs have shipped official agent SDKs to handle the \"harness\" work developers used to build from scratch. One reviewer of many agent codebases argued that before recent releases, shipping a production agent meant building a harness \u2014 session persistence, credential isolation, approvals with resume, memory compaction, and tracing \u2014 and the homegrown harness was always the weakest layer. That work is now done for you, across the major SDKs and managed services. This reframes the debate: it's less \"framework vs. no framework\" and more \"heavyweight abstraction framework vs. lightweight official SDK plus direct API calls.\"\n\n## 6. Even LangChain's own team concedes different problems need different tools \u2014 no one-size-fits-all\nIn a self-reflective post, LangChain acknowledged past over-abstraction and stated it was arguably too opinionated at the start \u2014 more of an \"easy button\" for learning about prompting and RAG than a production-ready tool, and now positions multiple tools (LangChain, LangGraph, deepagents) for different use cases rather than a single universal answer, saying agent patterns have moved from chaining to workflow orchestration to tool-calling-in-a-loop with file-systems and memory... each has its place based on your use case.\n\n## Where sources disagree\n- **Complexity/debuggability**: Critics say abstraction hides bugs \u2014 \"abstraction depth hurts debuggability: when something breaks, you debug LangChain's internals, not your own logic,\" citing Octomind's team hitting exactly this wall \u2014 while framework vendors argue the plumbing (state, memory, multi-agent coordination) is exactly what's hard to hand-roll correctly at scale.\n- **Reliability engineering**: Some argue the reliability problem is a systems/infrastructure issue orthogonal to framework choice \u2014 \"the AI agents being deployed today can reason through complex tasks, chain together dozens of tool calls, and operate autonomously for hours. What most of them can't do is survive something going wrong halfway through,\" pointing to durable execution (e.g., Temporal) rather than agent frameworks as the real fix, whereas agent-framework vendors claim their orchestration layers directly solve this.\n- **Type-safety vs. ecosystem breadth**: Comparative testing found PydanticAI scored 8/10 for developer experience... by comparison, LangChain scored 5/10, and the type system caught 23 bugs during development that would have reached production in LangChain, yet LangChain still wins on integration breadth \u2014 a tradeoff rather than a clear winner.\n\n**Bottom line from the evidence**: recent data suggests the \"framework vs. direct API\" question is increasingly a false binary \u2014 most 2025\u20132026 sources converge on using official, lightweight SDKs (OpenAI Agents SDK, Anthropic's Claude Agent SDK/Skills) or narrow orchestration layers (LangGraph) for the small set of genuinely hard problems (durable state, multi-agent handoffs), while writing custom code for everything else, since retrieval quality and system design account for far more of production success than framework choice itself.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# Are AI Agent Frameworks Worth Adopting, or Is Direct API Orchestration Better?\n\n## Short Answer\nThe evidence points away from a clean binary. Most 2025\u20132026 sources converge on a middle path: use official, lightweight SDKs (OpenAI Agents SDK, Anthropic's Claude Agent SDK/Skills) or narrow orchestration layers (LangGraph) for a small set of genuinely hard problems \u2014 durable state, multi-agent handoffs \u2014 while writing custom code for everything else. Framework choice itself is not the primary driver of production success.\n\n## Key Findings\n\n**1. Adoption is widespread but not a proxy for success.**\nPwC's 2025 AI Agent Survey found 79% of organizations have adopted AI agents, yet many deployments stall because the underlying framework can't handle production requirements (state, cost, oversight at volume). Broad adoption hasn't translated into deep impact.\n\n**2. Framework choice is a minor factor compared to retrieval quality.**\nA production comparison across 7 industries estimated framework choice accounts for only ~20% of production success; the other 80% comes down to retrieval quality. An agent fed bad context fails regardless of orchestration layer.\n\n**3. A \"just use the API directly\" camp has grown, reinforced by a security incident.**\nPractitioner skepticism (e.g., a widely discussed Hacker News post) argues frameworks like CrewAI, LangGraph, and AutoGen offer little that can't be replicated in a few hours with direct tooling. This was sharpened by CVE-2025-68664, a critical LangChain deserialization vulnerability disclosed by Cyata in December 2025, which reignited \"framework fatigue\" discussions.\n\n**4. Improved native model capabilities have reduced the original rationale for frameworks.**\nAs function calling and instruction-following matured, the scaffolding frameworks like LangChain once provided became redundant. This shift is described as practical, not ideological \u2014 frameworks compensated for immature APIs, and that compensation is now less necessary.\n\n**5. Counter-trend: official lightweight SDKs are absorbing the hard infrastructure work.**\nOpenAI and Anthropic have shipped official agent SDKs handling session persistence, credential isolation, approvals with resume, memory compaction, and tracing \u2014 the \"harness\" work developers previously built (often poorly) themselves. This reframes the debate as \"heavyweight abstraction framework vs. lightweight official SDK plus direct API calls\" rather than \"framework vs. no framework.\"\n\n**6. Even LangChain acknowledges no one-size-fits-all answer.**\nLangChain's own team conceded it was originally too opinionated \u2014 more of an \"easy button\" for learning prompting/RAG than a production tool \u2014 and now offers multiple tools (LangChain, LangGraph, deepagents) for different use cases, reflecting that agent patterns have evolved from chaining to workflow orchestration to tool-calling-in-a-loop with file systems and memory.\n\n## Points of Disagreement\n\n| Issue | Critics' View | Vendors' View |\n|---|---|---|\n| **Debuggability** | Abstraction hides bugs; when something breaks, you debug the framework's internals, not your own logic (cited via Octomind's experience) | Plumbing like state, memory, and multi-agent coordination is exactly what's hard to hand-roll correctly at scale |\n| **Reliability** | The real fix is durable execution infrastructure (e.g., Temporal), not agent frameworks \u2014 agents can reason and chain tool calls but can't survive failures mid-task | Orchestration layers claim to solve this directly |\n| **Type-safety vs. breadth** | PydanticAI scored 8/10 on developer experience vs. LangChain's 5/10, catching 23 bugs during development that would have reached production in LangChain | LangChain still wins on integration breadth \u2014 a genuine tradeoff, not a clear winner |\n\n## Bottom Line\nThe \"framework vs. direct API\" framing is increasingly a false binary. The strongest signal from the evidence is that **retrieval quality and overall system design matter far more than which orchestration layer is chosen**. Where frameworks add value is in solving specific hard problems (durable state, multi-agent handoffs) \u2014 best addressed today by lightweight official SDKs rather than heavyweight abstraction frameworks \u2014 while everything else is often better served by direct, custom code.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 45677,
+          "output_tokens": 4278,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 5,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.18420042,
+          "embedding_tokens": 1107,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 6.642e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "contested"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 5407,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 4306,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report traces to the notes. The statistics (79% adoption from PwC 2025 AI Agent Survey, ~20%/80% framework vs retrieval across 7 industries, PydanticAI 8/10 vs LangChain 5/10, 23 bugs), the named entities (CVE-2025-68664, Cyata, December 2025, Hacker News, CrewAI/LangGraph/AutoGen, OpenAI Agents SDK, Anthropic Claude Agent SDK/Skills, deepagents, Octomind, Temporal, PydanticAI), and all descriptive claims match the notes. No fabricated numbers, dates, or entities were introduced; the connective prose is faithful to the source.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses the question of whether AI agent frameworks are worth adopting versus direct API orchestration. It provides a nuanced answer (a middle path/false binary), backs it with specific findings, presents points of disagreement between critics and vendors, and delivers a clear bottom line that directly engages with the trade-offs posed in the question.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}
