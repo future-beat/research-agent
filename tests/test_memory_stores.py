@@ -211,6 +211,85 @@ def test_vector_memory_alias_still_points_at_the_json_store():
     assert vector_memory.VectorMemory is JSONMemoryStore
 
 
+def test_migration_and_seed_paths_bypass_add_by_design():
+    """The two bulk writers go around add(), so no cap can evict during them.
+
+    Both bounds -- the TTL sweep and the per-owner count cap -- are enforced at
+    the add() seam and nowhere else. That is the right place for a bound on
+    what the agent remembers, and the wrong thing to apply to a migration
+    moving a corpus between tables or a fixture laying down a golden set: a
+    migration that silently dropped every note past the hundredth would be a
+    data-loss bug wearing a feature's clothes. Both already write raw SQL, for
+    reasons that predate the cap, and this turns that from something you have
+    to read three files to know into a gate.
+
+    recall_golden gets the two-part assertion rather than a bare `not in`: its
+    seed() docstring says out loud that it bypasses add(), so the token is
+    legitimately in the source exactly once. A naive absence check would have
+    been red on day one against entirely correct code.
+    """
+    import inspect
+
+    from research_agent import migrate, recall_golden
+
+    assert "store.add" not in inspect.getsource(migrate), (
+        "a migration write path now goes through add(), where the TTL sweep "
+        "and the per-owner cap can silently drop rows mid-migration"
+    )
+
+    seed_source = inspect.getsource(recall_golden)
+    assert seed_source.count("store.add") == 1, (
+        "recall_golden should mention store.add exactly once, in the docstring "
+        "recording the deliberate bypass"
+    )
+    assert "store.add" in (recall_golden.seed.__doc__ or ""), (
+        "the single mention is no longer the docstring, so it is now a call"
+    )
+
+
+# --------------------------------------------------------------------------
+# The per-owner note cap knob
+# --------------------------------------------------------------------------
+
+
+def test_note_cap_defaults_when_unset(monkeypatch):
+    monkeypatch.delenv("NOTE_CAP_PER_OWNER", raising=False)
+    assert vector_memory.note_cap_per_owner() == 100
+
+
+def test_note_cap_reads_a_valid_override(monkeypatch):
+    """Whitespace included: env files acquire it, and " 25 " is a 25."""
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", " 25 ")
+    assert vector_memory.note_cap_per_owner() == 25
+
+
+@pytest.mark.parametrize("raw", ["0", "-5", "banana", "", "   ", "3.5"])
+def test_a_useless_note_cap_falls_back_to_the_default(raw, monkeypatch):
+    """<= 0 and unparseable both read as "unset", which is NOT what the TTL
+    does with a zero.
+
+    NOTE_TTL_DAYS=0 is a meaningful value -- test_note_ttl uses it to put a
+    note past the cutoff without sleeping a week -- so note_ttl_seconds()
+    floors at zero and honours it. A cap of zero has no such meaning: every
+    add() would evict the note it just wrote, which is memory recall silently
+    disabled rather than a configuration. So this follows
+    cost_discount_factor()'s clamp instead, for the same reason it exists
+    there. An operator who wants no cap does not set the variable.
+    """
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", raw)
+    assert vector_memory.note_cap_per_owner() == 100
+
+
+def test_note_cap_is_read_per_call(monkeypatch):
+    """The session_ttl_seconds() convention: never cached in a module
+    constant, so a process reconfigured under it answers the new number -- and
+    so a test can flip it between two add() calls."""
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "5")
+    assert vector_memory.note_cap_per_owner() == 5
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "9")
+    assert vector_memory.note_cap_per_owner() == 9
+
+
 # --------------------------------------------------------------------------
 # The Voyage seam: what it was billed for
 # --------------------------------------------------------------------------

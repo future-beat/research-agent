@@ -17,6 +17,7 @@ rather than merely written.
 import contextlib
 import threading
 import time
+from types import SimpleNamespace
 
 import psycopg
 import pytest
@@ -608,6 +609,329 @@ def test_note_ttl(notes, monkeypatch):
         "widening the TTL brought the note back; it was hidden, not swept"
     )
     assert notes.query("chroma voyage", owner="alice") == ["chroma voyage"]
+
+
+# -- the per-owner note cap (Phase 20) -------------------------------------
+#
+# The second bound. Expiry answers "how long", the cap answers "how many", and
+# both have to mean the same thing on all four backends or the swappability
+# claim is prose. These run on the same four arms for the same reason the two
+# above do.
+
+
+def _matching_chroma_notes(notes, needle: str) -> tuple[list[str], list[dict]]:
+    got = notes._collection.get(include=["metadatas", "documents"])
+    pairs = [
+        (note_id, dict(meta or {}))
+        for note_id, meta, doc in zip(
+            got.get("ids") or [],
+            got.get("metadatas") or [],
+            got.get("documents") or [],
+            strict=True,
+        )
+        if needle in (doc or "")
+    ]
+    return [note_id for note_id, _ in pairs], [meta for _, meta in pairs]
+
+
+def _age_notes(notes, needle: str, seconds: float) -> None:
+    """Drag every note whose text contains `needle` `seconds` into the past.
+
+    `_rewind`'s four-backend sibling, reaching past the store API for the same
+    reason and with the same lack of apology: the alternative is sleeping for
+    eight days. What comes out is exactly the row eight idle days produce --
+    a created_at, and nothing else, moved.
+    """
+    if isinstance(notes, PgVectorMemoryStore):
+        notes.db.execute(
+            f"UPDATE {CONTRACT_NOTES_TABLE} "
+            f"SET created_at = created_at - (%s * interval '1 second') "
+            f"WHERE text LIKE %s",
+            (seconds, f"%{needle}%"),
+        )
+    elif isinstance(notes, ChromaMemoryStore):
+        ids, metas = _matching_chroma_notes(notes, needle)
+        if ids:
+            for meta in metas:
+                meta["created_at"] = float(meta.get("created_at", 0.0)) - seconds
+            notes._collection.update(ids=ids, metadatas=metas)
+    else:
+        with notes._lock:
+            for entry in notes.entries:
+                if needle in entry["text"]:
+                    entry["created_at"] = entry.get("created_at", 0.0) - seconds
+            notes._persist()
+
+
+def _collide_notes(notes, needle: str) -> None:
+    """Force every note containing `needle` onto ONE identical created_at.
+
+    The oldest of them is the value they all take, so nothing is pushed toward
+    the TTL cutoff -- this manufactures a tie, not an expiry.
+
+    `seq` is deliberately left truthful on the chroma arm: forging created_at
+    while the storage-native insertion key stays honest is precisely the
+    collision under test, and forging both would test nothing at all.
+    """
+    if isinstance(notes, PgVectorMemoryStore):
+        notes.db.execute(
+            f"UPDATE {CONTRACT_NOTES_TABLE} SET created_at = "
+            f"(SELECT MIN(created_at) FROM {CONTRACT_NOTES_TABLE} WHERE text LIKE %s) "
+            f"WHERE text LIKE %s",
+            (f"%{needle}%", f"%{needle}%"),
+        )
+    elif isinstance(notes, ChromaMemoryStore):
+        ids, metas = _matching_chroma_notes(notes, needle)
+        if ids:
+            oldest = min(float(meta.get("created_at", 0.0)) for meta in metas)
+            for meta in metas:
+                meta["created_at"] = oldest
+            notes._collection.update(ids=ids, metadatas=metas)
+    else:
+        with notes._lock:
+            matches = [e for e in notes.entries if needle in e["text"]]
+            if matches:
+                oldest = min(e.get("created_at", 0.0) for e in matches)
+                for entry in matches:
+                    entry["created_at"] = oldest
+            notes._persist()
+
+
+def _owned(notes, owner: str) -> set[str]:
+    """Every one of `owner`'s recallable notes, as a set.
+
+    Membership, never order: the notes these cases write all share one
+    vocabulary word and differ only in an out-of-vocabulary suffix, so they
+    embed IDENTICALLY under FakeEmbedder and similarity cannot rank them.
+    That is deliberate -- WHICH notes survive an eviction is the claim, and the
+    order of score-tied results is backend-defined and out of scope.
+    """
+    return set(notes.query("langgraph", top_k=50, min_similarity=0.0, owner=owner))
+
+
+def test_note_cap_evicts_the_oldest_first(notes, monkeypatch):
+    """One owner past the cap loses their oldest note, physically, everywhere.
+
+    Asserted on len(), which is unfiltered on all four backends: against
+    query() alone an eviction is indistinguishable from a filter, and only one
+    of them bounds the store.
+
+    Determinism here is not free. Four adds in a tight loop collide on
+    created_at by construction -- 200 rapid time.time() calls on this machine
+    produced 14 distinct values -- so "the oldest" cannot be decided by the
+    clock. Each backend breaks the tie with its own insertion-ordered key
+    (list index, an explicit seq, BIGSERIAL id), which is what makes all four
+    arms agree on the same survivors rather than agreeing by luck.
+    """
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "3")
+    for n in (1, 2, 3):
+        notes.add(f"langgraph note-{n}", owner="alice")
+
+    # Non-vacuity: all three are genuinely recallable first, so a backend
+    # returning [] for unrelated reasons cannot pass the eviction half below.
+    assert _owned(notes, "alice") == {"langgraph note-1", "langgraph note-2",
+                                      "langgraph note-3"}
+
+    notes.add("langgraph note-4", owner="alice")
+
+    assert len(notes) == 3, "the cap did not physically evict; len() is unfiltered"
+    assert _owned(notes, "alice") == {"langgraph note-2", "langgraph note-3",
+                                      "langgraph note-4"}
+
+
+def test_note_cap_never_crosses_owners(notes, monkeypatch):
+    """Filling one identity's bucket does not touch anyone else's.
+
+    The Phase 12 isolation property, extended from the read path to the write
+    path -- and the write path is where getting it wrong is worse, because a
+    leak shows up as somebody else's note appearing while this shows up as
+    somebody else's note silently gone.
+
+    bob's note is written FIRST on purpose: it is the globally-oldest row, so
+    an eviction that picks the oldest note rather than the oldest note OF THIS
+    OWNER takes his. Written last it would survive either implementation and
+    this case would pass vacuously. The '' orphan is here for the same reason
+    it is everywhere else in this file: it is a real bucket, never a wildcard.
+    """
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "2")
+    notes.add("langgraph bob-1", owner="bob")
+    notes.add("langgraph orphan-1")  # owner='' by default
+    for n in (1, 2, 3):
+        notes.add(f"langgraph alice-{n}", owner="alice")
+
+    assert _owned(notes, "alice") == {"langgraph alice-2", "langgraph alice-3"}
+    assert _owned(notes, "bob") == {"langgraph bob-1"}
+    assert _owned(notes, "") == {"langgraph orphan-1"}
+    assert len(notes) == 4
+
+    # bob now reaches his own cap. Nothing of his is over it, so nothing goes
+    # -- and nothing of alice's goes either, which is the other direction of
+    # the same property.
+    notes.add("langgraph bob-2", owner="bob")
+
+    assert _owned(notes, "bob") == {"langgraph bob-1", "langgraph bob-2"}
+    assert _owned(notes, "alice") == {"langgraph alice-2", "langgraph alice-3"}
+    assert _owned(notes, "") == {"langgraph orphan-1"}
+    assert len(notes) == 5
+
+
+def test_note_cap_applies_to_the_orphan_bucket_too(notes, monkeypatch):
+    """'' is a bucket the cap enforces, not merely a bucket the cap spares.
+
+    The case above proves the orphan rows survive somebody else's eviction.
+    That is the half an implementation gets right by accident: skip the empty
+    owner and the assertion passes. This is the other half -- '' overflows and
+    evicts like any other identity -- and the two together say what "exact
+    owner matching" means in both directions.
+
+    Verification measured this behaviour on all four backends and found it
+    already true; what was missing was a gate that would notice if it stopped
+    being true. Legacy pre-Phase-12 rows all live in this bucket, so an
+    unbounded '' is exactly the unbounded store this phase exists to close.
+    """
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "3")
+    for n in (1, 2, 3, 4):
+        notes.add(f"langgraph orphan-{n}")  # owner='' by default
+
+    assert _owned(notes, "") == {
+        "langgraph orphan-2",
+        "langgraph orphan-3",
+        "langgraph orphan-4",
+    }
+    assert len(notes) == 3
+
+
+def test_note_cap_and_ttl_compose_sweep_first(notes, monkeypatch):
+    """The sweep is unconditional and runs first, so the cap counts only live
+    notes -- and an owner nowhere near the cap still gets swept.
+
+    Under-cap is the discriminating construction, and only under-cap. At or
+    above the cap, an implementation that had folded the sweep into eviction
+    removes the same rows for the wrong reason and this would pass without
+    noticing. Below it, that implementation never fires at all and the expired
+    row sits in the store forever -- regressing the guarantee test_note_ttl
+    already makes. This owner holds 2 of 3 before the add and 2 of 3 after it,
+    so the cap logic cannot be what removed anything.
+    """
+    monkeypatch.setenv("NOTE_TTL_DAYS", "7")
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "3")
+    notes.add("langgraph alice-1", owner="alice")
+    notes.add("langgraph alice-2", owner="alice")
+
+    _age_notes(notes, "alice-1", 8 * 86400)
+    # Non-vacuity: the expired row is still physically there. Nothing has
+    # swept yet, so the assertion below is about a removal that has to happen,
+    # not one that already happened.
+    assert len(notes) == 2
+
+    notes.add("langgraph alice-3", owner="alice")
+
+    assert len(notes) == 2, "add() did not sweep the expired note when the owner was under cap"
+    assert _owned(notes, "alice") == {"langgraph alice-2", "langgraph alice-3"}
+
+
+def test_note_cap_tie_break_is_deterministic_when_created_at_collides(notes, monkeypatch):
+    """Identical timestamps, identical answer, all four arms.
+
+    This is the byte-identical claim at the point where such claims usually
+    die. The collision is not a contrived edge case: 200 rapid time.time()
+    calls on this machine returned 14 distinct values, so three notes written
+    in a loop SHARE a created_at as the normal outcome. Forced here rather
+    than raced for, so the case is deterministic instead of merely likely.
+
+    With the clock unable to decide, each backend falls back to its own
+    insertion-ordered key -- list index, an explicit seq, BIGSERIAL id -- and
+    the assertion is that those three different keys produce one answer: the
+    note written first is the note that goes, not an arbitrary member of the
+    tie.
+    """
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "3")
+    for n in (1, 2, 3):
+        notes.add(f"langgraph alice-{n}", owner="alice")
+    _collide_notes(notes, "langgraph alice-")
+
+    notes.add("langgraph alice-4", owner="alice")
+
+    assert len(notes) == 3
+    assert _owned(notes, "alice") == {"langgraph alice-2", "langgraph alice-3",
+                                      "langgraph alice-4"}
+
+
+class _ReorderedGet:
+    """A collection whose get() returns everything in reverse.
+
+    Delegates everything else to the real collection, so the store under test
+    is genuinely chroma -- only the ordering of one read is a lie. Every list
+    field is reversed together, so ids, documents and metadatas stay zipped
+    consistently: this simulates a different order, not a corrupted result.
+    """
+
+    _LIST_FIELDS = ("ids", "documents", "metadatas", "embeddings", "uris", "data")
+
+    def __init__(self, collection):
+        self._wrapped = collection
+
+    def __getattr__(self, name):
+        return getattr(self._wrapped, name)
+
+    def get(self, *args, **kwargs):
+        got = dict(self._wrapped.get(*args, **kwargs))
+        for field in self._LIST_FIELDS:
+            if isinstance(got.get(field), list):
+                got[field] = list(reversed(got[field]))
+        return got
+
+
+def test_chroma_cap_eviction_survives_a_reordered_get(tmp_path, monkeypatch):
+    """Chroma evicts by seq, not by the order get() happened to hand back.
+
+    The one property the shared four-arm suite structurally cannot reach.
+    chromadb 1.4.1 returns items in insertion order -- observed, twice, this
+    phase -- which is not a documented guarantee, so an implementation that
+    trusted it would pass every contract case above by the vendor's good
+    manners and evict the wrong note the day a version bump changed the
+    internal scan order. 20-RESEARCH Pitfall 3. Here get() lies, and the
+    eviction has to be right anyway.
+
+    The clock is pinned for the three adds so all of them share one
+    created_at. Without that, a created_at sort would coincidentally agree
+    with seq and this gate would pass over a broken tie-break -- the collision
+    is what makes the property being tested the property being asserted.
+    `seq` is left to be computed honestly.
+    """
+    try:
+        import chromadb  # noqa: F401
+    except ImportError:
+        pytest.skip("chromadb not installed")
+
+    monkeypatch.setenv("NOTE_CAP_PER_OWNER", "2")
+    fixed = time.time()
+    monkeypatch.setattr(vm, "time", SimpleNamespace(time=lambda: fixed))
+
+    store = ChromaMemoryStore(
+        path=str(tmp_path / "chroma"),
+        collection=CONTRACT_NOTES_TABLE,
+        embedder=FakeEmbedder(),
+    )
+    try:
+        store._collection = _ReorderedGet(store._collection)
+        for n in (1, 2, 3):
+            store.add(f"langgraph note-{n}", owner="alice")
+
+        assert len(store) == 2
+        survivors = set(store.query("langgraph", top_k=50, min_similarity=0.0, owner="alice"))
+        assert survivors == {"langgraph note-2", "langgraph note-3"}
+
+        # And the field the eviction leaned on is itself monotonic in
+        # insertion order, which is the reason it can be leaned on.
+        got = store._collection.get(include=["metadatas", "documents"])
+        seq_by_text = {
+            doc: int((meta or {}).get("seq", 0))
+            for doc, meta in zip(got["documents"], got["metadatas"], strict=True)
+        }
+        assert seq_by_text["langgraph note-2"] < seq_by_text["langgraph note-3"]
+    finally:
+        store.close()
 
 
 # --------------------------------------------------------------------------

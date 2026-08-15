@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
 status: executing
-stopped_at: "Phase 19 COMPLETE — all three waves executed, 19-VALIDATION reconciled end to end (status: complete, nyquist_compliant: true). Wave 3 (19-03) moved the completion log line to service.py where session_id actually exists, renamed the graph's terminal line to graph_finished, and re-derived every doc surface the phase falsified. 772 passed / 67 skipped keyless (+6 this wave, +23 across the phase, every one accounted for test by test); evals 41/41 real exit 0; ruff clean both forms; 3 mutations observed red this wave, 13 across the phase. Wave 3's RED found a gap the plan had assumed away: _stream's except arm logged NOTHING, so every failed streaming run — which is every failed DEMO run — was invisible in fly logs. Fixed under Rule 2. Untouched as fenced: index.html (zero modifications, measured) and README's Limitations bullets (Phase 22's). Next: phase verification, then the PR."
-last_updated: "2026-08-14T08:05:00.000Z"
-last_activity: "2026-08-14 — Phase 19 closed: wave 3 shipped log addressability plus the OPERATIONS/README/ARCHITECTURE doc pass. The wave's most valuable finding was not the feature but its complement — the plan asserted the failure arm 'already emits run_failed (existing, untouched)', which was true of the blocking path and false of the streaming one, where a failed run left no log record at all."
+stopped_at: "Phase 20 COMPLETE — both waves executed, 20-VALIDATION reconciled (all 8 automated rows carry measured Status evidence; the Manual-Only row disposed of in writing). Wave 1 (20-01) shipped NOTE_CAP_PER_OWNER (default 100, cost_discount_factor clamp) plus oldest-first per-owner eviction written four times, one per backend; wave 2 (20-02) gave OPERATIONS the knob row, judged DESIGN by reading and left it untouched with the reason recorded, and re-measured README's counts. 796 passed / 71 skipped keyless (+23 / +4 for the phase, reconciled test by test against a zero-removal --collect-only id diff); contract file armed at :54329 118/1; evals 41/41 real exit 0; ruff clean both forms; 7 mutations observed red for the 6 the plans named. The phase's finding: the shared 4-arm suite is STRUCTURALLY BLIND to a chroma created_at-vs-seq tie-break regression (chromadb 1.4.1 returns get() in insertion order, so the wrong sort passes anyway) — only the stubbed reordered-get gate catches it. README:291 ('Notes are bounded by expiry alone') is now KNOWINGLY FALSE and deliberately byte-identical, the third such bullet standing after 18's :285 and 19's :289; Phase 22 deletes all three. Next: phase verification, then the PR."
+last_updated: "2026-08-14T11:40:00.000Z"
+last_activity: "2026-08-14 — Phase 20 closed: notes gained their second bound and the doc surfaces were re-derived by measurement rather than by assumption. The wave-2 pass found a third stale test count the plan had not named (docs/OPERATIONS.md:609) and recorded two absences as results — DESIGN makes no note-lifecycle claim at all, and nothing in OPERATIONS ever said expiry was the only bound."
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
-  percent: 40
+  completed_phases: 3
+  total_plans: 9
+  completed_plans: 9
+  percent: 60
 ---
 
 # Project State
@@ -21,16 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-04)
 
 **Core value:** The pipeline never answers from model knowledge when it should be answering from research — and it is demonstrable to a stranger in one click.
-**Current focus:** Phase 18 — Independent eval judge (v1.2 roadmap created 2026-08-13)
+**Current focus:** Phase 20 — Note count bound (v1.2 roadmap created 2026-08-13)
 
 ## Current Position
 
-Phase: 19 — Credential validity, log addressability, demo CSP (v1.2 "Nothing uncovered", Phases 18-22)
-Plan: 3 plans (19-01 probe ✅, 19-02 CSP ✅, 19-03 log line + docs ✅), 3 sequential waves (shared service.py/test_service.py ownership), checker-verified first-pass clean
-Status: **COMPLETE — all three waves executed and the validation contract reconciled.** 19-01 shipped the credential probe (5 commits); 19-02 shipped the demo CSP (4 commits); 19-03 shipped log addressability and the doc pass (6 commits). 19-VALIDATION.md is `status: complete` / `nyquist_compliant: true`: every automated row carries measured evidence and a recorded mutation, and **13 mutations were run across the phase for the 12 the plans named — three of which corrected something rather than confirming it.** Final gates: **772 passed / 67 skipped** keyless (749 → 760 → 766 → 772, +23 for the phase, accounted for test by test in each SUMMARY); offline evals **41/41, real `$?` 0**; `ruff check .` and `ruff check src tests evals` both clean. The page's zero-edit budget held to the end: `git diff --stat $(git merge-base main HEAD) HEAD -- src/research_agent/static/index.html` and `git status --porcelain` on the same path both still print nothing. Phase 18 is COMPLETE, verified, and merged as PR #26.
+Phase: 20 — Note count bound (v1.2 "Nothing uncovered", Phases 18-22)
+Plan: 2 plans (20-01 the cap ✅, 20-02 the doc pass ✅), 2 waves — wave 2 depends on wave 1 for both the shipped behaviour it documents and the test counts it measures
+Status: **COMPLETE — both waves executed and the validation contract reconciled.** 20-01 shipped `NOTE_CAP_PER_OWNER` (default 100, `cost_discount_factor()`'s clamp, read per call) plus owner-scoped oldest-first eviction inside all four `add()` implementations, in the fixed order sweep → insert → evict (3 commits + the record); 20-02 gave OPERATIONS the knob row, judged DESIGN by reading and left it untouched, re-measured README's counts and left the Limitations bullet byte-identical (2 commits + the record). 20-VALIDATION.md's **eight automated rows all carry measured Status evidence** — command, observed result, and what the recorded mutation did — and the Manual-Only row is disposed of in writing. **7 mutations were run for the 6 the plans named.** Final gates: **796 passed / 71 skipped** keyless (773 → 796, +23 / +4, reconciled test by test against a zero-removal `--collect-only` id diff); `tests/test_store_contract.py` armed at `:54329` **118 / 1**; offline evals **41/41, real `$?` 0**; `ruff check .` and `ruff check src tests evals` both clean. `git diff --stat HEAD -- src tests` printed **0 lines** at both wave-2 commits.
 
-**Still open on Phase 19, stated rather than dropped:** (1) phase verification has not been run — no `19-VERIFICATION.md` exists yet; (2) 19-VALIDATION's **two Manual-Only rows are OPEN** and both need the manual deploy — the live page under the CSP header (UI-SPEC acceptance checks 1–7) and a real provider probe round-trip (`/health` reading `valid: true` with a fresh `checked_at` inside one TTL); (3) the branch `gsd/phase-19-credential-validity` is unpushed and lands via a **pull request**, not a push.
-Last activity: 2026-08-14 — Phase 19 planned end to end: CONTEXT from milestone decisions; UI-SPEC written, checker-approved (CSP contract: 1 script + 1 style block, zero inline handlers, zero-edit budget on index.html, hashes recomputed byte-identical twice independently); RESEARCH proved the session_id structural constraint empirically (LangGraph 1.2.9 drops undeclared state keys — the fix must live in service.py) and settled probe mechanics (fire-and-forget on the existing _probes() executor, count_tokens free, typed-exception mapping); VALIDATION contract written; 3 PLANs with 7 planning decisions locked (P-01…P-07, including the P-05 mutation correction and the P-07 event-name inversion); plan-checker passed first-iteration with 0 blockers / 0 warnings
+**The phase's finding, worth carrying:** mutation 2c (chroma sorting its eviction by `created_at` instead of `seq`) left the 4-arm collision case **GREEN** — real chromadb 1.4.1 returns `get()` in insertion order, so a stable sort over collided stamps reproduces `seq` order and the correct note is deleted anyway. The shared contract suite is therefore **structurally blind** to that regression on chroma; only the stubbed `test_chroma_cap_eviction_survives_a_reordered_get` catches it, and only because the clock is pinned as well as `get()` reordered. If `chromadb` is ever unpinned, that is the test that still means something.
+
+**Still open on Phase 20, stated rather than dropped:** (1) phase verification has not been run — no `20-VERIFICATION.md` exists yet; (2) the branch `gsd/phase-20-note-count-bound` is unpushed and lands via a **pull request**, not a push; (3) `README.md:291` ("Notes are bounded by expiry alone") is **knowingly false and deliberately byte-identical** — the third such bullet standing, after Phase 18's `:285` and Phase 19's `:289`, all three owned by Phase 22. That is a real cost of the sequencing and the strongest argument for Phase 22 landing before anything discretionary.
+
+**Still open on Phase 19, carried forward:** its two Manual-Only rows remain **OPEN** and both need the manual deploy — the live page under the CSP header (UI-SPEC acceptance checks 1–7) and a real provider probe round-trip (`/health` reading `valid: true` with a fresh `checked_at` inside one TTL). Phase 19 itself is verified (`19-VERIFICATION.md`, `status: passed`, 5/5) and merged as PR #27; Phase 18 is verified and merged as PR #26.
+Last activity: 2026-08-14 — Phase 20 executed end to end: wave 1 wrote the cap four times and proved it with four 4-arm contract cases plus a stubbed chroma gate; wave 2 re-derived the doc surfaces by measurement, finding a third stale test count the plan had not named (`docs/OPERATIONS.md:609`) and recording two absences as results — DESIGN makes no note-lifecycle claim at all, and nothing in OPERATIONS ever said expiry was the only bound
+
+**Deferred out of Phase 20, recorded rather than silent** (`.planning/phases/20-note-count-bound/deferred-items.md`): `.planning/codebase/CONCERNS.md:242` still asserts notes have **no eviction path at all** — false since Phase 12, doubly false now, and left standing because it is a dated audit snapshot regenerated wholesale by `/gsd-map-codebase`; and `PROJECT.md:31-32`'s counts (749 / 67 / 816) are two phases stale against the measured **796 / 71 / 867**
 
 **Deferred out of Phase 18, recorded rather than silent:** a real Opus 4.8 judge verdict has never round-tripped (every path is fake-driven) — the ~$0.06 one-verdict probe goes to Phase 21's record run. Also logged in `deferred-items.md`: the record console's missing DECLINED detail (18-02), three stale `.planning/codebase/` maps still naming a `claude-opus-5` judge, and PROJECT.md's unmeasurable with-Postgres count
 
@@ -57,6 +63,7 @@ Last activity: 2026-08-14 — Phase 19 planned end to end: CONTEXT from mileston
 | 17 | 3 of 4 (17-01, 17-02, 17-03; 17-04 Tasks 1–2 only, T3 unstarted) | 165min | 41min |
 | 18 | 4 of 4 (18-01 … 18-04) — **complete** | 135min | 34min |
 | 19 | 3 of 3 (19-01, 19-02, 19-03) — **complete** | 105min | 35min |
+| 20 | 2 of 2 (20-01, 20-02) — **complete** | 90min | 45min |
 
 **Recent Trend:**
 

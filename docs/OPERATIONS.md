@@ -606,7 +606,7 @@ path is the work, not a flag.
 ## CI
 
 ```
-lint · tests · evals            ruff, 773 tests, 41 offline eval cases
+lint · tests · evals            ruff, 799 tests, 41 offline eval cases
 image build · smoke test        docker build, boot the container, probe it
 ```
 
@@ -672,6 +672,7 @@ Environment variables:
 | `SESSIONS_TOKEN` | Operator credential, sent as `X-Demo-Token`: lists and deletes **every** owner's sessions. While unset, only the operator view is closed — callers still reach their own | *(unset)* |
 | `SESSION_TTL_DAYS` | A session stops resolving this long after its last turn, and is swept on the next run. Reads don't renew it | `7` |
 | `NOTE_TTL_DAYS` | A stored note stops being recalled this long after it was written, and is swept on the next `add()`. Same value and same mechanics as sessions, on all four vector backends | `7` |
+| `NOTE_CAP_PER_OWNER` | The second bound on notes, beside the TTL: one owner holds at most this many live notes, and adding past the cap evicts that owner's oldest inside the same `add()` that already sweeps expiry — identically on all four vector backends, and never across owners. `≤ 0` or unparseable falls back to `100`, so a typo cannot silently switch recall off by making every write evict the note it just made; an operator who wants no cap leaves this unset. It bounds **every** `add()`, including the notes the eval harness seeds, so a future large-corpus eval case would be truncated to the cap | `100` |
 | `TRUST_FORWARDED_FOR` | Believe `X-Forwarded-For` for the client IP in **log lines only** — since Phase 12 nothing keys fairness on it (ADR-0007) | `false` |
 | `LOG_FORMAT` · `LOG_LEVEL` | `json` or `text`; level | `json` / `INFO` |
 | `OTEL_ENABLED` | Emit OpenTelemetry spans when the package is installed | `true` |
