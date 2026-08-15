@@ -2453,6 +2453,76 @@ def stale_judges(directory: pathlib.Path | None = None) -> list[tuple[str, str]]
     return stale
 
 
+def documented_refusals() -> dict[str, dict]:
+    """The cases a paid record run attempted and the graders or the judge
+    refused, as `{case_id: {kind, detail, cost_usd, batch}}`.
+
+    This file exists because Phase 21 measured the two halves of
+    REQ-forty-recorded-answers pulling against each other. "All 40 carry
+    recorded answers" and "a committed fixture is one the graders and the judge
+    approved" are both in the requirement, and on the real pipeline 15 of 40
+    cases satisfy the second only by failing the first. Forcing them would buy
+    the number forty by discarding the property that makes a fixture worth
+    grading, so they are written down instead.
+    """
+    return json.loads((pathlib.Path("evals") / "REFUSALS.json").read_text())["refusals"]
+
+
+def test_every_golden_case_is_recorded_or_documented_as_refused():
+    """The amended completeness criterion, on the real tree.
+
+    Ratified mid-execution once batch A's refusal rate made 40/40 unreachable:
+    every golden case is either recorded or carries a documented refusal. The
+    union is what must be total -- neither half is allowed to shrink quietly.
+
+    This is stricter than it looks. A case cannot be dropped from BOTH sets to
+    make the gate pass: `unaccounted` catches that. And a case cannot be listed
+    in both -- `overlap` catches a refusal record left behind after a later
+    successful recording, which would otherwise let the refusal list rot into
+    fiction while still summing to forty.
+    """
+    recorded = {path.stem for path in F.fixture_paths()}
+    refused = set(documented_refusals())
+    golden = {case.id for case in GOLDEN}
+
+    unaccounted = sorted(golden - recorded - refused)
+    overlap = sorted(recorded & refused)
+    orphan_refusals = sorted(refused - golden)
+
+    assert unaccounted == [], f"neither recorded nor documented as refused: {unaccounted}"
+    assert overlap == [], f"recorded AND listed as refused -- stale refusal record: {overlap}"
+    assert orphan_refusals == [], f"refusal names no golden case: {orphan_refusals}"
+    assert len(recorded) + len(refused) == len(golden)
+
+
+def test_documented_refusals_say_why_and_distinguish_defect_from_judgement():
+    """A refusal record that only names cases is a list of excuses.
+
+    Each entry carries the kind and the detail, and `judge_truncated` is kept
+    distinct from `grader` on purpose: a grader refusal is the machinery
+    working, while a truncated verdict is an operational failure of the judge
+    harness -- the one `evals/graders.py:758` predicted -- and the two must not
+    read as the same kind of miss when someone decides what to fix.
+    """
+    refusals = documented_refusals()
+
+    assert refusals, "the refusal record is empty -- if that is true, delete the file"
+    for case_id, entry in refusals.items():
+        assert entry["kind"] in {
+            "grader",
+            "judge_truncated",
+            "recorded_then_failed_replay",
+            "error",
+        }, case_id
+        assert entry["detail"].strip(), f"{case_id} refuses without saying why"
+
+    kinds = {case_id: entry["kind"] for case_id, entry in refusals.items()}
+    assert "judge_truncated" in kinds.values(), (
+        "the truncation failures are the phase's one infrastructure finding; "
+        "if they are gone, the record and the fix both need revisiting"
+    )
+
+
 def test_fixture_coverage_names_every_golden_case_that_has_no_fixture(tmp_path):
     """Named, never counted. A gate that says "39 missing" without saying which
     leaves the operator diffing two directories by hand at exactly the moment

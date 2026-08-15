@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "case_id": "followups-chain",
+  "recorded_at": "2026-08-15T15:47:59+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "47dd8d3",
+  "pipeline_cost_usd": 0.472078,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "56367f96068942d68c7d1d8bdaca8149",
+        "owner": "",
+        "task": "How do LLM agents implement long-term memory?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "I have solid, specific sources now. Here's a summary of concrete, recent facts on how LLM agents implement long-term memory:\n\n**1. Mem0's benchmarked architecture (arXiv:2504.19413, ECAI 2025)** uses an LLM-driven ADD/UPDATE/DELETE/NOOP pipeline to extract and consolidate salient facts rather than storing raw transcripts. On the LOCOMO benchmark, Mem0 achieves 26% relative improvements in the LLM-as-a-Judge metric over OpenAI's built-in memory, while a graph-enhanced variant (Mem0\u1d4d) achieves around 2% higher overall score than the base configuration. Critically, Mem0 attains a 91% lower p95 latency and saves more than 90% token cost compared to full-context processing, with the lowest search latency among all methods (p50: 0.148s, p95: 0.200s), stemming from a selective memory retrieval mechanism that dynamically identifies and retrieves only the most salient information rather than fixed-size chunks.\n\n**2. Zep/Graphiti's temporal knowledge-graph approach (arXiv:2501.13956)** organizes memory into three subgraphs (episode, semantic entity, community) instead of flat vector stores. Zep's core component Graphiti is a temporally-aware knowledge graph engine that dynamically synthesizes both unstructured conversational data and structured business data while maintaining historical relationships. On the Deep Memory Retrieval benchmark, which the MemGPT team established as their primary evaluation metric, Zep outperformed MemGPT (94.8% vs 93.4%), and on the harder LongMemEval benchmark, Zep achieved accuracy improvements of up to 18.5% while simultaneously reducing response latency by 90% versus baseline implementations. Notably, independent analysis flagged a caveat: each DMR conversation contains only 60 messages, easily fitting within current LLM context windows, and the benchmark relies exclusively on single-turn, fact-retrieval questions that fail to assess complex memory understanding \u2014 a reminder that benchmark wins can be narrower than headline numbers suggest.\n\n**3. Persistent chat memory is now mainstream in production, not just research.** All three frontier chat assistants now ship persistent memory by default, with OpenAI starting to test ChatGPT memory in February 2024 with a sliver of Free and Plus accounts, then opening it to Free, Plus, Team and Enterprise on September 5, 2024. Separately, ChatGPT memory reportedly reaches 700 million weekly active users as of August 2025 (flagged: this figure is attributed to \"OpenAI / IntuitionLabs\" secondary reporting rather than a primary OpenAI announcement, so treat with some caution).\n\n**4. There remains a large, well-documented accuracy gap between long-context and true retrieval-based memory.** Commercial chat assistants and long-context LLMs show a roughly 30-point accuracy drop on LongMemEval versus oracle retrieval (citing Wu et al., ICLR 2025's LongMemEval work), underscoring that simply stuffing history into a large context window is not equivalent to structured memory retrieval.\n\n**5. Open-source ecosystem growth reflects rapid, recent adoption**, per a 2026 industry roundup: Mem0 has over 51,000 GitHub stars and raised $24M by October 2025; claude-mem reached 46,100 GitHub stars within weeks of launch; and MemPalace grew to 41,200 GitHub stars, nearly doubling from 23K in April 2026. (Flag: these star-count and funding figures come from an aggregator blog post rather than the primary GitHub/funding sources, so exact numbers should be independently verified if precision matters.)\n\n**Broader architectural pattern**: across recent papers (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE), a standard strategy decouples long-term memory from the model, treating it as an external database to facilitate inference, with biologically inspired tree-based architectures used to organize memory hierarchically, and mechanisms like the Ebbinghaus forgetting curve incorporated to prune obsolete information \u2014 showing convergence around external, structured, and selectively-forgetting memory stores rather than simply expanding context windows.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# How LLM Agents Implement Long-Term Memory\n\n## Overview\n\nAcross recent research and production systems, a clear architectural consensus has emerged: long-term memory for LLM agents is best implemented as an **external, structured store decoupled from the model itself**, rather than by simply expanding context windows. This report summarizes concrete implementations, benchmark evidence, and production adoption.\n\n## 1. Extraction-and-Consolidation Pipelines (Mem0)\n\nMem0 (arXiv:2504.19413, ECAI 2025) implements long-term memory via an **LLM-driven ADD/UPDATE/DELETE/NOOP pipeline** that extracts and consolidates salient facts rather than storing raw conversation transcripts. A graph-enhanced variant (Mem0\u1d4d) adds relational structure on top of this.\n\nOn the LOCOMO benchmark:\n- Mem0 shows a 26% relative improvement in LLM-as-a-Judge scoring over OpenAI's built-in memory.\n- Mem0\u1d4d scores ~2% higher overall than the base Mem0 configuration.\n- Mem0 achieves 91% lower p95 latency and >90% token cost savings versus full-context processing, with the lowest search latency among tested methods (p50: 0.148s, p95: 0.200s).\n\nThe efficiency gains stem from **selective retrieval** \u2014 dynamically identifying and pulling only the most salient facts rather than fixed-size chunks.\n\n## 2. Temporal Knowledge Graphs (Zep/Graphiti)\n\nZep (arXiv:2501.13956) organizes memory into **three subgraphs**: episode, semantic entity, and community \u2014 replacing flat vector stores with a temporally-aware knowledge graph engine (Graphiti) that synthesizes both unstructured conversation and structured business data while preserving historical relationships.\n\nBenchmark results:\n- On Deep Memory Retrieval (DMR), Zep outperformed MemGPT (94.8% vs. 93.4%).\n- On the harder LongMemEval benchmark, Zep improved accuracy by up to 18.5% while cutting response latency by 90% versus baseline implementations.\n\n**Caveat:** Independent analysis notes DMR conversations contain only 60 messages (easily fitting current context windows) and test only single-turn fact retrieval \u2014 so this benchmark may understate the difficulty of complex memory tasks.\n\n## 3. Production Adoption\n\nPersistent memory is now standard in frontier chat assistants, not just a research topic:\n- OpenAI began testing ChatGPT memory in February 2024 with a small subset of Free/Plus users, expanding to Free, Plus, Team, and Enterprise tiers by September 5, 2024.\n- ChatGPT memory reportedly reached 700 million weekly active users as of August 2025 (*flagged: this figure comes from secondary reporting \u2014 \"OpenAI / IntuitionLabs\" \u2014 rather than a primary OpenAI source, so treat with caution*).\n\nOpen-source memory tools have also grown rapidly, per a 2026 industry roundup: Mem0 (51,000+ GitHub stars, $24M raised by October 2025), claude-mem (46,100 stars within weeks of launch), and MemPalace (41,200 stars, up from 23K in April 2026). (*Flagged: these figures come from an aggregator blog rather than primary GitHub/funding sources and should be independently verified.*)\n\n## 4. Why Not Just Use Long Context?\n\nA well-documented gap persists between long-context processing and true retrieval-based memory. Citing LongMemEval (Wu et al., ICLR 2025), commercial chat assistants and long-context LLMs show a **roughly 30-point accuracy drop** versus oracle retrieval \u2014 demonstrating that stuffing history into a large context window is not equivalent to structured, selective memory retrieval.\n\n## 5. Broader Architectural Pattern\n\nAcross a wider set of systems (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE), a common strategy emerges:\n- **Decoupling** long-term memory from the model, treating it as an external database queried at inference time.\n- **Hierarchical organization**, sometimes using biologically inspired tree structures.\n- **Selective forgetting**, with mechanisms like the Ebbinghaus forgetting curve used to prune obsolete information.\n\n## Conclusion\n\nCurrent implementations of LLM agent long-term memory converge on three principles: (1) extract and consolidate salient information rather than storing raw logs, (2) structure memory relationally (graphs, hierarchies) rather than as flat stores, and (3) actively manage relevance through selective retrieval and forgetting \u2014 all of which outperform naive long-context approaches on both accuracy and efficiency metrics, and are now deployed at scale in production systems.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 142933,
+          "output_tokens": 4956,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 8,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.41548198,
+          "embedding_tokens": 933,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 5.598e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 4053,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 4392,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report\u2014Mem0's pipeline and LOCOMO metrics (26%, ~2%, 91% latency, >90% token savings, p50 0.148s/p95 0.200s), Zep/Graphiti's three subgraphs and benchmark results (94.8% vs 93.4%, 18.5%, 90% latency, 60-message DMR caveat), production adoption dates (Feb 2024, Sept 5 2024) and 700M WAU (with the flagged caveat), open-source figures (51,000+ stars/$24M, 46,100, 41,200 from 23K April 2026, with flag), the ~30-point LongMemEval gap (Wu et al., ICLR 2025), and the named systems/patterns (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE, Ebbinghaus forgetting curve)\u2014all trace directly to the notes. No unsupported numbers, dates, or named entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly and substantively answers how LLM agents implement long-term memory, covering concrete implementation approaches: extraction-and-consolidation pipelines (Mem0's ADD/UPDATE/DELETE/NOOP), temporal knowledge graphs (Zep/Graphiti), the decoupled external-store pattern, hierarchical organization, and selective forgetting mechanisms. It also contrasts these with naive long-context approaches and includes production adoption examples. The content is on-topic and provides specific mechanisms rather than being about something else.",
+          "judged": true
+        }
+      ]
+    },
+    {
+      "label": "Which of those handles recall across separate sessions?",
+      "state": {
+        "run_id": "13e4c3b0706640fe976e9e39f2640402",
+        "owner": "",
+        "task": "Which of those handles recall across separate sessions?",
+        "mode": "followup",
+        "topic_type": "technical",
+        "research_notes": "I have solid, specific sources now. Here's a summary of concrete, recent facts on how LLM agents implement long-term memory:\n\n**1. Mem0's benchmarked architecture (arXiv:2504.19413, ECAI 2025)** uses an LLM-driven ADD/UPDATE/DELETE/NOOP pipeline to extract and consolidate salient facts rather than storing raw transcripts. On the LOCOMO benchmark, Mem0 achieves 26% relative improvements in the LLM-as-a-Judge metric over OpenAI's built-in memory, while a graph-enhanced variant (Mem0\u1d4d) achieves around 2% higher overall score than the base configuration. Critically, Mem0 attains a 91% lower p95 latency and saves more than 90% token cost compared to full-context processing, with the lowest search latency among all methods (p50: 0.148s, p95: 0.200s), stemming from a selective memory retrieval mechanism that dynamically identifies and retrieves only the most salient information rather than fixed-size chunks.\n\n**2. Zep/Graphiti's temporal knowledge-graph approach (arXiv:2501.13956)** organizes memory into three subgraphs (episode, semantic entity, community) instead of flat vector stores. Zep's core component Graphiti is a temporally-aware knowledge graph engine that dynamically synthesizes both unstructured conversational data and structured business data while maintaining historical relationships. On the Deep Memory Retrieval benchmark, which the MemGPT team established as their primary evaluation metric, Zep outperformed MemGPT (94.8% vs 93.4%), and on the harder LongMemEval benchmark, Zep achieved accuracy improvements of up to 18.5% while simultaneously reducing response latency by 90% versus baseline implementations. Notably, independent analysis flagged a caveat: each DMR conversation contains only 60 messages, easily fitting within current LLM context windows, and the benchmark relies exclusively on single-turn, fact-retrieval questions that fail to assess complex memory understanding \u2014 a reminder that benchmark wins can be narrower than headline numbers suggest.\n\n**3. Persistent chat memory is now mainstream in production, not just research.** All three frontier chat assistants now ship persistent memory by default, with OpenAI starting to test ChatGPT memory in February 2024 with a sliver of Free and Plus accounts, then opening it to Free, Plus, Team and Enterprise on September 5, 2024. Separately, ChatGPT memory reportedly reaches 700 million weekly active users as of August 2025 (flagged: this figure is attributed to \"OpenAI / IntuitionLabs\" secondary reporting rather than a primary OpenAI announcement, so treat with some caution).\n\n**4. There remains a large, well-documented accuracy gap between long-context and true retrieval-based memory.** Commercial chat assistants and long-context LLMs show a roughly 30-point accuracy drop on LongMemEval versus oracle retrieval (citing Wu et al., ICLR 2025's LongMemEval work), underscoring that simply stuffing history into a large context window is not equivalent to structured memory retrieval.\n\n**5. Open-source ecosystem growth reflects rapid, recent adoption**, per a 2026 industry roundup: Mem0 has over 51,000 GitHub stars and raised $24M by October 2025; claude-mem reached 46,100 GitHub stars within weeks of launch; and MemPalace grew to 41,200 GitHub stars, nearly doubling from 23K in April 2026. (Flag: these star-count and funding figures come from an aggregator blog post rather than the primary GitHub/funding sources, so exact numbers should be independently verified if precision matters.)\n\n**Broader architectural pattern**: across recent papers (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE), a standard strategy decouples long-term memory from the model, treating it as an external database to facilitate inference, with biologically inspired tree-based architectures used to organize memory hierarchically, and mechanisms like the Ebbinghaus forgetting curve incorporated to prune obsolete information \u2014 showing convergence around external, structured, and selectively-forgetting memory stores rather than simply expanding context windows.",
+        "source_report": "# How LLM Agents Implement Long-Term Memory\n\n## Overview\n\nAcross recent research and production systems, a clear architectural consensus has emerged: long-term memory for LLM agents is best implemented as an **external, structured store decoupled from the model itself**, rather than by simply expanding context windows. This report summarizes concrete implementations, benchmark evidence, and production adoption.\n\n## 1. Extraction-and-Consolidation Pipelines (Mem0)\n\nMem0 (arXiv:2504.19413, ECAI 2025) implements long-term memory via an **LLM-driven ADD/UPDATE/DELETE/NOOP pipeline** that extracts and consolidates salient facts rather than storing raw conversation transcripts. A graph-enhanced variant (Mem0\u1d4d) adds relational structure on top of this.\n\nOn the LOCOMO benchmark:\n- Mem0 shows a 26% relative improvement in LLM-as-a-Judge scoring over OpenAI's built-in memory.\n- Mem0\u1d4d scores ~2% higher overall than the base Mem0 configuration.\n- Mem0 achieves 91% lower p95 latency and >90% token cost savings versus full-context processing, with the lowest search latency among tested methods (p50: 0.148s, p95: 0.200s).\n\nThe efficiency gains stem from **selective retrieval** \u2014 dynamically identifying and pulling only the most salient facts rather than fixed-size chunks.\n\n## 2. Temporal Knowledge Graphs (Zep/Graphiti)\n\nZep (arXiv:2501.13956) organizes memory into **three subgraphs**: episode, semantic entity, and community \u2014 replacing flat vector stores with a temporally-aware knowledge graph engine (Graphiti) that synthesizes both unstructured conversation and structured business data while preserving historical relationships.\n\nBenchmark results:\n- On Deep Memory Retrieval (DMR), Zep outperformed MemGPT (94.8% vs. 93.4%).\n- On the harder LongMemEval benchmark, Zep improved accuracy by up to 18.5% while cutting response latency by 90% versus baseline implementations.\n\n**Caveat:** Independent analysis notes DMR conversations contain only 60 messages (easily fitting current context windows) and test only single-turn fact retrieval \u2014 so this benchmark may understate the difficulty of complex memory tasks.\n\n## 3. Production Adoption\n\nPersistent memory is now standard in frontier chat assistants, not just a research topic:\n- OpenAI began testing ChatGPT memory in February 2024 with a small subset of Free/Plus users, expanding to Free, Plus, Team, and Enterprise tiers by September 5, 2024.\n- ChatGPT memory reportedly reached 700 million weekly active users as of August 2025 (*flagged: this figure comes from secondary reporting \u2014 \"OpenAI / IntuitionLabs\" \u2014 rather than a primary OpenAI source, so treat with caution*).\n\nOpen-source memory tools have also grown rapidly, per a 2026 industry roundup: Mem0 (51,000+ GitHub stars, $24M raised by October 2025), claude-mem (46,100 stars within weeks of launch), and MemPalace (41,200 stars, up from 23K in April 2026). (*Flagged: these figures come from an aggregator blog rather than primary GitHub/funding sources and should be independently verified.*)\n\n## 4. Why Not Just Use Long Context?\n\nA well-documented gap persists between long-context processing and true retrieval-based memory. Citing LongMemEval (Wu et al., ICLR 2025), commercial chat assistants and long-context LLMs show a **roughly 30-point accuracy drop** versus oracle retrieval \u2014 demonstrating that stuffing history into a large context window is not equivalent to structured, selective memory retrieval.\n\n## 5. Broader Architectural Pattern\n\nAcross a wider set of systems (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE), a common strategy emerges:\n- **Decoupling** long-term memory from the model, treating it as an external database queried at inference time.\n- **Hierarchical organization**, sometimes using biologically inspired tree structures.\n- **Selective forgetting**, with mechanisms like the Ebbinghaus forgetting curve used to prune obsolete information.\n\n## Conclusion\n\nCurrent implementations of LLM agent long-term memory converge on three principles: (1) extract and consolidate salient information rather than storing raw logs, (2) structure memory relationally (graphs, hierarchies) rather than as flat stores, and (3) actively manage relevance through selective retrieval and forgetting \u2014 all of which outperform naive long-context approaches on both accuracy and efficiency metrics, and are now deployed at scale in production systems.",
+        "conversation": [],
+        "draft": "All of the systems described are designed to persist memory beyond a single conversation: Mem0 (with its ADD/UPDATE/DELETE/NOOP consolidation pipeline and graph-enhanced variant Mem0\u1d4d), Zep/Graphiti (with its episode/semantic entity/community subgraphs), and production ChatGPT memory are all described in the notes as persistent, long-term memory systems rather than single-conversation context handling.\n\nThe notes do not specify which of these benchmarks (LOCOMO, DMR, LongMemEval) explicitly test recall across separate sessions versus within a single session \u2014 DMR, for instance, is noted to consist of single conversations of only 60 messages, and the notes do not characterize LOCOMO's or LongMemEval's session structure. So while the systems themselves are built for persistent, cross-session memory, the notes do not confirm which benchmark results specifically isolate cross-session recall performance.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 10599,
+          "output_tokens": 1838,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 0,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.039578,
+          "embedding_tokens": 0,
+          "embedding_requests": 0,
+          "embedding_cost_usd": 0.0,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "responder"
+          },
+          {
+            "node": "responder",
+            "answer_length": 1089,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "responder"
+          },
+          {
+            "node": "responder",
+            "answer_length": 912,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_followup_honesty",
+          "passed": true,
+          "detail": "The answer is grounded in the notes: Mem0 (ADD/UPDATE/DELETE/NOOP consolidation, Mem0\u1d4d graph variant), Zep/Graphiti (episode/semantic/community subgraphs), and production ChatGPT memory are all described as persistent, long-term memory systems, which reasonably supports the inference that they handle recall beyond a single conversation. The answer directly addresses the question by identifying these systems, and it responsibly adds a well-grounded caveat that the notes don't characterize which benchmarks isolate cross-session recall (correctly citing the DMR 60-message single-conversation detail and the lack of session-structure info for LOCOMO/LongMemEval). Both grounding and relevance hold.",
+          "judged": true
+        }
+      ]
+    },
+    {
+      "label": "And what stops it recalling something irrelevant?",
+      "state": {
+        "run_id": "c3353d9e41694e4baa860ecfcefafc52",
+        "owner": "",
+        "task": "And what stops it recalling something irrelevant?",
+        "mode": "followup",
+        "topic_type": "technical",
+        "research_notes": "I have solid, specific sources now. Here's a summary of concrete, recent facts on how LLM agents implement long-term memory:\n\n**1. Mem0's benchmarked architecture (arXiv:2504.19413, ECAI 2025)** uses an LLM-driven ADD/UPDATE/DELETE/NOOP pipeline to extract and consolidate salient facts rather than storing raw transcripts. On the LOCOMO benchmark, Mem0 achieves 26% relative improvements in the LLM-as-a-Judge metric over OpenAI's built-in memory, while a graph-enhanced variant (Mem0\u1d4d) achieves around 2% higher overall score than the base configuration. Critically, Mem0 attains a 91% lower p95 latency and saves more than 90% token cost compared to full-context processing, with the lowest search latency among all methods (p50: 0.148s, p95: 0.200s), stemming from a selective memory retrieval mechanism that dynamically identifies and retrieves only the most salient information rather than fixed-size chunks.\n\n**2. Zep/Graphiti's temporal knowledge-graph approach (arXiv:2501.13956)** organizes memory into three subgraphs (episode, semantic entity, community) instead of flat vector stores. Zep's core component Graphiti is a temporally-aware knowledge graph engine that dynamically synthesizes both unstructured conversational data and structured business data while maintaining historical relationships. On the Deep Memory Retrieval benchmark, which the MemGPT team established as their primary evaluation metric, Zep outperformed MemGPT (94.8% vs 93.4%), and on the harder LongMemEval benchmark, Zep achieved accuracy improvements of up to 18.5% while simultaneously reducing response latency by 90% versus baseline implementations. Notably, independent analysis flagged a caveat: each DMR conversation contains only 60 messages, easily fitting within current LLM context windows, and the benchmark relies exclusively on single-turn, fact-retrieval questions that fail to assess complex memory understanding \u2014 a reminder that benchmark wins can be narrower than headline numbers suggest.\n\n**3. Persistent chat memory is now mainstream in production, not just research.** All three frontier chat assistants now ship persistent memory by default, with OpenAI starting to test ChatGPT memory in February 2024 with a sliver of Free and Plus accounts, then opening it to Free, Plus, Team and Enterprise on September 5, 2024. Separately, ChatGPT memory reportedly reaches 700 million weekly active users as of August 2025 (flagged: this figure is attributed to \"OpenAI / IntuitionLabs\" secondary reporting rather than a primary OpenAI announcement, so treat with some caution).\n\n**4. There remains a large, well-documented accuracy gap between long-context and true retrieval-based memory.** Commercial chat assistants and long-context LLMs show a roughly 30-point accuracy drop on LongMemEval versus oracle retrieval (citing Wu et al., ICLR 2025's LongMemEval work), underscoring that simply stuffing history into a large context window is not equivalent to structured memory retrieval.\n\n**5. Open-source ecosystem growth reflects rapid, recent adoption**, per a 2026 industry roundup: Mem0 has over 51,000 GitHub stars and raised $24M by October 2025; claude-mem reached 46,100 GitHub stars within weeks of launch; and MemPalace grew to 41,200 GitHub stars, nearly doubling from 23K in April 2026. (Flag: these star-count and funding figures come from an aggregator blog post rather than the primary GitHub/funding sources, so exact numbers should be independently verified if precision matters.)\n\n**Broader architectural pattern**: across recent papers (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE), a standard strategy decouples long-term memory from the model, treating it as an external database to facilitate inference, with biologically inspired tree-based architectures used to organize memory hierarchically, and mechanisms like the Ebbinghaus forgetting curve incorporated to prune obsolete information \u2014 showing convergence around external, structured, and selectively-forgetting memory stores rather than simply expanding context windows.",
+        "source_report": "# How LLM Agents Implement Long-Term Memory\n\n## Overview\n\nAcross recent research and production systems, a clear architectural consensus has emerged: long-term memory for LLM agents is best implemented as an **external, structured store decoupled from the model itself**, rather than by simply expanding context windows. This report summarizes concrete implementations, benchmark evidence, and production adoption.\n\n## 1. Extraction-and-Consolidation Pipelines (Mem0)\n\nMem0 (arXiv:2504.19413, ECAI 2025) implements long-term memory via an **LLM-driven ADD/UPDATE/DELETE/NOOP pipeline** that extracts and consolidates salient facts rather than storing raw conversation transcripts. A graph-enhanced variant (Mem0\u1d4d) adds relational structure on top of this.\n\nOn the LOCOMO benchmark:\n- Mem0 shows a 26% relative improvement in LLM-as-a-Judge scoring over OpenAI's built-in memory.\n- Mem0\u1d4d scores ~2% higher overall than the base Mem0 configuration.\n- Mem0 achieves 91% lower p95 latency and >90% token cost savings versus full-context processing, with the lowest search latency among tested methods (p50: 0.148s, p95: 0.200s).\n\nThe efficiency gains stem from **selective retrieval** \u2014 dynamically identifying and pulling only the most salient facts rather than fixed-size chunks.\n\n## 2. Temporal Knowledge Graphs (Zep/Graphiti)\n\nZep (arXiv:2501.13956) organizes memory into **three subgraphs**: episode, semantic entity, and community \u2014 replacing flat vector stores with a temporally-aware knowledge graph engine (Graphiti) that synthesizes both unstructured conversation and structured business data while preserving historical relationships.\n\nBenchmark results:\n- On Deep Memory Retrieval (DMR), Zep outperformed MemGPT (94.8% vs. 93.4%).\n- On the harder LongMemEval benchmark, Zep improved accuracy by up to 18.5% while cutting response latency by 90% versus baseline implementations.\n\n**Caveat:** Independent analysis notes DMR conversations contain only 60 messages (easily fitting current context windows) and test only single-turn fact retrieval \u2014 so this benchmark may understate the difficulty of complex memory tasks.\n\n## 3. Production Adoption\n\nPersistent memory is now standard in frontier chat assistants, not just a research topic:\n- OpenAI began testing ChatGPT memory in February 2024 with a small subset of Free/Plus users, expanding to Free, Plus, Team, and Enterprise tiers by September 5, 2024.\n- ChatGPT memory reportedly reached 700 million weekly active users as of August 2025 (*flagged: this figure comes from secondary reporting \u2014 \"OpenAI / IntuitionLabs\" \u2014 rather than a primary OpenAI source, so treat with caution*).\n\nOpen-source memory tools have also grown rapidly, per a 2026 industry roundup: Mem0 (51,000+ GitHub stars, $24M raised by October 2025), claude-mem (46,100 stars within weeks of launch), and MemPalace (41,200 stars, up from 23K in April 2026). (*Flagged: these figures come from an aggregator blog rather than primary GitHub/funding sources and should be independently verified.*)\n\n## 4. Why Not Just Use Long Context?\n\nA well-documented gap persists between long-context processing and true retrieval-based memory. Citing LongMemEval (Wu et al., ICLR 2025), commercial chat assistants and long-context LLMs show a **roughly 30-point accuracy drop** versus oracle retrieval \u2014 demonstrating that stuffing history into a large context window is not equivalent to structured, selective memory retrieval.\n\n## 5. Broader Architectural Pattern\n\nAcross a wider set of systems (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE), a common strategy emerges:\n- **Decoupling** long-term memory from the model, treating it as an external database queried at inference time.\n- **Hierarchical organization**, sometimes using biologically inspired tree structures.\n- **Selective forgetting**, with mechanisms like the Ebbinghaus forgetting curve used to prune obsolete information.\n\n## Conclusion\n\nCurrent implementations of LLM agent long-term memory converge on three principles: (1) extract and consolidate salient information rather than storing raw logs, (2) structure memory relationally (graphs, hierarchies) rather than as flat stores, and (3) actively manage relevance through selective retrieval and forgetting \u2014 all of which outperform naive long-context approaches on both accuracy and efficiency metrics, and are now deployed at scale in production systems.",
+        "conversation": [
+          {
+            "question": "Which of those handles recall across separate sessions?",
+            "answer": "All of the systems described are designed to persist memory beyond a single conversation: Mem0 (with its ADD/UPDATE/DELETE/NOOP consolidation pipeline and graph-enhanced variant Mem0\u1d4d), Zep/Graphiti (with its episode/semantic entity/community subgraphs), and production ChatGPT memory are all described in the notes as persistent, long-term memory systems rather than single-conversation context handling.\n\nThe notes do not specify which of these benchmarks (LOCOMO, DMR, LongMemEval) explicitly test recall across separate sessions versus within a single session \u2014 DMR, for instance, is noted to consist of single conversations of only 60 messages, and the notes do not characterize LOCOMO's or LongMemEval's session structure. So while the systems themselves are built for persistent, cross-session memory, the notes do not confirm which benchmark results specifically isolate cross-session recall performance."
+          }
+        ],
+        "draft": "Based on the notes, relevance is controlled through a few specific mechanisms:\n\n1. **Selective retrieval, not fixed chunks** \u2014 Mem0's architecture \"dynamically identifies and retrieves only the most salient information rather than fixed-size chunks,\" which is explicitly credited as the source of its low latency and token savings. This selectivity is a relevance filter as much as an efficiency mechanism.\n\n2. **Consolidation before storage** \u2014 Mem0's ADD/UPDATE/DELETE/NOOP pipeline extracts and consolidates salient facts rather than storing raw transcripts. The DELETE/NOOP operations imply that redundant, outdated, or non-salient information is filtered out at write-time, reducing what's available to recall later.\n\n3. **Structured relational retrieval** \u2014 Zep/Graphiti organizes memory into three subgraphs (episode, semantic entity, community) and maintains historical relationships. Structuring memory this way allows retrieval to target relevant entities/relations rather than pulling from an undifferentiated flat store.\n\n4. **Active forgetting mechanisms** \u2014 the broader architectural pattern (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE) incorporates \"mechanisms like the Ebbinghaus forgetting curve incorporated to prune obsolete information,\" meaning irrelevant/stale memories are actively removed over time rather than just left to accumulate and potentially be recalled.\n\nThe notes don't give lower-level detail (e.g., specific scoring/ranking algorithms or similarity thresholds used to judge relevance at query time), so this is the extent of what can be said from the material provided.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 3,
+        "usage": {
+          "input_tokens": 5709,
+          "output_tokens": 560,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 0,
+          "web_fetch_requests": 0,
+          "calls": 2,
+          "cost_usd": 0.017018,
+          "embedding_tokens": 0,
+          "embedding_requests": 0,
+          "embedding_cost_usd": 0.0,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "responder"
+          },
+          {
+            "node": "responder",
+            "answer_length": 1605,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_followup_honesty",
+          "passed": true,
+          "detail": "All four mechanisms cited are grounded in the notes: (1) Mem0's selective retrieval of 'most salient information rather than fixed-size chunks' is directly quoted; (2) the ADD/UPDATE/DELETE/NOOP consolidation pipeline is stated in the notes, and the interpretation of DELETE/NOOP as write-time filtering is a reasonable, explicitly hedged inference; (3) Zep/Graphiti's three subgraphs and historical relationships are accurately drawn from the notes; (4) the Ebbinghaus forgetting-curve pruning is directly quoted. The answer directly addresses how irrelevant recall is prevented and appropriately notes the limits of the source material regarding query-time scoring detail. No fabricated facts.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

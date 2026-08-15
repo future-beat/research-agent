@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "case_id": "followup-uses-prior-notes",
+  "recorded_at": "2026-08-15T15:32:57+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "47dd8d3",
+  "pipeline_cost_usd": 0.257922,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "a1c82932e45746218857854264d169ee",
+        "owner": "",
+        "task": "How do LLM agents implement long-term memory?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Based on the search results, here are 5 concrete, recent facts about how LLM agents implement long-term memory:\n\n**1. MemGPT introduced OS-inspired \"virtual context management\" with self-editing memory tiers.**\nMemGPT frames the LLM context window like limited RAM in an operating system, using a memory hierarchy to work around this constraint. As one architecture survey explains: \"MemGPT [14] introduces virtual context management inspired by operating system memory hierarchies. The key insight: LLMs face constraints analogous to limited RAM\u2014the context window cannot hold all relevant information\". Distinctively, an LLM OS performs memory management where the memory manager is itself also an LLM agent, meaning memory management is done automatically, with self-editing memory as a core concept.\n\n**2. Mem0 (2025) uses an LLM-based routing controller with dense vector storage for fact extraction and updating.**\nRather than storing raw conversation logs, Mem0 extracts discrete facts and manages them dynamically: \"Mem0 (Chhikara et al., 2025) is a memory layer for LLM agents that extracts salient facts from conversation turns and maintains them in a dense vector store. For each candidate fact, an LLM-based routing controller inspects the top-k most similar existing memories\" to decide whether to add, update, or discard information.\n\n**3. Mem0 shows large, specific efficiency gains over full-context approaches on the LOCOMO benchmark.**\nOn this widely-used long-term-memory benchmark, Mem0 delivers a 26% relative uplift in overall LLM-as-a-Judge score over OpenAI's memory feature\u201466.9% versus 52.9%, and it achieves this with 91% lower p95 latency and 90% fewer tokens compared to stuffing full conversation history into context. A newer, token-efficient version of the algorithm reportedly hits 91.6 on LoCoMo, 93.4 on LongMemEval, and 64.1/48.6 on BEAM (1M/10M) while averaging under 7,000 tokens per retrieval call, versus 25,000+ tokens for full-context approaches. (Note: some pages show later/updated figures \u2014 one lists Mem0 at 92.5 LoCoMo / 94.4 LongMemEval \u2014 suggesting these benchmark numbers are actively being revised by Mem0's team, so treat exact figures as provisional/self-reported rather than independently verified.)\n\n**4. Three-layer persistent memory architecture is emerging as a common pattern (short-term, semantic vector store, structured/exact storage).**\nA practical architecture pattern combines multiple storage types rather than relying on vectors alone: \"Persistent memory for AI agents requires a three-layer architecture: in-context (short-term), vector store (semantic long-term), and structured file storage (exact long-term)\", with retrieval quality depending heavily on how memories are structured.\n\n**5. Graph-based (\"Graph RAG\") memory is gaining traction as an alternative/complement to pure vector-similarity retrieval.**\nAs reasoning demands grow, some systems are moving beyond flat vector similarity toward graph structures that capture relationships between facts: graph RAG, an architecture that combines knowledge graphs with LLMs, is gaining traction as a structured memory architecture, especially for multi-hop reasoning tasks where simple nearest-neighbor retrieval falls short.\n\n**Flag/caveat:** The specific numeric benchmark figures for Mem0 (26% uplift, 91%/90% reductions, and the newer 91.6/93.4/64.1/48.6 scores) come primarily from Mem0's own research blog (mem0.ai) rather than an independent third-party paper, so they should be treated as vendor-reported until corroborated elsewhere. Similarly, some of the arXiv papers cited (e.g., IDs like 2601.xxxxx, 2602.xxxxx, 2604.xxxxx, 2605.xxxxx) reference future-dated identifiers that couldn't be cross-verified against arXiv's public listing in this search session.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# How LLM Agents Implement Long-Term Memory\n\nLLM agents face a fundamental constraint: context windows are finite, but useful interactions may span far longer than any single window can hold. Recent architectures address this through several converging approaches.\n\n## 1. OS-Inspired Virtual Context Management (MemGPT)\n\nMemGPT reframes the context window problem using an operating-systems analogy: the context window is treated like limited RAM, requiring a memory hierarchy to manage what can't fit at once. As one architecture survey puts it, MemGPT \"introduces virtual context management inspired by operating system memory hierarchies. The key insight: LLMs face constraints analogous to limited RAM\u2014the context window cannot hold all relevant information.\"\n\nA distinctive feature of this approach is that the memory manager is itself an LLM agent\u2014meaning the system performs *self-editing memory*, with the model actively managing its own memory tiers rather than relying solely on a fixed external mechanism.\n\n## 2. Fact Extraction and Dynamic Routing (Mem0)\n\nRather than storing full conversation transcripts, Mem0 (Chhikara et al., 2025) extracts discrete, salient facts from conversation turns and stores them in a dense vector store. For each new candidate fact, an LLM-based routing controller compares it against the top-k most similar existing memories and decides whether to add, update, or discard the information. This selective, controller-driven approach avoids the inefficiency of stuffing raw history into context.\n\n## 3. Efficiency Gains Demonstrated on Benchmarks\n\nOn the LOCOMO benchmark, Mem0 reportedly achieves a 26% relative uplift in LLM-as-a-Judge score over OpenAI's memory feature (66.9% vs. 52.9%), while cutting p95 latency by 91% and token usage by 90% compared to full-context approaches.\n\nA newer, more token-efficient version reportedly scores 91.6 on LoCoMo, 93.4 on LongMemEval, and 64.1/48.6 on BEAM (1M/10M), averaging under 7,000 tokens per retrieval call versus 25,000+ for full-context methods. However, another source lists different, higher figures for the same system\u201492.5 LoCoMo and 94.4 LongMemEval\u2014suggesting these benchmark numbers are being actively revised and are not yet stable.\n\n## 4. Three-Layer Persistent Memory Architecture\n\nA recurring architectural pattern combines multiple storage types rather than relying on vector similarity alone: in-context (short-term) memory, a vector store (semantic long-term memory), and structured file storage (exact long-term memory). Under this pattern, retrieval quality depends heavily on how memories are structured across these layers, not just on the underlying storage technology.\n\n## 5. Graph-Based Memory for Relational Reasoning\n\nAs multi-hop reasoning demands grow, some systems move beyond flat vector-similarity retrieval toward graph structures that explicitly capture relationships between facts. Graph RAG\u2014combining knowledge graphs with LLMs\u2014is gaining traction as a structured memory architecture, particularly where simple nearest-neighbor retrieval is insufficient.\n\n## Caveats on Sourcing\n\nSeveral grounding concerns apply to the figures and sources above:\n\n- **Vendor-reported benchmarks:** The specific Mem0 numbers (26% uplift, 91%/90% reductions, and the 91.6/93.4/64.1/48.6 scores) come primarily from Mem0's own research blog rather than an independent third-party paper.\n- **Conflicting figures:** A separate source shows different, higher figures for the same benchmarks\u201492.5 LoCoMo and 94.4 LongMemEval\u2014indicating these numbers are being actively revised by Mem0's team. Exact figures should therefore be treated as provisional rather than settled.\n- **Unverifiable citations:** Some cited arXiv IDs (e.g., in the ranges 2601.xxxxx, 2602.xxxxx, 2604.xxxxx, 2605.xxxxx) are future-dated and could not be cross-verified against arXiv's public listing during this research session, raising additional questions about source reliability.\n\nGiven these caveats, the architectural patterns (virtual context management, fact-extraction routing, layered storage, graph-based retrieval) appear well-supported across sources, but the specific quantitative performance claims should be treated with caution until independently corroborated.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 66898,
+          "output_tokens": 5792,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 5,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.24176844,
+          "embedding_tokens": 874,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 5.244e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3792,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3539,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 4254,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim, named entity, and numeric figure in the report is directly supported by the research notes: MemGPT's OS-inspired virtual context management and self-editing memory, Mem0 (Chhikara et al., 2025) fact extraction with LLM-based routing controller, the LOCOMO benchmark figures (26% uplift, 66.9% vs 52.9%, 91%/90% reductions), the newer scores (91.6/93.4/64.1/48.6, <7,000 vs 25,000+ tokens), the conflicting 92.5/94.4 figures, the three-layer architecture, Graph RAG, and the sourcing caveats including the future-dated arXiv IDs. No unsupported numbers, dates, or entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses how LLM agents implement long-term memory, covering multiple concrete approaches: OS-inspired virtual context management (MemGPT), fact extraction and dynamic routing (Mem0), layered persistent memory architectures, and graph-based memory for relational reasoning. It explains actual implementation mechanisms rather than being about something else, and appropriately flags sourcing caveats around specific benchmark figures without undermining the core answer.",
+          "judged": true
+        }
+      ]
+    },
+    {
+      "label": "Which of those handles recall across separate sessions?",
+      "state": {
+        "run_id": "a23b7126908d4df1bdb212fa6849c390",
+        "owner": "",
+        "task": "Which of those handles recall across separate sessions?",
+        "mode": "followup",
+        "topic_type": "technical",
+        "research_notes": "Based on the search results, here are 5 concrete, recent facts about how LLM agents implement long-term memory:\n\n**1. MemGPT introduced OS-inspired \"virtual context management\" with self-editing memory tiers.**\nMemGPT frames the LLM context window like limited RAM in an operating system, using a memory hierarchy to work around this constraint. As one architecture survey explains: \"MemGPT [14] introduces virtual context management inspired by operating system memory hierarchies. The key insight: LLMs face constraints analogous to limited RAM\u2014the context window cannot hold all relevant information\". Distinctively, an LLM OS performs memory management where the memory manager is itself also an LLM agent, meaning memory management is done automatically, with self-editing memory as a core concept.\n\n**2. Mem0 (2025) uses an LLM-based routing controller with dense vector storage for fact extraction and updating.**\nRather than storing raw conversation logs, Mem0 extracts discrete facts and manages them dynamically: \"Mem0 (Chhikara et al., 2025) is a memory layer for LLM agents that extracts salient facts from conversation turns and maintains them in a dense vector store. For each candidate fact, an LLM-based routing controller inspects the top-k most similar existing memories\" to decide whether to add, update, or discard information.\n\n**3. Mem0 shows large, specific efficiency gains over full-context approaches on the LOCOMO benchmark.**\nOn this widely-used long-term-memory benchmark, Mem0 delivers a 26% relative uplift in overall LLM-as-a-Judge score over OpenAI's memory feature\u201466.9% versus 52.9%, and it achieves this with 91% lower p95 latency and 90% fewer tokens compared to stuffing full conversation history into context. A newer, token-efficient version of the algorithm reportedly hits 91.6 on LoCoMo, 93.4 on LongMemEval, and 64.1/48.6 on BEAM (1M/10M) while averaging under 7,000 tokens per retrieval call, versus 25,000+ tokens for full-context approaches. (Note: some pages show later/updated figures \u2014 one lists Mem0 at 92.5 LoCoMo / 94.4 LongMemEval \u2014 suggesting these benchmark numbers are actively being revised by Mem0's team, so treat exact figures as provisional/self-reported rather than independently verified.)\n\n**4. Three-layer persistent memory architecture is emerging as a common pattern (short-term, semantic vector store, structured/exact storage).**\nA practical architecture pattern combines multiple storage types rather than relying on vectors alone: \"Persistent memory for AI agents requires a three-layer architecture: in-context (short-term), vector store (semantic long-term), and structured file storage (exact long-term)\", with retrieval quality depending heavily on how memories are structured.\n\n**5. Graph-based (\"Graph RAG\") memory is gaining traction as an alternative/complement to pure vector-similarity retrieval.**\nAs reasoning demands grow, some systems are moving beyond flat vector similarity toward graph structures that capture relationships between facts: graph RAG, an architecture that combines knowledge graphs with LLMs, is gaining traction as a structured memory architecture, especially for multi-hop reasoning tasks where simple nearest-neighbor retrieval falls short.\n\n**Flag/caveat:** The specific numeric benchmark figures for Mem0 (26% uplift, 91%/90% reductions, and the newer 91.6/93.4/64.1/48.6 scores) come primarily from Mem0's own research blog (mem0.ai) rather than an independent third-party paper, so they should be treated as vendor-reported until corroborated elsewhere. Similarly, some of the arXiv papers cited (e.g., IDs like 2601.xxxxx, 2602.xxxxx, 2604.xxxxx, 2605.xxxxx) reference future-dated identifiers that couldn't be cross-verified against arXiv's public listing in this search session.",
+        "source_report": "# How LLM Agents Implement Long-Term Memory\n\nLLM agents face a fundamental constraint: context windows are finite, but useful interactions may span far longer than any single window can hold. Recent architectures address this through several converging approaches.\n\n## 1. OS-Inspired Virtual Context Management (MemGPT)\n\nMemGPT reframes the context window problem using an operating-systems analogy: the context window is treated like limited RAM, requiring a memory hierarchy to manage what can't fit at once. As one architecture survey puts it, MemGPT \"introduces virtual context management inspired by operating system memory hierarchies. The key insight: LLMs face constraints analogous to limited RAM\u2014the context window cannot hold all relevant information.\"\n\nA distinctive feature of this approach is that the memory manager is itself an LLM agent\u2014meaning the system performs *self-editing memory*, with the model actively managing its own memory tiers rather than relying solely on a fixed external mechanism.\n\n## 2. Fact Extraction and Dynamic Routing (Mem0)\n\nRather than storing full conversation transcripts, Mem0 (Chhikara et al., 2025) extracts discrete, salient facts from conversation turns and stores them in a dense vector store. For each new candidate fact, an LLM-based routing controller compares it against the top-k most similar existing memories and decides whether to add, update, or discard the information. This selective, controller-driven approach avoids the inefficiency of stuffing raw history into context.\n\n## 3. Efficiency Gains Demonstrated on Benchmarks\n\nOn the LOCOMO benchmark, Mem0 reportedly achieves a 26% relative uplift in LLM-as-a-Judge score over OpenAI's memory feature (66.9% vs. 52.9%), while cutting p95 latency by 91% and token usage by 90% compared to full-context approaches.\n\nA newer, more token-efficient version reportedly scores 91.6 on LoCoMo, 93.4 on LongMemEval, and 64.1/48.6 on BEAM (1M/10M), averaging under 7,000 tokens per retrieval call versus 25,000+ for full-context methods. However, another source lists different, higher figures for the same system\u201492.5 LoCoMo and 94.4 LongMemEval\u2014suggesting these benchmark numbers are being actively revised and are not yet stable.\n\n## 4. Three-Layer Persistent Memory Architecture\n\nA recurring architectural pattern combines multiple storage types rather than relying on vector similarity alone: in-context (short-term) memory, a vector store (semantic long-term memory), and structured file storage (exact long-term memory). Under this pattern, retrieval quality depends heavily on how memories are structured across these layers, not just on the underlying storage technology.\n\n## 5. Graph-Based Memory for Relational Reasoning\n\nAs multi-hop reasoning demands grow, some systems move beyond flat vector-similarity retrieval toward graph structures that explicitly capture relationships between facts. Graph RAG\u2014combining knowledge graphs with LLMs\u2014is gaining traction as a structured memory architecture, particularly where simple nearest-neighbor retrieval is insufficient.\n\n## Caveats on Sourcing\n\nSeveral grounding concerns apply to the figures and sources above:\n\n- **Vendor-reported benchmarks:** The specific Mem0 numbers (26% uplift, 91%/90% reductions, and the 91.6/93.4/64.1/48.6 scores) come primarily from Mem0's own research blog rather than an independent third-party paper.\n- **Conflicting figures:** A separate source shows different, higher figures for the same benchmarks\u201492.5 LoCoMo and 94.4 LongMemEval\u2014indicating these numbers are being actively revised by Mem0's team. Exact figures should therefore be treated as provisional rather than settled.\n- **Unverifiable citations:** Some cited arXiv IDs (e.g., in the ranges 2601.xxxxx, 2602.xxxxx, 2604.xxxxx, 2605.xxxxx) are future-dated and could not be cross-verified against arXiv's public listing during this research session, raising additional questions about source reliability.\n\nGiven these caveats, the architectural patterns (virtual context management, fact-extraction routing, layered storage, graph-based retrieval) appear well-supported across sources, but the specific quantitative performance claims should be treated with caution until independently corroborated.",
+        "conversation": [],
+        "draft": "All five approaches are aimed at cross-session recall, since they exist specifically to overcome the limits of a single context window\u2014but they do it in different ways:\n\n- **MemGPT**: handles it via self-editing memory tiers\u2014the LLM agent itself manages what gets paged in/out of context, allowing information from earlier sessions to be recalled into the active context when needed.\n- **Mem0**: handles it by persisting extracted facts in a dense vector store that survives across conversations; new session turns are compared against this stored memory via the LLM routing controller to add/update/discard facts, so past-session facts remain retrievable later.\n- **Three-layer persistent memory architecture**: explicitly designed for this\u2014the vector store and structured file storage are described as \"long-term\" layers (semantic and exact, respectively), distinct from the in-context \"short-term\" layer, meaning they're the components responsible for retaining information beyond the current session.\n- **Graph RAG memory**: also long-term/persistent, storing relational facts in a knowledge graph for retrieval across sessions, particularly for multi-hop reasoning.\n\nThe notes don't explicitly contrast \"within-session\" vs. \"cross-session\" recall for each system, but the three-layer architecture and Mem0's vector store are the two most directly described as persistent/long-term storage mechanisms enabling recall beyond a single session, with MemGPT's self-editing hierarchy and graph RAG serving the same persistent-recall function through different mechanisms.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 3,
+        "usage": {
+          "input_tokens": 4952,
+          "output_tokens": 625,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 0,
+          "web_fetch_requests": 0,
+          "calls": 2,
+          "cost_usd": 0.016154,
+          "embedding_tokens": 0,
+          "embedding_requests": 0,
+          "embedding_cost_usd": 0.0,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "responder"
+          },
+          {
+            "node": "responder",
+            "answer_length": 1570,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_followup_honesty",
+          "passed": true,
+          "detail": "The answer addresses the question (which approaches handle cross-session recall) and its claims are grounded in the notes: MemGPT's self-editing memory tiers/paging, Mem0's persistent dense vector store of extracted facts with LLM routing controller, the three-layer architecture's explicitly labeled 'long-term' vector and structured storage layers, and Graph RAG's structured relational memory for multi-hop reasoning are all drawn from the notes. The cross-session inferences are reasonable extensions of the 'long-term/persistent' descriptions, and the answer honestly acknowledges that the notes do not explicitly distinguish within-session vs. cross-session recall. The only minor flaw is saying 'all five approaches' when only four distinct systems are actually listed (Mem0 spans notes 2 and 3), but this counting slip does not introduce unsupported factual claims and does not undermine the grounded response.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

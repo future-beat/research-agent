@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "case_id": "followup-admits-a-gap",
+  "recorded_at": "2026-08-15T15:42:26+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "47dd8d3",
+  "pipeline_cost_usd": 0.762692,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "4b60cb6abb454dfd9a86533e44a68adb",
+        "owner": "",
+        "task": "How do LLM agents implement long-term memory?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Let me retry these searches.Good, solid data. Let me also get HippoRAG and MemGPT/Letta specifics for more concrete numbers.Based on my research, here are 4-5 concrete, recent facts about how LLM agents implement long-term memory:\n\n**1. Mem0's scalable memory architecture (arXiv:2504.19413, ECAI 2025)**\nMem0 is a production memory system that extracts, consolidates, and retrieves salient information from conversations rather than storing raw transcripts. On the LOCOMO benchmark, Mem0's methods deliver 5%, 11%, and 7% relative improvements in single-hop, temporal, and multi-hop reasoning question types over the best-performing methods, while reducing p95 latency by over 91% compared to full-context baselines. Notably, Mem0 achieves 26% relative improvements in the LLM-as-a-Judge metric over OpenAI's memory system, and Mem0 with graph memory achieves around 2% higher overall score than the base configuration. As of a 2026 Mem0 blog update, Mem0 scores 92.5 on LoCoMo and 94.4 on LongMemEval, achieving high accuracy at 3-4x lower token cost than full-context memory systems.\n\n**2. HippoRAG mimics the human hippocampus for continual knowledge integration (NeurIPS 2024, arXiv:2405.14831)**\nThis framework draws on hippocampal indexing theory rather than treating retrieval as a static database lookup. The authors show that HippoRAG outperforms state-of-the-art RAG methods on multi-hop question answering tasks, with up to 20% improvement, while being 10-30 times cheaper and 6-13 times faster than iterative retrieval baselines like IRCoT.\n\n**3. Zep introduces temporal knowledge graphs for agent memory (arXiv:2501.13956, Feb 2025)**\nRather than flat vector stores, Zep's underlying engine \"Graphiti\" builds a temporal knowledge graph that tracks how facts change over time \u2014 this was highlighted as a notable 2024-2025 memory architecture alongside other graph-based approaches like Ar\u012bGraph and A-MEM (arXiv:2502.12110) that give agents \"decision-driven memory operations.\"\n\n**4. LongMemEval benchmark reveals major weaknesses in long-context-only approaches (arXiv:2410.10813, 2024)**\nThis benchmark specifically tests memory via realistic long-term interactive scenarios. LongMemEval evaluates long-term interactive memory by running chat assistants through indexing, retrieval, and reading over 50k sessions with fact-augmented keys and time-aware query expansion. Critically, on LongMemEval, long-context LLMs like GPT-4o, Llama 3.1, and Phi-3 suffer 30%-60% accuracy drops compared to oracle evidence-only reading, revealing severe limitations in current long-context designs \u2014 underscoring why explicit external memory architectures (rather than just relying on huge context windows) remain necessary.\n\n**5. A broad taxonomy has emerged distinguishing memory types and management strategies**\nRecent surveys (e.g., \"Your Code Agent Can Grow Alongside You,\" 2026) categorize approaches into hierarchical/tree-based memory and forgetting-curve-based pruning. Long-term memory mechanisms are widely adopted in LLM-based agents to enhance reasoning continuity and multi-agent collaboration, but continuous interaction leads to unbounded growth of long-term memory, posing critical challenges for organization and retrieval. To address this, biologically inspired approaches such as RAPTOR and Memwalker utilize tree-based architectures to organize memory spaces hierarchically, while methods like MemoryBank and SAGE incorporate the Ebbinghaus forgetting curve into long-term memory management to maintain conciseness by pruning obsolete information.\n\n**Flagged / unverifiable items:**\n- Several very recent 2026-dated arXiv papers (e.g., \"HyMem,\" \"Membox,\" \"MemGuard,\" \"StructMem,\" \"SimpleMem\") appeared in search results with arXiv IDs suggesting 2026 publication dates \u2014 these are beyond my ability to verify as legitimate given they reference future-dated preprints; treat with caution as they may reflect search-index anomalies or genuinely very recent/unreviewed work.\n- I could not independently verify the specific \"OMNE\" system's claim of reaching first place on the GAIA benchmark via long-term memory \u2014 this came from a secondary aggregator site (memorypapers.org) rather than a primary source, so I'd recommend confirming directly against the GAIA leaderboard if this figure matters to you.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# How LLM Agents Implement Long-Term Memory\n\nLLM agents face a fundamental limitation: context windows are finite, but useful interactions span weeks or months. Rather than relying solely on ever-larger context windows, current research converges on a common pattern \u2014 **extract, store, and selectively retrieve** salient information using dedicated memory architectures. Below are the main approaches, grounded in recent benchmarks and systems.\n\n## 1. Extraction-and-Consolidation Memory (Mem0)\n\nInstead of storing raw conversation transcripts, systems like **Mem0** (arXiv:2504.19413, ECAI 2025) extract and consolidate salient facts from conversations into a compact memory store, then retrieve relevant items at inference time.\n\nOn the **LOCOMO benchmark**, Mem0 shows:\n- 5%, 11%, and 7% relative improvements over the best-performing methods on single-hop, temporal, and multi-hop reasoning respectively\n- Over 91% reduction in p95 latency compared to full-context baselines\n- 26% relative improvement in LLM-as-a-Judge scoring over OpenAI's memory system\n- Mem0 with graph memory adds ~2% over the base configuration\n\nA 2026 Mem0 blog update reports scores of 92.5 on LoCoMo and 94.4 on LongMemEval, at 3-4x lower token cost than full-context memory systems.\n\n**Key idea:** memory is a distilled, queryable knowledge store, not a log.\n\n## 2. Hippocampus-Inspired Indexing (HippoRAG)\n\n**HippoRAG** (NeurIPS 2024, arXiv:2405.14831) draws on hippocampal indexing theory, treating memory retrieval as associative pattern completion rather than static database lookup \u2014 enabling continual integration of new knowledge without full re-indexing.\n\nResults: up to 20% improvement on multi-hop QA over state-of-the-art RAG methods, while being 10-30x cheaper and 6-13x faster than iterative retrieval baselines like IRCoT.\n\n**Key idea:** biologically-inspired indexing supports efficient multi-hop reasoning over accumulated knowledge.\n\n## 3. Temporal Knowledge Graphs (Zep / Graphiti)\n\n**Zep** (arXiv:2501.13956) replaces flat vector stores with a temporal knowledge graph engine (\"Graphiti\") that explicitly tracks how facts change over time, rather than treating memory as static embeddings. This approach sits alongside other graph-based architectures like **Ar\u012bGraph** and **A-MEM** (arXiv:2502.12110), which implement \"decision-driven memory operations.\"\n\n**Key idea:** representing memory as a structured, time-aware graph (rather than unstructured text chunks) supports reasoning about fact evolution and recency.\n\n## 4. Hierarchical and Forgetting-Based Memory Management\n\nAs long-term memory accumulates, unbounded growth becomes a core challenge for organization and retrieval. Two complementary strategies have emerged:\n- **Tree-based/hierarchical organization** (RAPTOR, Memwalker): memory is structured hierarchically, biologically inspired, to support scalable navigation.\n- **Forgetting-curve-based pruning** (MemoryBank, SAGE): incorporate the Ebbinghaus forgetting curve to prune obsolete information and maintain conciseness.\n\nThese are highlighted in recent surveys (e.g., \"Your Code Agent Can Grow Alongside You,\" 2026) as a broad taxonomy distinguishing memory types and management strategies across agent systems.\n\n## Why Not Just Use Long Context?\n\nThe **LongMemEval** benchmark (arXiv:2410.10813) tests long-term interactive memory by running chat assistants through indexing, retrieval, and reading over 50k sessions with fact-augmented keys and time-aware query expansion. It finds that long-context LLMs (GPT-4o, Llama 3.1, Phi-3) suffer 30-60% accuracy drops compared to oracle evidence-only reading \u2014 demonstrating that dumping everything into context does not substitute for explicit memory architectures.\n\n## Summary\n\n| Approach | Core Mechanism | Representative System |\n|---|---|---|\n| Extraction & consolidation | Distill salient facts, retrieve on demand | Mem0 |\n| Associative indexing | Hippocampus-inspired pattern completion | HippoRAG |\n| Temporal graphs | Structured, time-aware fact tracking | Zep/Graphiti, Ar\u012bGraph, A-MEM |\n| Hierarchical/pruning | Tree structure or forgetting curves | RAPTOR, Memwalker, MemoryBank, SAGE |\n\nAcross these approaches, the consistent theme is that effective long-term memory requires **active curation** (extraction, consolidation, structuring, and pruning) rather than passive accumulation \u2014 a conclusion reinforced by LongMemEval's finding that raw long-context reading underperforms targeted retrieval.\n\n## Flagged / Unverified Claims\n\n- Several 2026-dated arXiv papers (\"HyMem,\" \"Membox,\" \"MemGuard,\" \"StructMem,\" \"SimpleMem\") appeared in searches but could not be verified as legitimate given their future-dated preprint IDs; possibly search-index anomalies.\n- The claim that system \"OMNE\" reached first place on the GAIA benchmark via long-term memory came from a secondary aggregator (memorypapers.org), not a primary source, and could not be independently verified against the GAIA leaderboard.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 120712,
+          "output_tokens": 7218,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 6,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.37366526,
+          "embedding_tokens": 1021,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 6.126e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 4321,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3228,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 4975,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "All specific numbers, dates, arXiv IDs, and named entities in the report trace directly to the research notes. Mem0's LOCOMO figures (5/11/7%, 91% p95 latency, 26% LLM-as-Judge, ~2% graph memory), the 2026 blog scores (92.5 LoCoMo, 94.4 LongMemEval, 3-4x token cost), HippoRAG (NeurIPS 2024, arXiv:2405.14831, 20%, 10-30x cheaper, 6-13x faster, IRCoT), Zep/Graphiti (arXiv:2501.13956), Ar\u012bGraph, A-MEM (arXiv:2502.12110), the hierarchical/forgetting systems (RAPTOR, Memwalker, MemoryBank, SAGE, Ebbinghaus), the survey title, LongMemEval (arXiv:2410.10813, 50k sessions, GPT-4o/Llama 3.1/Phi-3, 30-60% drops), and the flagged items all match the notes. The only minor embellishment is describing hippocampal indexing as 'associative pattern completion,' which is a reasonable interpretive gloss consistent with the notes' description and not a fabricated fact. No unsupported numbers, dates, or entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers how LLM agents implement long-term memory, describing multiple concrete approaches (extraction-and-consolidation, hippocampus-inspired indexing, temporal knowledge graphs, hierarchical/forgetting-based management) with representative systems and mechanisms. It also addresses why long context isn't sufficient and honestly flags unverified claims. The content is squarely on-topic.",
+          "judged": true
+        }
+      ]
+    },
+    {
+      "label": "What did Gartner forecast for agent memory spending in 2027?",
+      "state": {
+        "run_id": "102338f55cd949b6ae5cd7fa175a63c6",
+        "owner": "",
+        "task": "What did Gartner forecast for agent memory spending in 2027?",
+        "mode": "followup",
+        "topic_type": "technical",
+        "research_notes": "Let me retry these searches.Good, solid data. Let me also get HippoRAG and MemGPT/Letta specifics for more concrete numbers.Based on my research, here are 4-5 concrete, recent facts about how LLM agents implement long-term memory:\n\n**1. Mem0's scalable memory architecture (arXiv:2504.19413, ECAI 2025)**\nMem0 is a production memory system that extracts, consolidates, and retrieves salient information from conversations rather than storing raw transcripts. On the LOCOMO benchmark, Mem0's methods deliver 5%, 11%, and 7% relative improvements in single-hop, temporal, and multi-hop reasoning question types over the best-performing methods, while reducing p95 latency by over 91% compared to full-context baselines. Notably, Mem0 achieves 26% relative improvements in the LLM-as-a-Judge metric over OpenAI's memory system, and Mem0 with graph memory achieves around 2% higher overall score than the base configuration. As of a 2026 Mem0 blog update, Mem0 scores 92.5 on LoCoMo and 94.4 on LongMemEval, achieving high accuracy at 3-4x lower token cost than full-context memory systems.\n\n**2. HippoRAG mimics the human hippocampus for continual knowledge integration (NeurIPS 2024, arXiv:2405.14831)**\nThis framework draws on hippocampal indexing theory rather than treating retrieval as a static database lookup. The authors show that HippoRAG outperforms state-of-the-art RAG methods on multi-hop question answering tasks, with up to 20% improvement, while being 10-30 times cheaper and 6-13 times faster than iterative retrieval baselines like IRCoT.\n\n**3. Zep introduces temporal knowledge graphs for agent memory (arXiv:2501.13956, Feb 2025)**\nRather than flat vector stores, Zep's underlying engine \"Graphiti\" builds a temporal knowledge graph that tracks how facts change over time \u2014 this was highlighted as a notable 2024-2025 memory architecture alongside other graph-based approaches like Ar\u012bGraph and A-MEM (arXiv:2502.12110) that give agents \"decision-driven memory operations.\"\n\n**4. LongMemEval benchmark reveals major weaknesses in long-context-only approaches (arXiv:2410.10813, 2024)**\nThis benchmark specifically tests memory via realistic long-term interactive scenarios. LongMemEval evaluates long-term interactive memory by running chat assistants through indexing, retrieval, and reading over 50k sessions with fact-augmented keys and time-aware query expansion. Critically, on LongMemEval, long-context LLMs like GPT-4o, Llama 3.1, and Phi-3 suffer 30%-60% accuracy drops compared to oracle evidence-only reading, revealing severe limitations in current long-context designs \u2014 underscoring why explicit external memory architectures (rather than just relying on huge context windows) remain necessary.\n\n**5. A broad taxonomy has emerged distinguishing memory types and management strategies**\nRecent surveys (e.g., \"Your Code Agent Can Grow Alongside You,\" 2026) categorize approaches into hierarchical/tree-based memory and forgetting-curve-based pruning. Long-term memory mechanisms are widely adopted in LLM-based agents to enhance reasoning continuity and multi-agent collaboration, but continuous interaction leads to unbounded growth of long-term memory, posing critical challenges for organization and retrieval. To address this, biologically inspired approaches such as RAPTOR and Memwalker utilize tree-based architectures to organize memory spaces hierarchically, while methods like MemoryBank and SAGE incorporate the Ebbinghaus forgetting curve into long-term memory management to maintain conciseness by pruning obsolete information.\n\n**Flagged / unverifiable items:**\n- Several very recent 2026-dated arXiv papers (e.g., \"HyMem,\" \"Membox,\" \"MemGuard,\" \"StructMem,\" \"SimpleMem\") appeared in search results with arXiv IDs suggesting 2026 publication dates \u2014 these are beyond my ability to verify as legitimate given they reference future-dated preprints; treat with caution as they may reflect search-index anomalies or genuinely very recent/unreviewed work.\n- I could not independently verify the specific \"OMNE\" system's claim of reaching first place on the GAIA benchmark via long-term memory \u2014 this came from a secondary aggregator site (memorypapers.org) rather than a primary source, so I'd recommend confirming directly against the GAIA leaderboard if this figure matters to you.\n\nBased on my research, Gartner does not appear to have published a forecast specifically labeled \"agent memory spending\" \u2014 no primary Gartner source uses that exact category. However, several closely related, precisely sourced Gartner figures for 2027 emerged that bear directly on agent memory infrastructure spending:\n\n**1. Gartner's agentic AI software spending crossover in 2027**\nPer Gartner's *Forecast: AI Spending, Worldwide, 2024\u20132029, 4Q25*, Gartner predicts the crossover will happen in 2027. Chatbots peak at $264.75 billion that year, while Agentic AI surges to $371.40 billion. One aggregator citing the same Gartner dataset puts the specific \"AI agent software\" line item at $206.5 billion in 2026 and jump to $376.3 billion in 2027 \u2014 an 82% single-year jump, though I could not directly verify this precise sub-figure against a primary Gartner document (worth flagging as secondary-sourced).\n\n**2. Gartner's DBMS/vector database forecast implicates memory infrastructure**\nIn *Forecast: Database Management Systems, Worldwide, 2023-2029, 2025 Update*, Gartner reports the DBMS market is forecast to grow by 18.4% in 2026 to $161 billion, driven by rising data volumes, growth of analytic workloads, AI adoption and cloud-native expansion, and specifically that vector databases will lead growth with a 75.3% CAGR, fueled by GenAI, RAG and hybrid search for fast, scalable embeddings \u2014 vector databases being the primary storage substrate for agent long-term memory.\n\n**3. Gartner's \"Agent-Ready Data\" research ties 2027 market share directly to memory/data architecture**\nA named Gartner research document states: By 2027, enterprise software providers that rearchitect data management systems for agentic, machine-to-machine workflows can capture up to 30% more market share, as AI agents rapidly become the primary data consumers.\n\n**4. Broader AI infrastructure spending context for 2027**\nGartner's overall AI spending forecast shows infrastructure (which includes memory/storage systems underpinning agents) rising from USD $975.6 billion in 2025 to USD $1.43 trillion in 2026, before climbing to USD $1.89 trillion in 2027, with total AI spending reaching $3.49 trillion in 2027.\n\n**5. Enterprise adoption context (not spending, but scale)**\nGartner separately forecasts that more than 40% of agentic AI projects will be canceled by end of 2027 \u2014 a caution relevant to memory-system investment given escalating costs, unclear business value, and inadequate risk controls as cited drivers.\n\n**Flagged / unverifiable:**\n- I could not find a Gartner report that isolates \"agent memory\" as its own labeled spending category with a specific 2027 dollar figure. The $376.3B \"AI agent software\" 2027 figure appears only in secondary aggregator sources (Enterprise DNA, cfotech), not a primary Gartner press release I could directly access \u2014 treat this specific number with some caution.\n- Third-party market-research firms (Mordor Intelligence, MarketIntelo) publish specific \"AI Agent Memory Systems\" market sizes (e.g., $1.2B in 2025 growing to $18.9B by 2034), but these are not Gartner and use different methodologies \u2014 I'd distinguish these clearly from Gartner's own forecasts if precision matters for your use case.",
+        "source_report": "# How LLM Agents Implement Long-Term Memory\n\nLLM agents face a fundamental limitation: context windows are finite, but useful interactions span weeks or months. Rather than relying solely on ever-larger context windows, current research converges on a common pattern \u2014 **extract, store, and selectively retrieve** salient information using dedicated memory architectures. Below are the main approaches, grounded in recent benchmarks and systems.\n\n## 1. Extraction-and-Consolidation Memory (Mem0)\n\nInstead of storing raw conversation transcripts, systems like **Mem0** (arXiv:2504.19413, ECAI 2025) extract and consolidate salient facts from conversations into a compact memory store, then retrieve relevant items at inference time.\n\nOn the **LOCOMO benchmark**, Mem0 shows:\n- 5%, 11%, and 7% relative improvements over the best-performing methods on single-hop, temporal, and multi-hop reasoning respectively\n- Over 91% reduction in p95 latency compared to full-context baselines\n- 26% relative improvement in LLM-as-a-Judge scoring over OpenAI's memory system\n- Mem0 with graph memory adds ~2% over the base configuration\n\nA 2026 Mem0 blog update reports scores of 92.5 on LoCoMo and 94.4 on LongMemEval, at 3-4x lower token cost than full-context memory systems.\n\n**Key idea:** memory is a distilled, queryable knowledge store, not a log.\n\n## 2. Hippocampus-Inspired Indexing (HippoRAG)\n\n**HippoRAG** (NeurIPS 2024, arXiv:2405.14831) draws on hippocampal indexing theory, treating memory retrieval as associative pattern completion rather than static database lookup \u2014 enabling continual integration of new knowledge without full re-indexing.\n\nResults: up to 20% improvement on multi-hop QA over state-of-the-art RAG methods, while being 10-30x cheaper and 6-13x faster than iterative retrieval baselines like IRCoT.\n\n**Key idea:** biologically-inspired indexing supports efficient multi-hop reasoning over accumulated knowledge.\n\n## 3. Temporal Knowledge Graphs (Zep / Graphiti)\n\n**Zep** (arXiv:2501.13956) replaces flat vector stores with a temporal knowledge graph engine (\"Graphiti\") that explicitly tracks how facts change over time, rather than treating memory as static embeddings. This approach sits alongside other graph-based architectures like **Ar\u012bGraph** and **A-MEM** (arXiv:2502.12110), which implement \"decision-driven memory operations.\"\n\n**Key idea:** representing memory as a structured, time-aware graph (rather than unstructured text chunks) supports reasoning about fact evolution and recency.\n\n## 4. Hierarchical and Forgetting-Based Memory Management\n\nAs long-term memory accumulates, unbounded growth becomes a core challenge for organization and retrieval. Two complementary strategies have emerged:\n- **Tree-based/hierarchical organization** (RAPTOR, Memwalker): memory is structured hierarchically, biologically inspired, to support scalable navigation.\n- **Forgetting-curve-based pruning** (MemoryBank, SAGE): incorporate the Ebbinghaus forgetting curve to prune obsolete information and maintain conciseness.\n\nThese are highlighted in recent surveys (e.g., \"Your Code Agent Can Grow Alongside You,\" 2026) as a broad taxonomy distinguishing memory types and management strategies across agent systems.\n\n## Why Not Just Use Long Context?\n\nThe **LongMemEval** benchmark (arXiv:2410.10813) tests long-term interactive memory by running chat assistants through indexing, retrieval, and reading over 50k sessions with fact-augmented keys and time-aware query expansion. It finds that long-context LLMs (GPT-4o, Llama 3.1, Phi-3) suffer 30-60% accuracy drops compared to oracle evidence-only reading \u2014 demonstrating that dumping everything into context does not substitute for explicit memory architectures.\n\n## Summary\n\n| Approach | Core Mechanism | Representative System |\n|---|---|---|\n| Extraction & consolidation | Distill salient facts, retrieve on demand | Mem0 |\n| Associative indexing | Hippocampus-inspired pattern completion | HippoRAG |\n| Temporal graphs | Structured, time-aware fact tracking | Zep/Graphiti, Ar\u012bGraph, A-MEM |\n| Hierarchical/pruning | Tree structure or forgetting curves | RAPTOR, Memwalker, MemoryBank, SAGE |\n\nAcross these approaches, the consistent theme is that effective long-term memory requires **active curation** (extraction, consolidation, structuring, and pruning) rather than passive accumulation \u2014 a conclusion reinforced by LongMemEval's finding that raw long-context reading underperforms targeted retrieval.\n\n## Flagged / Unverified Claims\n\n- Several 2026-dated arXiv papers (\"HyMem,\" \"Membox,\" \"MemGuard,\" \"StructMem,\" \"SimpleMem\") appeared in searches but could not be verified as legitimate given their future-dated preprint IDs; possibly search-index anomalies.\n- The claim that system \"OMNE\" reached first place on the GAIA benchmark via long-term memory came from a secondary aggregator (memorypapers.org), not a primary source, and could not be independently verified against the GAIA leaderboard.",
+        "conversation": [],
+        "draft": "Gartner does not appear to have published a forecast specifically labeled \"agent memory spending\" for 2027 \u2014 my research found no primary Gartner source using that exact category.\n\nThat said, several related, Gartner-sourced 2027 figures came up that bear on this space:\n\n- **Agentic AI software spending**: Per Gartner's *Forecast: AI Spending, Worldwide, 2024\u20132029, 4Q25*, Agentic AI software spending is forecast to reach **$371.40 billion in 2027**, crossing above chatbot spending ($264.75 billion that year). A secondary aggregator cited a related \"AI agent software\" figure of $376.3 billion for 2027, but I could not verify this against a primary Gartner document.\n- **Vector databases** (the typical storage substrate for agent long-term memory): Gartner's DBMS forecast projects a **75.3% CAGR** for vector databases, driven by GenAI, RAG, and hybrid search needs \u2014 though no specific 2027 dollar figure was given for this sub-segment.\n- **AI infrastructure spending** (broader category including memory/storage systems): Gartner forecasts this rising to **$1.89 trillion in 2027**, part of total AI spending of $3.49 trillion that year.\n- **Agent-Ready Data**: A Gartner research note states that by 2027, enterprise software providers who rearchitect data management for agentic workflows could capture **up to 30% more market share**.\n\n**Bottom line**: The research didn't turn up a Gartner figure specifically for \"agent memory spending\" in 2027. The closest verified figures are the agentic AI software spending forecast ($371.40B in 2027) and the vector database growth rate (75.3% CAGR), both of which relate to but don't isolate memory infrastructure specifically.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": true,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 124828,
+          "output_tokens": 3932,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 10,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.38902634,
+          "embedding_tokens": 839,
+          "embedding_requests": 2,
+          "embedding_cost_usd": 5.034e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "responder"
+          },
+          {
+            "node": "responder",
+            "insufficient": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher",
+            "followup_research": "notes_insufficient"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3236,
+            "recalled_from_memory": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "responder"
+          },
+          {
+            "node": "responder",
+            "answer_length": 1682,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_followup_honesty",
+          "passed": true,
+          "detail": "The answer is well-grounded in the notes. It correctly states that Gartner has no forecast specifically labeled 'agent memory spending' for 2027, matching the notes' flagged item. All supporting figures are accurately drawn from the notes: Agentic AI software spending of $371.40B in 2027 vs chatbots at $264.75B, the unverified secondary $376.3B figure (properly flagged), the vector database 75.3% CAGR (correctly noting no specific 2027 dollar figure), AI infrastructure at $1.89T and total AI spending of $3.49T in 2027, and the 'up to 30% more market share' Agent-Ready Data claim. No fabricated numbers or misattributions. It directly addresses the question and appropriately explains the absence of the exact category.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

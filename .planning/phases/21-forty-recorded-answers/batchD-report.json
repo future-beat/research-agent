@@ -1,0 +1,1252 @@
+{
+  "mode": "record",
+  "model": "claude-sonnet-5",
+  "judge_model": "claude-opus-4-8",
+  "judge_calls": 24,
+  "generated_at": "2026-08-15T16:25:05+0800",
+  "cases": [
+    {
+      "case_id": "followup-uses-prior-notes",
+      "why": "A follow-up must answer from the notes it already has. If it re-searches, every follow-up costs a full research run.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.257922,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.241768,
+          "duration_ms": 89315.0,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "4254 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2418",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3792 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim, named entity, and numeric figure in the report is directly supported by the research notes: MemGPT's OS-inspired virtual context management and self-editing memory, Mem0 (Chhikara et al., 2025) fact extraction with LLM-based routing controller, the LOCOMO benchmark figures (26% uplift, 66.9% vs 52.9%, 91%/90% reductions), the newer scores (91.6/93.4/64.1/48.6, <7,000 vs 25,000+ tokens), the conflicting 92.5/94.4 figures, the three-layer architecture, Graph RAG, and the sourcing caveats including the future-dated arXiv IDs. No unsupported numbers, dates, or entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses how LLM agents implement long-term memory, covering multiple concrete approaches: OS-inspired virtual context management (MemGPT), fact extraction and dynamic routing (Mem0), layered persistent memory architectures, and graph-based memory for relational reasoning. It explains actual implementation mechanisms rather than being about something else, and appropriately flags sourcing caveats around specific benchmark figures without undermining the core answer.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "Which of those handles recall across separate sessions?",
+          "passed": true,
+          "cost_usd": 0.016154,
+          "duration_ms": 9527.2,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": true,
+              "detail": "answered from stored notes",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "not a reach case",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "The answer addresses the question (which approaches handle cross-session recall) and its claims are grounded in the notes: MemGPT's self-editing memory tiers/paging, Mem0's persistent dense vector store of extracted facts with LLM routing controller, the three-layer architecture's explicitly labeled 'long-term' vector and structured storage layers, and Graph RAG's structured relational memory for multi-hop reasoning are all drawn from the notes. The cross-session inferences are reasonable extensions of the 'long-term/persistent' descriptions, and the answer honestly acknowledges that the notes do not explicitly distinguish within-session vs. cross-session recall. The only minor flaw is saying 'all five approaches' when only four distinct systems are actually listed (Mem0 spans notes 2 and 3), but this counting slip does not introduce unsupported factual claims and does not undermine the grounded response.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "followup-admits-a-gap",
+      "why": "The one case where the reach produces an answer. Asked something the notes don't cover, a follow-up used to refuse; since Phase 17 it goes and looks, and what ships is written from the enlarged notes and fact-checked like any other answer. The failure this pipeline exists to prevent is unchanged and is what the window protects: between the signal and the new notes there is no answer at all, so there is still no path from a question the notes can't support to a confident, ungrounded, invisible lie.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.762692,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.373665,
+          "duration_ms": 380398.8,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "4975 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.3737",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4321 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "All specific numbers, dates, arXiv IDs, and named entities in the report trace directly to the research notes. Mem0's LOCOMO figures (5/11/7%, 91% p95 latency, 26% LLM-as-Judge, ~2% graph memory), the 2026 blog scores (92.5 LoCoMo, 94.4 LongMemEval, 3-4x token cost), HippoRAG (NeurIPS 2024, arXiv:2405.14831, 20%, 10-30x cheaper, 6-13x faster, IRCoT), Zep/Graphiti (arXiv:2501.13956), Ar\u012bGraph, A-MEM (arXiv:2502.12110), the hierarchical/forgetting systems (RAPTOR, Memwalker, MemoryBank, SAGE, Ebbinghaus), the survey title, LongMemEval (arXiv:2410.10813, 50k sessions, GPT-4o/Llama 3.1/Phi-3, 30-60% drops), and the flagged items all match the notes. The only minor embellishment is describing hippocampal indexing as 'associative pattern completion,' which is a reasonable interpretive gloss consistent with the notes' description and not a fabricated fact. No unsupported numbers, dates, or entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers how LLM agents implement long-term memory, describing multiple concrete approaches (extraction-and-consolidation, hippocampus-inspired indexing, temporal knowledge graphs, hierarchical/forgetting-based management) with representative systems and mechanisms. It also addresses why long context isn't sufficient and honestly flags unverified claims. The content is squarely on-topic.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "What did Gartner forecast for agent memory spending in 2027?",
+          "passed": true,
+          "cost_usd": 0.389026,
+          "duration_ms": 163967.5,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": true,
+              "detail": "reached for new information exactly once",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "notes_insufficient",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "The answer is well-grounded in the notes. It correctly states that Gartner has no forecast specifically labeled 'agent memory spending' for 2027, matching the notes' flagged item. All supporting figures are accurately drawn from the notes: Agentic AI software spending of $371.40B in 2027 vs chatbots at $264.75B, the unverified secondary $376.3B figure (properly flagged), the vector database 75.3% CAGR (correctly noting no specific 2027 dollar figure), AI infrastructure at $1.89T and total AI spending of $3.49T in 2027, and the 'up to 30% more market share' Agent-Ready Data claim. No fabricated numbers or misattributions. It directly addresses the question and appropriately explains the absence of the exact category.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "followups-chain",
+      "why": "A second follow-up must see the first. Losing the thread turns a conversation back into a series of disconnected one-shots.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.472078,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.415482,
+          "duration_ms": 270962.5,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "4392 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.4155",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4053 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report\u2014Mem0's pipeline and LOCOMO metrics (26%, ~2%, 91% latency, >90% token savings, p50 0.148s/p95 0.200s), Zep/Graphiti's three subgraphs and benchmark results (94.8% vs 93.4%, 18.5%, 90% latency, 60-message DMR caveat), production adoption dates (Feb 2024, Sept 5 2024) and 700M WAU (with the flagged caveat), open-source figures (51,000+ stars/$24M, 46,100, 41,200 from 23K April 2026, with flag), the ~30-point LongMemEval gap (Wu et al., ICLR 2025), and the named systems/patterns (HippoRAG, A-Mem, MemoryBank, RAPTOR, SAGE, Ebbinghaus forgetting curve)\u2014all trace directly to the notes. No unsupported numbers, dates, or named entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly and substantively answers how LLM agents implement long-term memory, covering concrete implementation approaches: extraction-and-consolidation pipelines (Mem0's ADD/UPDATE/DELETE/NOOP), temporal knowledge graphs (Zep/Graphiti), the decoupled external-store pattern, hierarchical organization, and selective forgetting mechanisms. It also contrasts these with naive long-context approaches and includes production adoption examples. The content is on-topic and provides specific mechanisms rather than being about something else.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "Which of those handles recall across separate sessions?",
+          "passed": true,
+          "cost_usd": 0.039578,
+          "duration_ms": 23785.2,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": true,
+              "detail": "answered from stored notes",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "not a reach case",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "The answer is grounded in the notes: Mem0 (ADD/UPDATE/DELETE/NOOP consolidation, Mem0\u1d4d graph variant), Zep/Graphiti (episode/semantic/community subgraphs), and production ChatGPT memory are all described as persistent, long-term memory systems, which reasonably supports the inference that they handle recall beyond a single conversation. The answer directly addresses the question by identifying these systems, and it responsibly adds a well-grounded caveat that the notes don't characterize which benchmarks isolate cross-session recall (correctly citing the DMR 60-message single-conversation detail and the lack of session-structure info for LOCOMO/LongMemEval). Both grounding and relevance hold.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "And what stops it recalling something irrelevant?",
+          "passed": true,
+          "cost_usd": 0.017018,
+          "duration_ms": 8198.9,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": true,
+              "detail": "answered from stored notes",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "not a reach case",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "All four mechanisms cited are grounded in the notes: (1) Mem0's selective retrieval of 'most salient information rather than fixed-size chunks' is directly quoted; (2) the ADD/UPDATE/DELETE/NOOP consolidation pipeline is stated in the notes, and the interpretation of DELETE/NOOP as write-time filtering is a reasonable, explicitly hedged inference; (3) Zep/Graphiti's three subgraphs and historical relationships are accurately drawn from the notes; (4) the Ebbinghaus forgetting-curve pruning is directly quoted. The answer directly addresses how irrelevant recall is prevented and appropriately notes the limits of the source material regarding query-time scoring detail. No fabricated facts.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "followups-chain-of-three",
+      "why": "Three turns is where a chain actually breaks: the third answer must still see the first two. Losing the thread turns a conversation back into disconnected one-shots, and it shows up late.",
+      "passed": false,
+      "error": "",
+      "cost_usd": 0.885972,
+      "turns": [
+        {
+          "label": "research",
+          "passed": false,
+          "cost_usd": 0.278324,
+          "duration_ms": 469156.6,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": false,
+              "detail": "expected 'general', got 'technical'",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "2 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3402 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2783",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3145 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is supported by the research notes. The GitHub Actions details (actions/cache@v5, Node.js 24, runner 2.327.1, v2 API rollout and legacy sunset on Feb 1, 2025), GitLab figures (~7s to ~1s, 5-15 min anecdotal), Actuated kernel build times (1m20s aarch64, 4m10s x86-64), BuildKit caching, constraints (7-day eviction, 10 GB limit), and setup-node@v6/setup-python@v6 cache inputs all match the notes. The rigor caveat is also faithfully reproduced. No numbers, dates, or named entities appear that are absent from the notes.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses how dependency caching speeds up CI pipelines. It explains the core mechanism (reusing cached dependencies/build outputs instead of re-downloading or re-installing them) and provides concrete measured examples of time savings (e.g., GitLab node_modules install dropping from ~7s to ~1s per job, BuildKit layer caching, developer-reported 5-15 min savings). It also covers relevant operational aspects like cache limits, automatic setup-action caching, and honestly qualifies the rigor of the figures. Despite some tangential infrastructure detail, the report is on-topic and substantively answers the question.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "What key is the cache stored under?",
+          "passed": false,
+          "cost_usd": 0.270236,
+          "duration_ms": 340692.7,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": false,
+              "detail": "follow-up ran ['researcher'] instead of reusing the notes",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "not a reach case",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "The answer accurately reflects the research notes: GitHub Actions explicit key with hashFiles() and the concrete pattern, restore-keys fallback behavior, branch/ref scoping, setup-node auto-generated key from lock-file hash, and GitLab's cache:key:files. All claims are grounded in the notes, and it directly addresses the question about what key the cache is stored under. The 'not covered' flag on the hash algorithm also matches the notes.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "And what does a miss cost?",
+          "passed": false,
+          "cost_usd": 0.312219,
+          "duration_ms": 459906.4,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": false,
+              "detail": "follow-up ran ['researcher'] instead of reusing the notes",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "not a reach case",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "All figures in the answer are grounded in the research notes: the software bug cost multipliers (1x/6.5x/15x/60-100x, $100 vs $10,000), NIST's 2002 $59.5B figure, the earnings misses (S&P Global 9.7%/$4.30 vs $4.34, Harmonic 31%, FactSet 5.4%, Tesla 10%), and the IBM data breach cost ($4.88M in 2024, up 10% from $4.45M) all match the notes exactly. The answer appropriately handles the ambiguity of 'a miss,' correctly notes the CI caching context lacks an explicit 'cost of a cache miss' framing, and responsibly refrains from presenting a derived ~6s calculation as a research finding. It both follows from the notes and addresses the question.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "Does that key change between branches?",
+          "passed": true,
+          "cost_usd": 0.025192,
+          "duration_ms": 6605.7,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": true,
+              "detail": "answered from stored notes",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "not a reach case",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "The answer is grounded in the research notes. It accurately uses the notes' facts on GitHub Actions cache key scoping (point 3 of the key-scoping section): the merge-ref scoping for PRs and the fallback to the default branch when no match is found on the current branch. Both quotes are verbatim from the notes. The distinction it draws\u2014that the key string itself (from hashFiles) doesn't inherently change between branches but the scoping/restorability is branch-aware\u2014follows logically from the notes. It directly answers the question 'Does that key change between branches?' and appropriately flags that GitLab's behavior isn't covered in the notes.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "followup-stays-inside-thin-notes",
+      "why": "A follow-up on a thin topic must answer from the little that was found, without quietly upgrading a hobby repository into a maintained port. The gap has to survive the second turn too.",
+      "passed": false,
+      "error": "",
+      "cost_usd": 0.308466,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.270338,
+          "duration_ms": 83915.0,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "sparse",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3230 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2703",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4013 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is supported by the research notes. All named entities (lang_ex, beam_weaver, Jido, Agens, awesome-ml-gen-ai-elixir, rag_ex, command), features (checkpointing with Redis + Postgres, WeaveScope tracing, Jido 2.0 release, OpenTelemetry/OpenInference spans), dates (2024/2025), and community references (r/LangChain, r/elixir, Elixir Forum 'State of developing agents with Elixir') appear in the notes. The caveats, including the 'command' repo mention and the absence of adoption metrics, are all grounded. No fabricated numbers or entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers the question by identifying and describing multiple tools for running LangGraph-style agent graphs in Elixir. It covers direct LangGraph analogs (lang_ex, beam_weaver), OTP-native frameworks (Jido, Agens), and surrounding ecosystem tools, along with their features and maturity. It also honestly notes gaps (small, recent repos; no clear winner). This is a substantive, on-topic response.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "Are either of those two repositories maintained?",
+          "passed": false,
+          "cost_usd": 0.038128,
+          "duration_ms": 16443.7,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": false,
+              "detail": "follow-up ran ['researcher'] instead of reusing the notes",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "not a reach case",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "The answer's core claim\u2014that the notes contain no concrete maintenance signals (commit dates, release history, issue/PR activity, archived/deprecated status) for the repositories\u2014is directly grounded in the notes' explicit 'Gaps and caveats' section, which states these adoption/activity metrics could not be found. The supporting details are also accurate: beam_weaver being 'newer (2024/2025-era)' and discussed on r/LangChain and r/elixir, and both repos being characterized as 'small, recent, low-star repositories.' The answer correctly declines to overclaim and honestly addresses the question by explaining it cannot confirm maintenance status. While it assumes the 'two repositories' are lang_ex and beam_weaver (the notes didn't identify which two), this doesn't lead to any fabricated claims, and the honest 'not enough information' conclusion holds regardless of which repos are meant.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "followup-refuses-an-uncovered-figure",
+      "why": "One pass, then the honest gap. Asked for a neighbouring setting the research never looked at, the follow-up reaches for it -- and when the pass comes back without it, the answer still declines rather than recalling the figure from training. This is the branch nothing else covers: refusing AFTER looking, with the attempt in the trace, which is the difference between a refusal that tried and one that simply never left the notes it had.",
+      "passed": false,
+      "error": "ValueError: Judge verdict was TRUNCATED at max_tokens (the 1500-token budget is shared with adaptive thinking), not malformed: ''",
+      "cost_usd": 0.106609,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.106609,
+          "duration_ms": 134322.9,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "2419 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1066",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3394 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is supported by the research notes. The default value of 0 (disabled), introduction in PostgreSQL 7.3, the min/max/context/restart bounds table, milliseconds interpretation, session/role/database syntax examples, the recommendation against postgresql.conf, the 30-60 second practical default (Navicat), the PostgreSQL 13 multi-statement behavior change, the extended query protocol timing, and the Alibaba Cloud AnalyticDB 3-hour vendor-specific default all appear in the notes. The report also correctly notes AWS RDS/Azure figures as unverified, matching the notes. No unsupported numbers, dates, or named entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers both parts of the question: it states the default is 0 (disabling the timeout) and explains how it is set at session (SET), role (ALTER ROLE), and database (ALTER DATABASE) levels, plus notes on postgresql.conf. Both the default value and configuration methods are clearly addressed.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "followup-refuses-a-forecast",
+      "why": "The same honest tail on a genuinely unanswerable question. Asked to forecast from a thin base, the follow-up reaches -- and a 2028 market share is not sitting on the web waiting to be found, so the pass comes back thin and the answer declines rather than extrapolating. The sparse failure and the follow-up failure at once, with the search that could not rescue either on the record.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.58257,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.299323,
+          "duration_ms": 478807.6,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "sparse",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "6030 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2993",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4970 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim, number, date, and named entity in the report is grounded in the notes: the 16,000+ servers in eight months, the Open Banking Tracker '8 live and beta' figure, the 'banks and financial platforms' characterization, Plaid/Teller wrappers, Modern Treasury and Block/Square, Apollo GraphQL, the named major banks (JPMorgan, Citi, HSBC, Capital One), DORA tooling (CISO Assistant 150+ frameworks, DORA Compliance MCP five pillars), IBM OpenPages 9.2 GA on March 27 2026, the Cloud Security Alliance hub, arXiv 'caller identity confusion' research, the vendor sources (Arcade.dev, Medium, LoanPro, Integrate.io), and the regulators (OCC, Federal Reserve, FCA). The report's added caveats are interpretive/cautionary framing, not unsupported factual assertions.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the question of MCP server adoption inside regulated banks. It examines the available evidence, carefully distinguishes fintech/payments adopters from chartered banks, notes the ambiguity in tracker data, discusses compliance tooling built for banks, security concerns, and the absence of regulatory statements. It honestly reports that concrete evidence of regulated-bank adoption is thin and largely undocumented in public sources\u2014which is a legitimate, on-topic answer when that is what the research found.",
+              "judged": true
+            }
+          ]
+        },
+        {
+          "label": "What share of those banks will have deployed MCP by 2028?",
+          "passed": true,
+          "cost_usd": 0.283247,
+          "duration_ms": 79669.7,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": true,
+              "detail": "reached for new information exactly once",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "notes_insufficient",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "critic ran",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": true,
+              "detail": "The answer plainly and repeatedly admits the gap: it states up front that 'No source in the research gives an explicit forecasted percentage for regulated-bank MCP adoption by 2028' and concludes that 'the research provides no basis for a confident numeric forecast.' It does not invent a specific percentage. All figures cited (41-45%, 47%, 50% tipping point, 15%, 40% cancellation) are drawn directly from the research notes and are explicitly framed as non-MCP-specific proxy data, not as an answer to the question. This satisfies the requirement to admit the gap.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "followup-with-no-prior-research",
+      "why": "A follow-up with no notes behind it used to stop and say so. Since Phase 17 it reaches for the notes it hasn't got -- and this case is the reversal and its limit in one run, because a follow-up that reaches is a run under the same guardrails as any other. The budget catches it after the researcher spends and before any answer, which is the order that matters: the guardrail outranks the new route.",
+      "passed": false,
+      "error": "",
+      "cost_usd": 0.016931,
+      "turns": [
+        {
+          "label": "research",
+          "passed": false,
+          "cost_usd": 0.000344,
+          "duration_ms": 1407.4,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": false,
+              "detail": "expected 'general', got 'technical'",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "not approved, as expected",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "budget_exceeded",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "empty, explained by 'budget_exceeded'",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.0003",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "not expected for this case",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "no draft to judge",
+              "judged": false
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "no draft to judge",
+              "judged": false
+            }
+          ]
+        },
+        {
+          "label": "Which of those is the most widely deployed?",
+          "passed": false,
+          "cost_usd": 0.016587,
+          "duration_ms": 5604.3,
+          "grades": [
+            {
+              "grader": "followup_research_bounded",
+              "passed": true,
+              "detail": "reached for new information exactly once",
+              "judged": false
+            },
+            {
+              "grader": "followup_reach_traced",
+              "passed": true,
+              "detail": "no_prior_research",
+              "judged": false
+            },
+            {
+              "grader": "followup_fact_checked",
+              "passed": true,
+              "detail": "stopped before the critic, as expected: budget_exceeded",
+              "judged": false
+            },
+            {
+              "grader": "followup_approval",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "followup_forced_stop",
+              "passed": true,
+              "detail": "budget_exceeded",
+              "judged": false
+            },
+            {
+              "grader": "judge_followup_honesty",
+              "passed": false,
+              "detail": "the follow-up produced no answer at all",
+              "judged": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "cases": 8,
+    "passed": 4,
+    "failed": 4,
+    "pass_rate": 0.5,
+    "errored": 1,
+    "by_grader": {
+      "terminates": {
+        "passed": 8,
+        "failed": 0
+      },
+      "never_silently_unapproved": {
+        "passed": 8,
+        "failed": 0
+      },
+      "topic_type": {
+        "passed": 6,
+        "failed": 2
+      },
+      "approval": {
+        "passed": 8,
+        "failed": 0
+      },
+      "forced_stop": {
+        "passed": 8,
+        "failed": 0
+      },
+      "revisions": {
+        "passed": 8,
+        "failed": 0
+      },
+      "answer_present": {
+        "passed": 8,
+        "failed": 0
+      },
+      "within_budget": {
+        "passed": 8,
+        "failed": 0
+      },
+      "notes_stored": {
+        "passed": 8,
+        "failed": 0
+      },
+      "judge_grounding": {
+        "passed": 8,
+        "failed": 0
+      },
+      "judge_answers_the_question": {
+        "passed": 8,
+        "failed": 0
+      },
+      "followup_research_bounded": {
+        "passed": 7,
+        "failed": 3
+      },
+      "followup_reach_traced": {
+        "passed": 10,
+        "failed": 0
+      },
+      "followup_fact_checked": {
+        "passed": 10,
+        "failed": 0
+      },
+      "followup_approval": {
+        "passed": 10,
+        "failed": 0
+      },
+      "followup_forced_stop": {
+        "passed": 10,
+        "failed": 0
+      },
+      "judge_followup_honesty": {
+        "passed": 9,
+        "failed": 1
+      }
+    },
+    "cost_usd": 3.39324,
+    "duration_ms": 3022686.9,
+    "ok": false,
+    "min_pass_rate": 0.9
+  },
+  "recordings": [
+    {
+      "case_id": "followup-uses-prior-notes",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/followup-uses-prior-notes.json",
+      "refusal": "",
+      "cost_usd": 0.257922
+    },
+    {
+      "case_id": "followup-admits-a-gap",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/followup-admits-a-gap.json",
+      "refusal": "",
+      "cost_usd": 0.762692
+    },
+    {
+      "case_id": "followups-chain",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/followups-chain.json",
+      "refusal": "",
+      "cost_usd": 0.472078
+    },
+    {
+      "case_id": "followups-chain-of-three",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'followups-chain-of-three': topic_type, followup_research_bounded, followup_research_bounded failed. A committed fixture is one the graders and the judge approved; pass force=True to record it anyway (it will be stamped forced).",
+      "cost_usd": 0.885972
+    },
+    {
+      "case_id": "followup-stays-inside-thin-notes",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'followup-stays-inside-thin-notes': followup_research_bounded failed. A committed fixture is one the graders and the judge approved; pass force=True to record it anyway (it will be stamped forced).",
+      "cost_usd": 0.308466
+    },
+    {
+      "case_id": "followup-refuses-an-uncovered-figure",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'followup-refuses-an-uncovered-figure': the run errored (ValueError: Judge verdict was TRUNCATED at max_tokens (the 1500-token budget is shared with adaptive thinking), not malformed: ''). Pass force=True to record it anyway.",
+      "cost_usd": 0.106609
+    },
+    {
+      "case_id": "followup-refuses-a-forecast",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/followup-refuses-a-forecast.json",
+      "refusal": "",
+      "cost_usd": 0.58257
+    },
+    {
+      "case_id": "followup-with-no-prior-research",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'followup-with-no-prior-research': topic_type, judge_followup_honesty failed. A committed fixture is one the graders and the judge approved; pass force=True to record it anyway (it will be stamped forced).",
+      "cost_usd": 0.016931
+    }
+  ]
+}
