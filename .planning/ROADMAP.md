@@ -410,7 +410,17 @@ also decides the final recorded/refused split this phase's prose cites)
      never rewritten into release notes.
   5. The Limitations section's intro states that what remains is chosen, recorded, and
      argued for.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 22-01-PLAN.md — the post-21.5 baseline re-measured before any edit; ADR-0013 (cost approximation by design, the four measured Admin-API rejection reasons) plus its index row; the OPERATIONS free-tier posture note; the eval-section defect record re-derived with a derived-counts gate in the ADR-index-test pattern (wave 1)
+- [ ] 22-02-PLAN.md — the Limitations rewrite: four deletions verified on the git axis, three survivors linked to their records, the honest-ledger intro ending "chosen, recorded, and argued for"; the no-orphan sweep with path-listed exemptions; the whole-README pass; the milestone close-out flips (REQUIREMENTS/ROADMAP/STATE/PROJECT, both Phase-20 deferred items) and 22-VALIDATION reconciliation (wave 2)
+
+**Planning note (2026-08-16):** planned before Phase 21.5 executed, deliberately — every
+count in these plans is a placeholder the execution re-measures; 22-01 Task 1 is that
+re-measurement and carries a precondition halting if 21.5's artifacts are absent. Wave 2
+depends on wave 1 for the records its links target (ADR-0013's filename, the OPERATIONS
+anchor) and the measured baseline its prose cites.
 
 ## Progress
 
