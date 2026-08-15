@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "case_id": "technical-default-limits",
+  "recorded_at": "2026-08-15T14:46:17+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "713d172",
+  "pipeline_cost_usd": 0.236558,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "9191791801b74503b3c06e1a43349d46",
+        "owner": "",
+        "task": "What are the default connection pool sizes in psycopg_pool, and can they be raised?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Based on the official psycopg (psycopg3) documentation and source code, here are the concrete, up-to-date facts on `psycopg_pool` default pool sizes and whether they can be raised:\n\n**1. Default `min_size` is 4, and it's the \"fundamental\" tunable parameter.** According to the official docs (psycopg 3.0.18\u20133.1.16), only conninfo and min_size are the fundamental constructor arguments, all the other arguments have meaningful defaults and can probably be tweaked later, and min_size defaults to 4, the minimum number of connections the pool will hold. The pool actively maintains this floor \u2014 the pool will actively try to create new connections if some are lost (closed, broken) and will try to never go below min_size.\n\n**2. `max_size` defaults to `None`, which effectively pins it to `min_size` (fixed-size pool) unless you raise it.** A pool can have a fixed size (specifying no max_size or max_size = min_size) or a dynamic size (when max_size > min_size). This confirms max_size is fully user-configurable and can be raised above min_size to create a dynamically growing pool.\n\n**3. Pool size can be changed at runtime via `resize()`, added in psycopg 3.1/3.2.** The size of the pool can also be changed at runtime using the resize() method, a feature new in version 3.1 per the Crunchy Data docs, meaning you don't need to recreate the pool to raise limits \u2014 you can call `pool.resize(min_size, max_size)` live.\n\n**4. `NullConnectionPool` behaves differently: `min_size` is fixed at 0, but `max_size` can still be raised.** For this variant, only max_size can be changed; min_size must remain 0, and by default max_size (int, default: None) \u2013 if None or 0, create a new connection at every request, without a maximum; if greater than 0, don't create more than max_size connections and queue the waiting clients \u2014 so you can explicitly set a cap.\n\n**5. Related worker/queue defaults that affect effective pool throughput.** num_workers (int, default: 3) \u2013 Number of background worker threads used to maintain the pool state, used for creating/cleaning connections, and max_waiting (int, default: 0) \u2013 Maximum number of requests that can be queued to the pool, after which new requests will fail, raising TooManyRequests; 0 means no queue limit. Both of these are also constructor kwargs and can be raised (e.g., more worker threads for faster connection churn under high concurrency).\n\n**Version note (flagging uncertainty):** The default `min_size=4` and `max_size=None` signature I found is confirmed consistently in the 3.0.18 and 3.1.16 documentation snapshots and in the `psycopg_pool/pool_async.py` source on GitHub's `master` branch. I did not find a specific changelog entry confirming whether these defaults changed between 3.0 and later 3.x/3.3-dev releases \u2014 the docs I retrieved for the 3.3.5.dev1 build show the same parameter descriptions, suggesting the defaults have remained stable, but I could not independently verify a dedicated release-notes citation for that stability claim.\n\n**Bottom line:** Yes, both `min_size` and `max_size` are ordinary constructor keyword arguments and can be raised \u2014 either at creation time or later at runtime via `resize()` (available since 3.1/3.2) \u2014 with the sole caveat that `NullConnectionPool` locks `min_size` at 0 while still allowing `max_size` to be raised.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# Default Connection Pool Sizes in psycopg_pool \u2014 and Can They Be Raised?\n\n## Summary Table\n\n| Parameter | Default | Applies To | Can Be Raised? |\n|---|---|---|---|\n| `min_size` | 4 | `ConnectionPool` / `AsyncConnectionPool` | Yes \u2014 at creation or via `resize()` |\n| `max_size` | `None` (pins to `min_size`) | `ConnectionPool` / `AsyncConnectionPool` | Yes \u2014 set > `min_size` for a dynamic pool |\n| `min_size` | 0 (fixed) | `NullConnectionPool` | No \u2014 must remain 0 |\n| `max_size` | `None`/`0` (unbounded) | `NullConnectionPool` | Yes \u2014 set explicitly to cap connections |\n| `num_workers` | 3 | All pool types | Yes \u2014 background worker threads for creating/cleaning connections |\n| `max_waiting` | 0 (no limit) | All pool types | Yes \u2014 caps queued requests, raises `TooManyRequests` beyond limit |\n\n## Details\n\n**`min_size` (default: 4)**\nPer the official docs (confirmed consistently in 3.0.18, 3.1.16, and 3.3.5.dev1 snapshots), `min_size` is described as the \"fundamental\" tunable constructor argument \u2014 the minimum number of connections the pool actively maintains. The pool will try to create new connections if some are lost, and will try to never go below this floor.\n\n**`max_size` (default: `None`)**\nWhen unset, `max_size` effectively pins to `min_size`, producing a fixed-size pool. Setting `max_size` above `min_size` creates a dynamically sized pool that can grow under load. This is fully user-configurable at construction time.\n\n**`NullConnectionPool` variant**\nThis pool type fixes `min_size` at 0 (no idle connections held) but still allows `max_size` to be set \u2014 if `None` or `0`, it creates a new connection for every request without limit; if set greater than 0, it caps concurrent connections and queues excess requests.\n\n**Runtime resizing via `resize()`**\nSince psycopg 3.1/3.2, pool size no longer requires recreating the pool \u2014 calling `pool.resize(min_size, max_size)` adjusts limits live.\n\n**Related tunables affecting throughput**\n- `num_workers` (default: 3) \u2014 background worker threads used to maintain pool state (creating/cleaning connections); more workers can be configured for faster connection churn.\n- `max_waiting` (default: 0, no limit) \u2014 maximum queued requests before `TooManyRequests` is raised; can be lowered or raised as needed.\n\n## Version Note\nThe `min_size=4` / `max_size=None` defaults were confirmed consistent across the 3.0.18 and 3.1.16 documentation snapshots and the 3.3.5.dev1 build, suggesting stability across the 3.x line. No dedicated release-notes citation was found confirming this explicitly, and `num_workers`/`max_waiting` defaults were not independently re-verified across versions in the same way.\n\n## Bottom Line\nBoth `min_size` and `max_size` are ordinary constructor keyword arguments and can be raised \u2014 either at creation time or later via `resize()` (available since 3.1/3.2) \u2014 with the sole caveat that `NullConnectionPool` locks `min_size` at 0 while still permitting `max_size` to be raised. Related settings (`num_workers`, `max_waiting`) are also configurable, though their cross-version stability was not independently confirmed.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 2,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 9,
+        "usage": {
+          "input_tokens": 64800,
+          "output_tokens": 6691,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 4,
+          "web_fetch_requests": 0,
+          "calls": 8,
+          "cost_usd": 0.23655836,
+          "embedding_tokens": 806,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 4.836e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3322,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2479,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2718,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3107,
+            "revision_count": 2
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "All factual claims in the report trace back to the notes: min_size default of 4 as the fundamental parameter, max_size default None pinning to min_size, NullConnectionPool fixing min_size at 0 while allowing max_size, resize() available since 3.1/3.2, num_workers default 3, max_waiting default 0 with TooManyRequests, and the version note confirming defaults across 3.0.18/3.1.16/3.3.5.dev1 snapshots. Named versions and numbers all appear in the notes. The added hedges about not independently re-verifying cross-version stability are consistent with the notes' uncertainty flagging. No ungrounded numbers, dates, or entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers both parts of the question: it states the default pool sizes (min_size=4, max_size=None, plus related NullConnectionPool, num_workers, and max_waiting defaults) and explains that they can be raised, both at construction time and via resize(). The default of min_size=4 and max_size=None is accurate for psycopg_pool's ConnectionPool. The report is on-topic and responsive, with appropriate caveats about verification.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

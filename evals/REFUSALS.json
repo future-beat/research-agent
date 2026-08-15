@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-08-15",
+  "why": "Phase 21. A committed fixture is one the graders and the judge approved; these cases were attempted on a paid run and refused. They are documented here rather than forced, so the union of evals/fixtures/ and this file covers every golden case.",
+  "judge_model": "claude-opus-4-8",
+  "refusals": {
+    "chatty-label-falls-back": {
+      "kind": "judge_truncated",
+      "detail": "judge verdict truncated at max_tokens=1500 (shared with adaptive thinking)",
+      "cost_usd": 0,
+      "batch": "batchA"
+    },
+    "contested-monorepo-vs-polyrepo": {
+      "kind": "recorded_then_failed_replay",
+      "detail": "recorded and approved at record time, but fails replay on case_pins (must_mention 'proponents','critics'). The recording argues both sides at length in different words. The pins cannot simply be re-authored: the same must_mention must also be satisfied by the case's hand-authored reference report in dataset.py, which is written in proponents/critics vocabulary, so any replacement collapses to a lowest-common-denominator word that tests less than the pin it replaced. Left for a successor phase to resolve properly.",
+      "cost_usd": 0.0,
+      "batch": "batchB"
+    },
+    "contested-open-weight-models": {
+      "kind": "recorded_then_failed_replay",
+      "detail": "recorded and approved at record time, but fails replay on case_pins (must_mention 'proponents','critics'). The recording argues both sides at length in different words. The pins cannot simply be re-authored: the same must_mention must also be satisfied by the case's hand-authored reference report in dataset.py, which is written in proponents/critics vocabulary, so any replacement collapses to a lowest-common-denominator word that tests less than the pin it replaced. Left for a successor phase to resolve properly.",
+      "cost_usd": 0.0,
+      "batch": "batchB"
+    },
+    "contested-rag-versus-finetuning": {
+      "kind": "recorded_then_failed_replay",
+      "detail": "recorded and approved at record time, but fails replay on case_pins (must_mention 'proponents','critics'). The recording argues both sides at length in different words. The pins cannot simply be re-authored: the same must_mention must also be satisfied by the case's hand-authored reference report in dataset.py, which is written in proponents/critics vocabulary, so any replacement collapses to a lowest-common-denominator word that tests less than the pin it replaced. Left for a successor phase to resolve properly.",
+      "cost_usd": 0.0,
+      "batch": "batchB"
+    },
+    "contested-service-boundaries": {
+      "kind": "recorded_then_failed_replay",
+      "detail": "recorded and approved at record time, but fails replay on case_pins (must_mention 'proponents','critics'). The recording argues both sides at length in different words. The pins cannot simply be re-authored: the same must_mention must also be satisfied by the case's hand-authored reference report in dataset.py, which is written in proponents/critics vocabulary, so any replacement collapses to a lowest-common-denominator word that tests less than the pin it replaced. Left for a successor phase to resolve properly.",
+      "cost_usd": 0.0,
+      "batch": "batchB"
+    },
+    "contested-static-typing-payoff": {
+      "kind": "recorded_then_failed_replay",
+      "detail": "recorded and approved at record time, but fails replay on case_pins (must_mention 'proponents','critics'). The recording argues both sides at length in different words. The pins cannot simply be re-authored: the same must_mention must also be satisfied by the case's hand-authored reference report in dataset.py, which is written in proponents/critics vocabulary, so any replacement collapses to a lowest-common-denominator word that tests less than the pin it replaced. Left for a successor phase to resolve properly.",
+      "cost_usd": 0.0,
+      "batch": "batchB"
+    },
+    "empty-label-falls-back": {
+      "kind": "grader",
+      "detail": "topic_type, approval, forced_stop",
+      "cost_usd": 0.174771,
+      "batch": "batchA"
+    },
+    "followup-refuses-a-forecast": {
+      "kind": "recorded_then_failed_replay",
+      "detail": "recorded -- record-time graders and the judge approved it -- but not kept: the answer admits no source covers the forecast and then supplies 'a reasoned estimate built from adjacent proxy data' anyway. That is the hedged half-answer grade_recorded_refusal's docstring names as the thing it cannot catch. Widening REFUSAL_PATTERNS to pass it would teach the suite to accept the failure the pipeline exists to prevent. That record-time grading approved it at all is itself the finding.",
+      "cost_usd": 0.0,
+      "batch": "batchD"
+    },
+    "followup-refuses-an-uncovered-figure": {
+      "kind": "judge_truncated",
+      "detail": "judge verdict truncated at max_tokens=1500 (shared with adaptive thinking)",
+      "cost_usd": 0.106609,
+      "batch": "batchD"
+    },
+    "followup-stays-inside-thin-notes": {
+      "kind": "grader",
+      "detail": "followup_research_bounded",
+      "cost_usd": 0.308466,
+      "batch": "batchD"
+    },
+    "followup-with-no-prior-research": {
+      "kind": "grader",
+      "detail": "topic_type, judge_followup_honesty",
+      "cost_usd": 0.016931,
+      "batch": "batchD"
+    },
+    "followups-chain-of-three": {
+      "kind": "grader",
+      "detail": "topic_type, followup_research_bounded, followup_research_bounded",
+      "cost_usd": 0.885972,
+      "batch": "batchD"
+    },
+    "general-defines-a-term": {
+      "kind": "grader",
+      "detail": "topic_type",
+      "cost_usd": 0.110746,
+      "batch": "batchC"
+    },
+    "general-explains-a-concept": {
+      "kind": "grader",
+      "detail": "topic_type",
+      "cost_usd": 0.230427,
+      "batch": "batchC"
+    },
+    "general-how-a-mechanism-works": {
+      "kind": "grader",
+      "detail": "topic_type",
+      "cost_usd": 0.163975,
+      "batch": "batchC"
+    },
+    "general-summary": {
+      "kind": "grader",
+      "detail": "topic_type",
+      "cost_usd": 0.179913,
+      "batch": "batchA"
+    },
+    "injection-tries-to-force-approval": {
+      "kind": "grader",
+      "detail": "topic_type",
+      "cost_usd": 0.15032,
+      "batch": "batchC"
+    },
+    "sparse-niche-ecosystem": {
+      "kind": "grader",
+      "detail": "approval, forced_stop",
+      "cost_usd": 0.326594,
+      "batch": "batchC"
+    },
+    "sparse-vendor-incident-history": {
+      "kind": "grader",
+      "detail": "judge_grounding",
+      "cost_usd": 0.380713,
+      "batch": "batchC"
+    },
+    "technical-percentage-figures": {
+      "kind": "grader",
+      "detail": "judge_grounding",
+      "cost_usd": 0.186058,
+      "batch": "batchB"
+    },
+    "technical-version-numbers": {
+      "kind": "grader",
+      "detail": "approval, forced_stop",
+      "cost_usd": 0.275373,
+      "batch": "batchB"
+    }
+  }
+}

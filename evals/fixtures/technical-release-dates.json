@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "case_id": "technical-release-dates",
+  "recorded_at": "2026-08-15T14:44:25+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "713d172",
+  "pipeline_cost_usd": 0.147571,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "ed464bc1be574089828c5937a9558394",
+        "owner": "",
+        "task": "When did pgvector ship HNSW support, and which version introduced it?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Here's a summary of concrete, sourced facts on this topic:\n\n1. **pgvector 0.5.0 introduced HNSW support.** Multiple independent sources confirm this: Amazon Aurora PostgreSQL-Compatible Edition now supports v0.5.0 of the pgvector extension to store embeddings from machine learning (ML) models in your database and to perform efficient similarity searches. This version includes Hierarchical Navigable Small World (HNSW) indexing support, parallelization of ivfflat index builds, and improves performance of its distance functions.\n\n2. **Google Cloud confirms the same version detail.** While the pgvector extension already supported IVFFLAT indexes, version 0.5.0 adds support for HNSW indexes. This was also reflected in Cloud SQL for PostgreSQL's adoption of the release.\n\n3. **The GitHub release tag confirms the exact release timing.** According to the official pgvector GitHub releases page, v0.5.0 was tagged by maintainer ankane on **29 Aug** (2023), aligning with the version bump commit for that release.\n\n4. **Prior to this, HNSW was a widely requested feature.** A Hacker News discussion of the release noted: One of the most common complaints about pgvector is a lack of HNSW support, so it's an exciting release for the Postgres ecosystem \u2014 underscoring that 0.5.0 filled a long-standing gap.\n\n5. **Technical detail on the implementation itself**, from a detailed feature post by Jonathan Katz: The biggest highlight of the pgvector 0.5.0 release is the introduction of the hnsw index type. hnsw is based on the hierarchical navigable small worlds paper, which describes an indexing technique that creates layers of increasingly dense \"neighborhoods\" of vectors. Notably, pgvector's HNSW implementation lets you update and delete vectors from the index, as part of standard UPDATE and DELETE queries \u2014 a feature many HNSW implementations do not support \u2014 and also lets you concurrently insert values into the index.\n\n6. **Subsequent versions improved HNSW performance rather than introducing it.** For example, pgvector 0.8.0 (released and supported in Aurora PostgreSQL by April 2025) built on the original HNSW feature: pgvector 0.8.0 also has performance improvements for searching and building HNSW indexes.\n\n**One item I could not independently verify with full precision:** The exact calendar release date of pgvector 0.5.0 \u2014 GitHub's release page shows a tag timestamp of \"29 Aug\" but doesn't clearly display the year in the scraped content (contextually this is 2023, consistent with the AWS announcement dated October 2023 referencing v0.5.0's arrival in Aurora shortly after its open-source release). If you need the exact day/year confirmed, checking the GitHub release page directly (https://github.com/pgvector/pgvector/releases/tag/v0.5.0) would give the precise timestamp.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# pgvector HNSW Support: Version and Release Timing\n\n## Summary\n\n**pgvector version 0.5.0 introduced HNSW (Hierarchical Navigable Small World) indexing support.** This release was tagged on **August 29, 2023** (year inferred contextually, as GitHub's tag display did not clearly show it, but is corroborated by an October 2023 AWS announcement referencing v0.5.0's arrival shortly after its open-source release).\n\n## Key Details\n\n**What changed in 0.5.0:**\n- Introduction of the `hnsw` index type, based on the hierarchical navigable small worlds paper \u2014 a technique using layers of increasingly dense vector \"neighborhoods\" for efficient similarity search\n- Parallelization of ivfflat index builds\n- Improved performance of distance functions\n- Notably, pgvector's HNSW implementation supports updating and deleting vectors via standard `UPDATE`/`DELETE` queries, and allows concurrent inserts \u2014 capabilities many other HNSW implementations lack\n\n**Why it mattered:**\nPrior to 0.5.0, pgvector only supported IVFFLAT indexes. HNSW had been one of the most frequently requested features in the pgvector community, so its introduction was seen as a significant milestone for the Postgres vector search ecosystem.\n\n**Adoption by cloud providers:**\n- Amazon Aurora PostgreSQL-Compatible Edition added support for pgvector 0.5.0, enabling HNSW indexing for embedding similarity searches\n- Google Cloud SQL for PostgreSQL similarly adopted 0.5.0, explicitly confirming that HNSW indexing was new in this version (versus the previously available IVFFLAT)\n\n**Subsequent development:**\nLater versions did not introduce HNSW again but improved upon it \u2014 for example, pgvector 0.8.0 (available in Aurora PostgreSQL by April 2025) added performance improvements for both searching and building HNSW indexes.\n\n## Note on Precision\n\nThe exact day and year of the 0.5.0 release is corroborated but not from a single fully explicit source: GitHub's release tag shows \"29 Aug\" without a clearly displayed year in available notes, though contextual evidence (the October 2023 AWS announcement) strongly supports 2023. Direct confirmation via the GitHub releases page (https://github.com/pgvector/pgvector/releases/tag/v0.5.0) would remove any ambiguity.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 40276,
+          "output_tokens": 2698,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 4,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.14757058,
+          "embedding_tokens": 643,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 3.858e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 2801,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2235,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is grounded in the research notes: pgvector 0.5.0 introducing HNSW support, the '29 Aug' tag with year 2023 inferred contextually (explicitly framed as inferred in both notes and report), the October 2023 AWS announcement, the ivfflat parallelization and distance function improvements, the HNSW paper/layered neighborhoods description, UPDATE/DELETE and concurrent insert support, IVFFLAT being the only prior index type, Google Cloud SQL and Aurora adoption, and pgvector 0.8.0 with HNSW performance improvements available in Aurora by April 2025. The report also faithfully reproduces the caveat about the release date's precision. No unsupported numbers, dates, or named entities appear.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers both parts of the question: it identifies pgvector version 0.5.0 as introducing HNSW support and gives the release date of August 29, 2023. Both required elements (version and timing) are addressed.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

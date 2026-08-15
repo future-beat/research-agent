@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "case_id": "sparse-regional-adoption",
+  "recorded_at": "2026-08-15T15:06:36+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "713d172",
+  "pipeline_cost_usd": 0.171579,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "8bd92f1f0a024ce097e5bac8dab4a0d6",
+        "owner": "",
+        "task": "How widely is pgvector deployed by Portuguese municipal governments?",
+        "mode": "research",
+        "topic_type": "sparse",
+        "research_notes": "Based on an extensive search across multiple query variations (Portuguese and English), **I found no evidence of any documented deployment of the pgvector PostgreSQL extension by Portuguese municipal governments (c\u00e2maras municipais).** Here is a summary of what the search actually surfaced, and the significant gaps that remain:\n\n1. **No direct hits connecting pgvector to any Portuguese munic\u00edpio**: Searches combining \"pgvector\" with terms like \"munic\u00edpio,\" \"c\u00e2mara municipal,\" and \"administra\u00e7\u00e3o p\u00fablica\" returned only generic, unrelated results \u2014 lists of Portugal's 308 municipalities, general descriptions of the c\u00e2mara municipal governance structure, and pages like PORDATA's municipal statistics portal, none of which mention pgvector, vector databases, or AI/database infrastructure choices.\n\n2. **General Portuguese public administration digital infrastructure results, but no pgvector connection**: Searches for \"pgvector setor p\u00fablico portugu\u00eas\" surfaced only generic technical documentation about pgvector itself (installation guides, comparisons with Pinecone/Qdrant, Azure/Microsoft Learn tutorials) with zero Portugal-specific or government-specific content.\n\n3. **pgvector adoption information exists only at the generic/global technology level**: The searches confirmed pgvector is an open-source PostgreSQL extension that adds support for vector operations and similarity searches, letting users store, index, and query vector data directly within PostgreSQL, and is available on major managed platforms, but none of this documentation references any Portuguese public-sector deployments specifically.\n\n4. **Portuguese local government employment data (unrelated to pgvector) was the closest \"concrete\" municipal fact found**: For context on the scale of Portuguese municipal administration generally, more than 760 thousand people are part of the Public Administration universe in Portugal, with about 142 thousand providing services in the autarquias (municipalities) \u2014 but this is general public-sector employment data, not related to database or AI technology adoption.\n\n5. **No news, case studies, procurement records, tech blogs, or conference talks were found** describing any munic\u00edpio (e.g., Lisboa, Porto, Braga, or smaller municipalities) implementing pgvector, PostgreSQL-based semantic search, RAG systems, or AI chatbots using vector embeddings.\n\n**Explicit gap statement**: This topic has essentially **no public coverage**. Possible reasons include: (a) such deployments may exist but simply aren't publicly documented, blogged about, or covered in procurement disclosures; (b) Portuguese municipalities' technology stacks and vendor contracts are not typically disclosed at the level of specific database extensions; (c) pgvector adoption in local government (in Portugal or elsewhere) may still be too nascent/niche to have generated case studies or press coverage; or (d) the terminology used publicly may differ (e.g., referring to \"AI search\" or \"chatbot municipal\" rather than naming the underlying extension). I was unable to find any Portuguese-language tech press (e.g., SAPO, Exame Inform\u00e1tica, Dinheiro Vivo), government digital transformation reports (AMA, ANMP), or vendor case studies confirming or quantifying pgvector use by any Portuguese c\u00e2mara municipal. If you have a specific municipality or vendor (e.g., a specific systems integrator like a local govtech company) in mind, a more targeted search might surface relevant information.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# pgvector Adoption Among Portuguese Municipal Governments: Research Findings\n\n## Summary Answer\n\n**No evidence exists of pgvector deployment by any Portuguese municipal government (c\u00e2mara municipal).** An extensive multi-query search in both Portuguese and English found zero documented cases, case studies, procurement records, or press coverage confirming such use.\n\n## What the Research Found\n\n- **No direct connections**: Searches linking \"pgvector\" with municipal terms (\"munic\u00edpio,\" \"c\u00e2mara municipal,\" \"administra\u00e7\u00e3o p\u00fablica\") returned only generic, unrelated content \u2014 lists of Portugal's 308 municipalities, governance structure overviews, and statistical portals (e.g., PORDATA) \u2014 none referencing pgvector or related AI/database technologies.\n\n- **No sector-specific results**: Searches for \"pgvector setor p\u00fablico portugu\u00eas\" surfaced only generic technical documentation (installation guides, platform comparisons, cloud provider tutorials) with no Portugal-specific or government-specific content.\n\n- **pgvector's general profile is well-documented, but disconnected from Portugal**: The extension itself is a known open-source PostgreSQL tool for vector storage/similarity search, available on major managed database platforms \u2014 but nothing ties this generic information to Portuguese public-sector use.\n\n- **Only tangential data found**: General Portuguese public-sector employment figures (e.g., ~142,000 people working in autarquias out of ~760,000 in Public Administration) surfaced but are unrelated to technology adoption.\n\n## What Was Absent\n\nNo results were found in:\n- Portuguese tech press (SAPO, Exame Inform\u00e1tica, Dinheiro Vivo)\n- Government digital transformation reports (AMA, ANMP)\n- Procurement disclosures or vendor case studies\n- Conference talks or technical blogs\n\n## Assessment\n\n**This topic has essentially no public coverage.** Possible explanations include:\n\n1. Such deployments may exist but are undocumented publicly\n2. Portuguese municipal tech stacks/vendor contracts aren't disclosed at the database-extension level\n3. pgvector adoption in local government (in Portugal or globally) may still be too nascent to generate case studies\n4. Public terminology may obscure the underlying technology (e.g., \"AI search\" or \"chatbot municipal\" rather than \"pgvector\")\n\n## Conclusion\n\nBased on available evidence, **pgvector deployment among Portuguese municipal governments cannot be confirmed or quantified \u2014 the research indicates no publicly documented adoption at all.** This is a gap in public information rather than a confirmed absence of use. A more targeted search focusing on a specific municipality or vendor/systems integrator might yield different results.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 47504,
+          "output_tokens": 2653,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 5,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.17157916,
+          "embedding_tokens": 686,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 4.116e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "sparse"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3490,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2704,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "All factual claims in the report are grounded in the research notes. The key findings (no evidence of pgvector deployment, 308 municipalities, ~142,000 in autarquias, ~760,000 in Public Administration, PORDATA, search terms, tech press names SAPO/Exame Inform\u00e1tica/Dinheiro Vivo, AMA/ANMP, and all four possible explanations) all appear directly in the notes. No numbers, dates, or named entities were introduced that aren't in the source.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses the question of how widely pgvector is deployed by Portuguese municipal governments. It honestly reports that an extensive search found no documented evidence of such deployment, explains the search methodology and sources checked, and provides possible explanations for the absence of coverage. This is a legitimate 'research found little' outcome that directly answers the question asked.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

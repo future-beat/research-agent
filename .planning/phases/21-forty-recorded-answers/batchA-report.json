@@ -1,0 +1,893 @@
+{
+  "mode": "record",
+  "model": "claude-sonnet-5",
+  "judge_model": "claude-opus-4-8",
+  "judge_calls": 17,
+  "generated_at": "2026-08-15T14:20:21+0800",
+  "cases": [
+    {
+      "case_id": "contested-viewpoints",
+      "why": "Contested topics must present disagreement as disagreement. A run that flattens two camps into one settled answer is confidently wrong.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.1842,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.1842,
+          "duration_ms": 63951.2,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "contested",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "4306 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1842",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "5407 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report traces to the notes. The statistics (79% adoption from PwC 2025 AI Agent Survey, ~20%/80% framework vs retrieval across 7 industries, PydanticAI 8/10 vs LangChain 5/10, 23 bugs), the named entities (CVE-2025-68664, Cyata, December 2025, Hacker News, CrewAI/LangGraph/AutoGen, OpenAI Agents SDK, Anthropic Claude Agent SDK/Skills, deepagents, Octomind, Temporal, PydanticAI), and all descriptive claims match the notes. No fabricated numbers, dates, or entities were introduced; the connective prose is faithful to the source.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the question of whether AI agent frameworks are worth adopting versus direct API orchestration. It provides a nuanced answer (a middle path/false binary), backs it with specific findings, presents points of disagreement between critics and vendors, and delivers a clear bottom line that directly engages with the trade-offs posed in the question.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "sparse-coverage",
+      "why": "Sparse topics must flag their own gaps. Overstated confidence on a thin evidence base is the failure users are least able to detect.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.358517,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.358517,
+          "duration_ms": 113882.8,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "sparse",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3593 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.3585",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4939 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is supported by the notes. The chatbot standard 'Askur' benchmark, named agencies (Transport Authority, Health Insurance, Fj\u00e1rs\u00fdslan, Social Insurance Administration), the AI Action Plan (July 2, 2025, 25 measures, five pillars, 2025\u20132027 as stated in the notes' header), the October 2025 New Nordics AI cooperation with the listed partners (Almannar\u00f3mur, AI Sweden, AI Finland, Digital Dogme, TEK Norge), Reykjavik City Council AI proposals, and the Advania/boost.ai deployment (2022, seven live bots, L\u00edna ~85%) all appear in the notes. The core conclusion \u2014 no documented LangGraph adoption \u2014 matches the notes. No unsupported numbers, dates, or entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the question of LangGraph adoption among Icelandic public-sector teams. It honestly reports that no documented evidence of adoption could be found despite extensive searching, while distinguishing absence of evidence from confirmed non-use. It also provides relevant context about the actual documented AI/agent activity in Iceland's public sector. This is a legitimate 'honest research found little' answer that passes.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "general-summary",
+      "why": "The general path is the default; if it breaks, most traffic breaks.",
+      "passed": false,
+      "error": "",
+      "cost_usd": 0.179913,
+      "turns": [
+        {
+          "label": "research",
+          "passed": false,
+          "cost_usd": 0.179913,
+          "duration_ms": 245703.5,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": false,
+              "detail": "expected 'general', got 'technical'",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "2984 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1799",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3193 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is traceable to the research notes. The definition, survey attribution (Chaitanya Sharma, May 2025 arXiv), challenges list, Dynamic/Parametric RAG descriptions, MIRAGE (Ozaki et al. 2025, 7,663 questions, five datasets), GlobalQA (Oct 2025 submitted, Nov 2025 revised, four task types), and all market figures (MarketsandMarkets 1.94\u21929.86B/38.4%, Grand View 49.1%/11.0B by 2030, ResearchAndMarkets 1.96B\u219240.34B by 2035/35.31%) and the Vectara 30-60% adoption figure all match the notes exactly. The disclaimer note is also consistent with the notes' flag. No numbers, dates, or named entities appear that are absent from the notes.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers 'What is retrieval-augmented generation?' with a clear definition in the opening section, explaining that RAG enhances LLMs by conditioning output on external evidence retrieved at inference time rather than relying solely on parametric knowledge. It further elaborates with variants, benchmarks, and market context, all relevant to understanding RAG. The core question is substantively addressed.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "unknown-label-falls-back",
+      "why": "A classifier that returns something off-menu must not crash the run or index a rubric that doesn't exist.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.211601,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.211601,
+          "duration_ms": 251613.9,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "general",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "2821 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2116",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "2950 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report\u2014Jikji's 1377 origin, King U, Heungdeoksa Temple, Cheongju, the lost first volume, National Library of France, King Gojong, UNESCO 1972 recognition, Memory of the World Register (Sept 4, 2001), Gutenberg's alloy of lead/antimony/tin and component-based typesetting, the Dritzehn lawsuit (Christmas 1438), Conrad Saspach, Hans D\u00fcnne (1436), the 1455 Bible, the auction of eight pages for nearly $970,000 with a $500,000-700,000 estimate, and the New Orleans seminary facsimile\u2014all appear in the notes with matching numbers, dates, and names. No unsupported entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the history of the printing press, covering pre-Gutenberg metal type printing (Korea's Jikji), Gutenberg's technical innovation of movable type, documented evidence of the press's development, and its lasting legacy. While it focuses heavily on early history and omits later developments (e.g., steam and rotary presses), it substantively and on-topic answers the question of summarising the printing press's history.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "revision-then-approval",
+      "why": "The critic pushing back and the writer fixing it is the core quality loop. If revisions stop happening, ungrounded claims ship.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.181005,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.181005,
+          "duration_ms": 67381.0,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "general",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "2989 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1810",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3245 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is directly supported by the research notes. The MCP details (late 2024, universal adapter, backbone), A2A/ANP protocols with JSON-RPC, the taxonomy sources (Ng's four, Anthropic's five, 12-pattern taxonomies), Reflexion figures (HumanEval 80%\u219291%, 30 percentage points), the three-topology/one-adaptivity multi-agent taxonomy, production-hardening figures ($0.50\u2192$50,000/month at 100K executions, four+ workers), and deployment blocker stats (32% output quality, 20% latency, Plan-and-Execute, Tool Use) all match the notes. No unsupported numbers, dates, or named entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the question about notable recent developments in agent design patterns. It covers multiple relevant developments including interoperability protocols (MCP, A2A, ANP), pattern taxonomies, the Reflection reliability pattern with benchmarks, multi-agent coordination taxonomies, and production-hardening patterns. The content is on-topic, substantive, and organized around recent developments in the field.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "revision-cap-is-labelled",
+      "why": "A critic that never approves must not loop forever, and the draft it gives up on must be labelled unapproved. A silent unapproved draft is the worst bug this service could have.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.30046,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.30046,
+          "duration_ms": 237755.8,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "not asserted for this case",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "not approved, as expected",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "max_revisions_exceeded",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "3 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "5915 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.3005",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4214 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is traceable to the research notes. Section 1 (Faraday Security AI-assisted pipeline, Ghidra spec, 'months of manual work' quote, device examples) matches the notes; the report appropriately hedges on the trend claim. Section 2's GPT-4 figures (16 experts, 111B MLP params, 2 experts routed, 280B inference params, 560 TFLOPs, 1.8T params, 120 layers, 10x GPT-3, unconfirmed by OpenAI) all appear verbatim in the notes. Section 3 (SoK survey title, two decades, graph-learning arithmetic blocks, cryptographic cores), Section 4 (ACM CCS 2024, 'Stealing Maggie's Secrets' title, FPGA bitstream IP theft), and Section 5 (IDA Pro, Ghidra, 107% YoY first five months of 2024, $5\u201310 million per incident) are all grounded. The synthesis and gap sections faithfully reflect the notes' caveats. No unsupported numbers, dates, or named entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The question is generic (no specific system named), essentially asking how to explain/understand the internal architecture of an undocumented proprietary system. The report directly addresses this by explaining that such understanding is reconstructed through reverse engineering, detailing methods (disassembly, decompilation, silicon imaging, leak analysis, AI-assisted pipelines) and providing concrete examples across domains\u2014including an actual reconstructed architecture (GPT-4's MoE structure with parameter details). It is on-topic, provides substantive relevant content, and honestly flags the limitations and gaps in available material rather than fabricating. This constitutes a legitimate answer to the question as posed.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "budget-cap-is-labelled",
+      "why": "The spend cap has to fire and say so. A run that quietly costs unbounded money is a billing incident, not a feature.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.000348,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.000348,
+          "duration_ms": 1358.7,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "not asserted for this case",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "not approved, as expected",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "budget_exceeded",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "empty, explained by 'budget_exceeded'",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.0003",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "not expected for this case",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "no draft to judge",
+              "judged": false
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "no draft to judge",
+              "judged": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "notes-are-persisted",
+      "why": "Recall across runs is the feature; if the researcher stops writing notes, later runs silently start cold and nobody notices.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.310252,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.310252,
+          "duration_ms": 721666.1,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3981 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.3103",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4272 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every specific factual claim in the report is supported by the research notes. Mem0's figures (26% higher accuracy vs OpenAI, 91% lower latency, 90% token savings, LOCOMO) match. MemGPT/Letta's OS-inspired hierarchy, RAM/disk analogy, function-call memory management, and sleep-time agents match. Zep/Graphiti's temporal knowledge graph, DMR benchmark figures (94.8% vs 93.4%), and arXiv:2501.13956 match. ChatGPT's April and June 2025 dual-memory updates match the noted April 10 and June 3, 2025 dates. LangGraph/LangMem's MongoDB and PostgreSQL/pgvector persistence with unverified benchmarks matches. The caveats section faithfully reproduces the notes' flags about GitHub stars, LOCOMO methodology, future-dated sources, and LangMem's unverified claims. No unsupported numbers, dates, or named entities appear.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers how LLM agents implement long-term memory, detailing multiple concrete implementation strategies (Mem0's selective retrieval, MemGPT/Letta's OS-inspired memory hierarchy, Zep/Graphiti's temporal knowledge graphs, ChatGPT's saved/referenced memory, LangGraph/LangMem's database-backed persistence) and synthesizing cross-cutting patterns like working/long-term separation, retrieval over replay, and asynchronous consolidation. It stays on topic throughout and even includes appropriate caveats on source reliability.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "empty-label-falls-back",
+      "why": "A classifier that returns nothing at all must land on the default rubric rather than index an empty key. An empty string is what a truncated response or a stripped answer actually produces.",
+      "passed": false,
+      "error": "",
+      "cost_usd": 0.174771,
+      "turns": [
+        {
+          "label": "research",
+          "passed": false,
+          "cost_usd": 0.174771,
+          "duration_ms": 188581.8,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": false,
+              "detail": "expected 'general', got 'technical'",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": false,
+              "detail": "expected approved=True, got False (forced_stop_reason='max_revisions_exceeded')",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": false,
+              "detail": "unexpected guardrail: 'max_revisions_exceeded'",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "3 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3026 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1748",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3692 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every substantive factual claim in the report traces back to the research notes. The dates (2005, 2020, 2021, 2024), named entities (Glasgow, Budiselic, Freeth, UCL, Nature, gravitational-wave techniques), and figures (82 fragments, ~30 gears, one-third survival, 354 vs 365 days, 223-tooth gear, 33+ hypothetical gears, Fragment D, Draconic train) all match the notes. The statement that the 223-tooth gear 'corresponds to the Saros cycle' is a mild explanatory bridge tied to the notes' explicit linkage of that gear to the Saros eclipse-prediction dial, and the treatment of contested/unresolved elements is faithful. No fabricated numbers, dates, or entities appear.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses how the Antikythera mechanism worked, covering its calendar ring, back dials for eclipse prediction via the 223-tooth Saros gear, the pin-and-slot mechanism modeling the Moon's variable motion, epicyclic gearing, and the front display of Sun, Moon, and planets. It provides a substantive overview of the device's operation, which is what the question asked for.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "chatty-label-falls-back",
+      "why": "A classifier that answers in a sentence instead of one word must still route somewhere valid. Prompt drift produces exactly this, and the run should degrade to the default rubric, not crash.",
+      "passed": false,
+      "error": "ValueError: Judge verdict was TRUNCATED at max_tokens (the 1500-token budget is shared with adaptive thinking), not malformed: ''",
+      "cost_usd": 0,
+      "turns": []
+    }
+  ],
+  "summary": {
+    "cases": 10,
+    "passed": 7,
+    "failed": 3,
+    "pass_rate": 0.7,
+    "errored": 1,
+    "by_grader": {
+      "terminates": {
+        "passed": 9,
+        "failed": 0
+      },
+      "never_silently_unapproved": {
+        "passed": 9,
+        "failed": 0
+      },
+      "topic_type": {
+        "passed": 7,
+        "failed": 2
+      },
+      "approval": {
+        "passed": 8,
+        "failed": 1
+      },
+      "forced_stop": {
+        "passed": 8,
+        "failed": 1
+      },
+      "revisions": {
+        "passed": 9,
+        "failed": 0
+      },
+      "answer_present": {
+        "passed": 9,
+        "failed": 0
+      },
+      "within_budget": {
+        "passed": 9,
+        "failed": 0
+      },
+      "notes_stored": {
+        "passed": 9,
+        "failed": 0
+      },
+      "judge_grounding": {
+        "passed": 9,
+        "failed": 0
+      },
+      "judge_answers_the_question": {
+        "passed": 9,
+        "failed": 0
+      }
+    },
+    "cost_usd": 1.901068,
+    "duration_ms": 1891894.7,
+    "ok": false,
+    "min_pass_rate": 0.9
+  },
+  "recordings": [
+    {
+      "case_id": "contested-viewpoints",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/contested-viewpoints.json",
+      "refusal": "",
+      "cost_usd": 0.1842
+    },
+    {
+      "case_id": "sparse-coverage",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/sparse-coverage.json",
+      "refusal": "",
+      "cost_usd": 0.358517
+    },
+    {
+      "case_id": "general-summary",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'general-summary': topic_type failed. A committed fixture is one the graders and the judge approved; pass force=True to record it anyway (it will be stamped forced).",
+      "cost_usd": 0.179913
+    },
+    {
+      "case_id": "unknown-label-falls-back",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/unknown-label-falls-back.json",
+      "refusal": "",
+      "cost_usd": 0.211601
+    },
+    {
+      "case_id": "revision-then-approval",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/revision-then-approval.json",
+      "refusal": "",
+      "cost_usd": 0.181005
+    },
+    {
+      "case_id": "revision-cap-is-labelled",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/revision-cap-is-labelled.json",
+      "refusal": "",
+      "cost_usd": 0.30046
+    },
+    {
+      "case_id": "budget-cap-is-labelled",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/budget-cap-is-labelled.json",
+      "refusal": "",
+      "cost_usd": 0.000348
+    },
+    {
+      "case_id": "notes-are-persisted",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/notes-are-persisted.json",
+      "refusal": "",
+      "cost_usd": 0.310252
+    },
+    {
+      "case_id": "empty-label-falls-back",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'empty-label-falls-back': topic_type, approval, forced_stop failed. A committed fixture is one the graders and the judge approved; pass force=True to record it anyway (it will be stamped forced).",
+      "cost_usd": 0.174771
+    },
+    {
+      "case_id": "chatty-label-falls-back",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'chatty-label-falls-back': the run errored (ValueError: Judge verdict was TRUNCATED at max_tokens (the 1500-token budget is shared with adaptive thinking), not malformed: ''). Pass force=True to record it anyway.",
+      "cost_usd": 0
+    }
+  ]
+}

@@ -328,7 +328,17 @@ abandoned judge)
      record run's output, not silently retried or dropped.
   4. The paid checkpoint is re-quoted at run time (quoted **$17.48** on 2026-08-13) and the
      actual spend is reported against that quote.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 21-01-PLAN.md — keyless machinery: the completeness and settled-judge gates proven red in both directions before any spend, the pre-spend baseline measured, the operator runbook and fresh quote captured (wave 1)
+- [ ] 21-02-PLAN.md — the paid operator act: checkpoint 1 → one-case calibration (re-records the stale-judge fixture, closes Phase 18's deferred judge probe), constants corrected, re-quote → checkpoint 2 → the 39 in four resumable `--case` batches, refusals surfaced as findings (wave 2)
+- [ ] 21-03-PLAN.md — closure: the real-directory pins go live with their reds observed, the 80-check denominator and runtime measured, README/OPERATIONS re-derived (Limitations bullet byte-untouched), actual-vs-quote reconciled from report JSONs (wave 3)
+
+**Sequencing note:** three sequential waves, no parallelism — 21-02 spends real money only
+against gates 21-01 proved can bite, and 21-03's pins can only be committed green once
+21-02's fixtures exist. The two paid stages inside 21-02 are blocking user checkpoints
+(`autonomous: false`); nothing passes `--yes` outside them.
 
 ### Phase 22: Limitations recorded
 **Goal**: Every surviving README limitation points at a record, and the Limitations section

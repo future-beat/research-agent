@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "case_id": "revision-then-approval",
+  "recorded_at": "2026-08-15T13:55:52+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "218dabf",
+  "pipeline_cost_usd": 0.181005,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "c1f85e25da604e2b995628a0c1d7bd5a",
+        "owner": "",
+        "task": "What are the most notable recent developments in agent design patterns?",
+        "mode": "research",
+        "topic_type": "general",
+        "research_notes": "Based on my research, here are several notable, well-supported recent developments in agent design patterns:\n\n**1. Standardized interoperability protocols have emerged as a foundational layer.** Anthropic's Model Context Protocol (MCP) is an open standard designed to facilitate seamless interactions between LLM models and external tools, data sources, and services, functioning like a universal adapter that aims to simplify integration. Introduced by Anthropic in late 2024, it has rapidly become the backbone of modern agentic workflows across major ecosystems. Alongside MCP, newer protocols like Agent-to-Agent Protocol (A2A) and Agent Network Protocol (ANP) aim to define lightweight, formal interfaces for context ingestion, performative messaging, and peer discovery using JSON-RPC schemas.\n\n**2. A consolidated taxonomy of foundational agent patterns has crystallized in 2025-2026**, drawing on Andrew Ng's four foundational patterns, Anthropic's five workflow patterns, and a growing set of emergent reliability and memory patterns from 2025-2026, which industry guides have consolidated into broader 12-pattern taxonomies mapping each pattern to current frameworks.\n\n**3. The Reflection pattern has demonstrated measurable, quantified performance gains.** According to the Reflexion research, using this pattern improved performance on the HumanEval coding benchmark from 80% (GPT-4) to 91%, and when paired with external verification tools such as unit test runners, accuracy gains can exceed 30 percentage points.\n\n**4. Multi-agent orchestration research is moving toward formal taxonomies of coordination topologies.** A 2025 survey proposes a three-topology, one-adaptivity taxonomy\u2014centralized, decentralized, and hierarchical coordination topologies, each optionally augmented with a dynamic\u2013adaptive control axis\u2014grounded in classical multi-agent systems theory, reflecting how the proliferation of large language model (LLM) agents has enabled increasingly complex multi-step automation, making composition of multiple agents into coherent systems a key research challenge.\n\n**5. Practical deployment challenges are shaping new \"production-hardening\" patterns**, particularly around context and cost management. One 2026 analysis of orchestration patterns notes that context window overflow is a subtle problem: the orchestrator accumulates context from every worker, and at four or more workers, context frequently exceeds window limits, with cost implications so severe that workflows that cost $0.50 in testing can hit $50,000/month at 100K executions because the orchestrator makes multiple LLM calls for decomposition and aggregation on top of every worker call.\n\n**6. Output quality and latency remain the top deployment blockers**, driving adoption of specific patterns: output quality (32%) and latency (20%) are the top two deployment blockers \u2014 patterns like Plan-and-Execute and Tool Use directly address both.\n\nTogether these developments show agent design maturing from ad-hoc prompting tricks toward standardized protocols (MCP/A2A/ANP), formalized architectural taxonomies, and empirically-benchmarked reliability patterns (like Reflection) tailored to real production constraints like cost and context limits.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# Recent Developments in Agent Design Patterns\n\n## 1. Standardized Interoperability Protocols\nAnthropic's **Model Context Protocol (MCP)**, introduced in late 2024, has become a foundational layer for agentic systems, acting as a universal adapter between LLMs and external tools, data sources, and services. It has rapidly become the backbone of agentic workflows across major ecosystems. Complementary protocols\u2014**Agent-to-Agent Protocol (A2A)** and **Agent Network Protocol (ANP)**\u2014are emerging to define lightweight, formal interfaces for context ingestion, performative messaging, and peer discovery via JSON-RPC schemas.\n\n## 2. A Taxonomy of Foundational Patterns\nA consolidated taxonomy of agent patterns has emerged in 2025\u20132026, drawing on:\n- Andrew Ng's four foundational patterns\n- Anthropic's five workflow patterns\n- Emergent reliability and memory patterns from 2025\u20132026\n\nIndustry guides have combined these into broader **12-pattern taxonomies**, mapping each pattern to current frameworks.\n\n## 3. Reflection: A Benchmarked Reliability Pattern\nThe **Reflection pattern** has moved beyond theory to demonstrate measurable gains. Per Reflexion research, it improved HumanEval coding benchmark performance from 80% (GPT-4 baseline) to 91%. When paired with external verification tools such as unit test runners, accuracy gains can exceed 30 percentage points.\n\n## 4. Formal Taxonomies of Multi-Agent Coordination\nA 2025 survey proposes a **three-topology, one-adaptivity taxonomy** for multi-agent orchestration:\n- **Centralized**, **decentralized**, and **hierarchical** coordination topologies\n- Each optionally augmented with a **dynamic\u2013adaptive control axis**\n\nThis framework is grounded in classical multi-agent systems theory and reflects growing research attention on composing multiple LLM agents into coherent systems as automation grows more complex.\n\n## 5. Production-Hardening Patterns for Cost and Context Management\nPractical deployment challenges are driving new patterns focused on scalability:\n- **Context window overflow**: orchestrators accumulating context from every worker frequently exceed window limits at four or more workers.\n- **Cost escalation**: workflows costing $0.50 in testing can scale to $50,000/month at 100K executions, since orchestrators make multiple LLM calls for decomposition and aggregation on top of every worker call.\n\n## 6. Addressing Top Deployment Blockers\nSurvey data identifies **output quality (32%)** and **latency (20%)** as the leading deployment blockers. This is driving adoption of patterns like **Plan-and-Execute** and **Tool Use**, which directly target these two issues.\n\n## Summary\nTaken together, these developments span standardized protocols (MCP, A2A, ANP), consolidating pattern taxonomies, empirically benchmarked reliability techniques (Reflection), formal coordination frameworks for multi-agent systems, and new production-hardening patterns addressing cost, context limits, output quality, and latency.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 47003,
+          "output_tokens": 4696,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 4,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.18100524,
+          "embedding_tokens": 654,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 3.924e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "general"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3245,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3252,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2989,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is directly supported by the research notes. The MCP details (late 2024, universal adapter, backbone), A2A/ANP protocols with JSON-RPC, the taxonomy sources (Ng's four, Anthropic's five, 12-pattern taxonomies), Reflexion figures (HumanEval 80%\u219291%, 30 percentage points), the three-topology/one-adaptivity multi-agent taxonomy, production-hardening figures ($0.50\u2192$50,000/month at 100K executions, four+ workers), and deployment blocker stats (32% output quality, 20% latency, Plan-and-Execute, Tool Use) all match the notes. No unsupported numbers, dates, or named entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses the question about notable recent developments in agent design patterns. It covers multiple relevant developments including interoperability protocols (MCP, A2A, ANP), pattern taxonomies, the Reflection reliability pattern with benchmarks, multi-agent coordination taxonomies, and production-hardening patterns. The content is on-topic, substantive, and organized around recent developments in the field.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

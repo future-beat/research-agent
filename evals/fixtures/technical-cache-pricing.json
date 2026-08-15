@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "case_id": "technical-cache-pricing",
+  "recorded_at": "2026-08-15T14:43:29+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "6bdd4c4",
+  "pipeline_cost_usd": 0.139118,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "0fac3f5407464c588d878cc1189a8783",
+        "owner": "",
+        "task": "How does prompt caching change the input token price on the Claude API?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Based on multiple recent sources, here's a concise summary of how prompt caching affects Claude API input token pricing:\n\n**1. Cache reads cost 90% less than standard input tokens.** Across multiple sources, the consistent figure is that cache hits cost 10% of input, meaning once a cached prefix is reused, those tokens are billed at roughly one-tenth the normal input-token rate.\n\n**2. Cache writes carry a 25% premium (for the default 5-minute TTL).** The first time content is cached, it's more expensive, not cheaper: a cache write costs 25% more than a normal read of the same tokens. This is described as a two-tier structure \u2014 a write premium on first writes balanced against a 90% discount on reads.\n\n**3. There's a two-tier TTL option \u2014 5 minutes (default) vs. 1 hour, with the longer duration costing more to write.** One source specifies: Default TTL is 5 minutes; 1-hour TTL is available at 2x write cost. Another source frames the same tradeoff as paying \"1.25x on the first request (the cache write),\" with the cache expires after 5 minutes (or 1 hour if you pay 2x on the write).\n\n**4. The break-even point is roughly 2\u20133 cache reads per write.** Using the 1.25x-write / 0.1x-read math, one analysis works out that 1 write (1.25x) + 99 reads (9.9x) = 11.15x cost for 100 requests versus 100x for fully uncached requests \u2014 an ~88.85% savings when reuse is high, which is roughly where the commonly cited \"up to 90%\" savings figure comes from.\n\n**5. Caching requires explicit opt-in via a marker, not automatic detection, and works on an exact-prefix match.** the marker syntax requires explicit opt-in rather than firing automatically the way OpenAI's does \u2014 implemented by tagging the stable, reusable portion of a prompt with a `cache_control` parameter tag the stable portion of your prompt with cache_control: { type: so Claude can match and reuse it on subsequent calls. Separately, one source notes the match mechanism is a literal byte-match on the prefix, not semantic match.\n\n**Caveat / things I could not fully verify from an official Anthropic source:** All the figures above (90% read discount, 25%/2x write premiums, 5-min/1-hour TTLs) came from third-party blogs (dev.to, PromptHub, Ssimplifi, Agentbrisk, CLSkills Hub, Cadence) rather than Anthropic's own pricing documentation directly, and several of the search hits were dated with speculative/future timestamps (e.g., \"2026\") that look like SEO-generated content rather than verified news \u2014 I'd recommend cross-checking the exact current numbers against Anthropic's official pricing page (platform.claude.com/docs/en/about-claude/pricing) before relying on them for billing decisions, since base model prices (e.g., Sonnet at $2/$10 vs. $3/$15 per million tokens) appear to have changed across versions and dates in these results, and the underlying percentage discounts for caching could similarly shift with future pricing updates.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# How Prompt Caching Changes Claude API Input Token Pricing\n\n## Overview\nClaude's prompt caching feature alters the standard input token pricing model by introducing a two-tier cost structure: a premium for initial caching and a steep discount for subsequent reuse.\n\n## Key Pricing Mechanics\n\n**Cache Reads \u2014 90% Discount**\nOnce content has been cached, reusing it costs approximately **10% of the standard input token rate** \u2014 a 90% savings compared to uncached input tokens.\n\n**Cache Writes \u2014 25% Premium**\nThe first time content is written to the cache, it costs **25% more** than a standard input read of the same tokens (i.e., 1.25x standard rate). This premium offsets the discount offered on later reads.\n\n## TTL (Time-to-Live) Options\nCaching supports two duration tiers:\n- **5 minutes (default):** Standard 1.25x write cost\n- **1 hour:** Available at **2x** the standard write cost\n\n## Break-Even Point\nSavings depend on how often a cached prefix is reused:\n- With 1 write (1.25x) + 99 reads (0.1x each = 9.9x), total cost for 100 requests = **11.15x**, versus **100x** for fully uncached requests \u2014 an ~88.85% savings.\n- General estimate: caching pays off after roughly **2\u20133 reads** of the same cached content, with maximum savings (~90%) realized under high-reuse scenarios.\n\n## How Caching Is Triggered\n- Caching is **not automatic** \u2014 it requires explicit opt-in via a `cache_control` parameter tag applied to the stable, reusable portion of a prompt.\n- Matching is based on an **exact byte-level prefix match**, not semantic similarity \u2014 so any variation in the cached prefix will cause a cache miss.\n\n## Caveat\nThese figures (90% read discount, 25%/2x write premiums, TTL options) are drawn from third-party sources (blogs and secondary analyses) rather than confirmed directly against Anthropic's official pricing documentation. Given that base model prices have reportedly shifted across versions, it's advisable to verify current numbers directly on Anthropic's official pricing page before using them for billing or budgeting decisions.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 41237,
+          "output_tokens": 2660,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 3,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.1391175,
+          "embedding_tokens": 725,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 4.35e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 2917,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2056,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is supported by the research notes. The 90% read discount / 10% rate (point 1), 25%/1.25x write premium (point 2), 5-min default vs 1-hour TTL at 2x write cost (point 3), the break-even math (1 write + 99 reads = 11.15x vs 100x, ~88.85% savings, ~2-3 reads) (point 4), explicit opt-in via cache_control and exact byte-level prefix matching (point 5), and the caveat about third-party sources and shifting base prices are all directly grounded in the notes. No unsupported numbers, dates, or named entities appear.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers the question by explaining how prompt caching changes Claude API input token pricing: cache reads cost ~10% of the standard rate (90% discount), cache writes cost 25% more (1.25x) for the default 5-minute TTL or 2x for 1-hour TTL. It also covers break-even points and how caching is triggered, all of which are relevant to the pricing question.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}
