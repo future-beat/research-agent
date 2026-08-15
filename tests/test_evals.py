@@ -2378,6 +2378,146 @@ def test_a_fixture_the_replay_leg_never_graded_is_not_a_green_build(
 
 
 # --------------------------------------------------------------------------
+# The fixture SET: is every golden case recorded, and by the settled judge
+#
+# Everything above grades the fixtures that happen to be on disk. Nothing above
+# — and, before Phase 21, nothing anywhere in the repo — asks whether the right
+# fixtures are on disk at all. The exit rule
+# (`ok = summary["ok"] and not replay_failures and not ungraded and not
+# refused`) is all-must-pass over whatever it finds; `ungraded` compares matched
+# paths to graded results, never to `GOLDEN`. So a checkout with 39 of 40
+# fixtures is exactly as green as one with 40, and a bad rebase that drops a
+# recording is silent.
+#
+# The two functions below are that missing comparison. They are deliberately
+# plain functions rather than tests, taking an optional directory exactly as
+# `F.fixture_paths` does, because Phase 21-03 pins them against the REAL
+# `evals/fixtures/` directory once the recordings exist. Proving them here on
+# synthetic directories proves those pins have teeth two waves before the pins
+# can land green.
+# --------------------------------------------------------------------------
+
+
+def fixture_coverage(directory: pathlib.Path | None = None) -> tuple[list[str], list[str]]:
+    """`(golden - recorded, recorded - golden)`, both as sorted id lists.
+
+    REQ-forty-recorded-answers says "all 40 golden cases carry recorded real
+    answers... on every push". Before this, that clause was enforced by nothing:
+    grepping the whole tree turns up no comparison of the committed fixture set
+    against `dataset.GOLDEN` -- not in the CLI's exit rule, not in the harness,
+    not in this file. The closest thing is `assert len(GOLDEN) >= 40`, which is
+    about the dataset and says nothing about what was recorded.
+
+    Both directions, because a half-bitten gate is the one that gets trusted:
+    a missing id is an unrecorded case, and an orphan stem is either a dead
+    fixture or a dataset id renamed out from under its recording. Stems are the
+    right key -- `write_fixture` names every file `{case_id}.json`.
+
+    The optional `directory` mirrors `F.fixture_paths` exactly, so one function
+    serves the synthetic tmp directories below and the real tree the 21-03 pins
+    will call it on.
+    """
+    recorded = {path.stem for path in F.fixture_paths(directory)}
+    golden = {case.id for case in GOLDEN}
+    return sorted(golden - recorded), sorted(recorded - golden)
+
+
+def stale_judges(directory: pathlib.Path | None = None) -> list[tuple[str, str]]:
+    """Every fixture whose recorded judge is not the shipped default, as
+    `(filename, the judge it names)` -- the file AND the value, because "one
+    fixture is stale" sends the reader through forty files.
+
+    Compared against `G.DEFAULT_JUDGE_MODEL`, never `G.JUDGE_MODEL` and never a
+    string literal. `JUDGE_MODEL` is whatever THIS process resolved from
+    `EVAL_JUDGE_MODEL`, so comparing to it would let a developer's exported env
+    var change the verdict of a claim about committed files. And a literal would
+    have to be re-found by hand the day the default moves; against the constant,
+    re-pointing the default re-points the gate.
+
+    That this scan exists at all is a deliberate divergence from
+    `grade_fixture_current`, which checks the pipeline and critic models and
+    pointedly not the judge: an old verdict remains a true statement about what
+    the old judge said, so failing replay on it would be wrong. This phase's
+    premise is narrower -- verdicts recorded ONCE, under the judge ADR-0012
+    settled -- so here the judge is checked, and a future judge change firing
+    this is the re-record signal working, not flakiness.
+
+    `F.load_fixture` rather than raw `json.loads`: a truncated or hand-edited
+    file must raise loudly here, not scan as vacuously clean.
+    """
+    stale = []
+    for path in F.fixture_paths(directory):
+        judge = F.load_fixture(path)["models"]["judge"]
+        if judge != G.DEFAULT_JUDGE_MODEL:
+            stale.append((path.name, judge))
+    return stale
+
+
+def test_fixture_coverage_names_every_golden_case_that_has_no_fixture(tmp_path):
+    """Named, never counted. A gate that says "39 missing" without saying which
+    leaves the operator diffing two directories by hand at exactly the moment
+    the gate existed to spare them."""
+    fixtures_dir = tmp_path / "fixtures"
+    committed(fixtures_dir)  # exactly one, `followup-uses-prior-notes`
+
+    missing, orphans = fixture_coverage(fixtures_dir)
+
+    assert missing == sorted({c.id for c in GOLDEN} - {"followup-uses-prior-notes"})
+    assert len(missing) == len(GOLDEN) - 1
+    assert orphans == []
+
+
+def test_fixture_coverage_names_a_fixture_no_golden_case_claims(tmp_path):
+    """The other direction. A stem naming no case is either a dead recording or
+    a dataset id that got renamed out from under its fixture -- and the second
+    one arrives looking exactly like the first."""
+    fixtures_dir = tmp_path / "fixtures"
+    committed(fixtures_dir)
+    missing_before, _ = fixture_coverage(fixtures_dir)
+    committed(fixtures_dir, record_as="no-such-case")
+
+    missing, orphans = fixture_coverage(fixtures_dir)
+
+    assert orphans == ["no-such-case"]
+    # An orphan is not a coverage answer: it must not quietly fill a gap.
+    assert missing == missing_before
+
+
+def test_fixture_coverage_on_a_never_created_directory_is_the_whole_dataset(tmp_path):
+    """The pre-recording state, and the reason the real-directory pin waits for
+    21-03: run against the repo TODAY this returns 39 ids, so committing that
+    pin now would commit a red test."""
+    missing, orphans = fixture_coverage(tmp_path / "never-created")
+
+    assert missing == sorted(c.id for c in GOLDEN)
+    assert orphans == []
+
+
+def test_stale_judges_names_the_file_and_the_superseded_judge(tmp_path):
+    """`grade_fixture_current` deliberately does not check the judge -- an old
+    verdict stays a true statement about what the old judge said. This scan is
+    the opposite claim, and only holds for THIS phase's premise: verdicts
+    recorded once, under the judge ADR-0012 settled."""
+    fixtures_dir = tmp_path / "fixtures"
+    committed(fixtures_dir, mutate=lambda f: f["models"].update(judge="claude-opus-5"))
+
+    assert stale_judges(fixtures_dir) == [
+        ("followup-uses-prior-notes.json", "claude-opus-5")
+    ]
+
+
+def test_stale_judges_says_nothing_about_a_fixture_on_the_settled_judge(tmp_path):
+    """The green half, written down so the red half cannot be passing for the
+    reason that everything looks stale."""
+    fixtures_dir = tmp_path / "fixtures"
+    committed(
+        fixtures_dir, mutate=lambda f: f["models"].update(judge=G.DEFAULT_JUDGE_MODEL)
+    )
+
+    assert stale_judges(fixtures_dir) == []
+
+
+# --------------------------------------------------------------------------
 # The record cost preview
 #
 # The quote an operator reads before spending real money. Every test here
