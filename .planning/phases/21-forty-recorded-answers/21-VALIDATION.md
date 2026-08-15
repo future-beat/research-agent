@@ -39,6 +39,34 @@ user approved in that prompt.
 
 ---
 
+## Criterion amendment, user-ratified 2026-08-15 mid-execution
+
+Batch A refused **3 of 10** cases. At that rate the phase cannot deliver "all 40 golden
+cases carry a recorded answer" while also honouring the same requirement's rule that **a
+committed fixture is one the graders and the judge approved**. Those two clauses of
+REQ-forty-recorded-answers are in genuine tension, and only a paid run could expose it —
+the keyless suite cannot, because it never runs the pipeline.
+
+**The criterion becomes: every one of the 40 cases is either recorded or carries a
+documented refusal with its reason.** This is what the requirement's own refusal clause
+("refusals are the machinery working") implies once refusals are more than hypothetical.
+Coverage is reported as a measured fraction, never rounded up to forty, and Phase 22
+records the residue as an honest limitation rather than deleting a bullet that would then
+be false in the other direction.
+
+**No case is forced.** `--force` would stamp a fixture `forced` and record an answer the
+graders rejected — buying the number forty by discarding the property that makes a fixture
+worth grading. The three refusals stay refused; they are not retried into silence, and any
+future retry is its own user-approved decision with its incremental cost stated.
+
+**One refusal is a defect, not a judgement.** `chatty-label-falls-back` failed because the
+judge's verdict was TRUNCATED at `max_tokens=1500`, a budget shared with adaptive thinking
+— the exact failure Phase 18's own comment at `evals/graders.py:758` predicted. That is an
+infrastructure failure in the judge harness, distinct in kind from the two quality
+refusals, and it belongs in a successor phase rather than being papered over here.
+
+---
+
 ## Sampling Rate
 
 - **After every task commit:** quick command + keyless evals
