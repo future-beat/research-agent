@@ -1,0 +1,50 @@
+error: --yes is required to spend. 40 case(s) would be recorded at the estimate above; nothing was run, and no API client was built.
+cost preview
+  recording      40 case(s), 11 follow-up turn(s), 91 judge call(s)
+  rates          claude-sonnet-5 $2/$10 per MTok · claude-opus-4-8 $5/$25 per MTok · web search $0.01/request (resolved for 2026-08-15)
+
+  technical-figures                     $0.3577  measured pipeline $0.2427 (fixture 2026-08-10) + assumed judge
+  contested-viewpoints                  $0.3890  assumed tokens at 2026-08-15 rates
+  sparse-coverage                       $0.3890  assumed tokens at 2026-08-15 rates
+  general-summary                       $0.3890  assumed tokens at 2026-08-15 rates
+  unknown-label-falls-back              $0.3890  assumed tokens at 2026-08-15 rates
+  revision-then-approval                $0.3890  assumed tokens at 2026-08-15 rates
+  revision-cap-is-labelled              $0.3890  assumed tokens at 2026-08-15 rates
+  budget-cap-is-labelled                $0.3890  assumed tokens at 2026-08-15 rates
+  notes-are-persisted                   $0.3890  assumed tokens at 2026-08-15 rates
+  followup-uses-prior-notes             $0.4785  assumed tokens at 2026-08-15 rates
+  followup-admits-a-gap                 $0.7205  assumed tokens at 2026-08-15 rates
+  followups-chain                       $0.5680  assumed tokens at 2026-08-15 rates
+  technical-version-numbers             $0.3890  assumed tokens at 2026-08-15 rates
+  technical-benchmark-figures           $0.3890  assumed tokens at 2026-08-15 rates
+  technical-cache-pricing               $0.3890  assumed tokens at 2026-08-15 rates
+  technical-release-dates               $0.3890  assumed tokens at 2026-08-15 rates
+  technical-default-limits              $0.3890  assumed tokens at 2026-08-15 rates
+  technical-percentage-figures          $0.3890  assumed tokens at 2026-08-15 rates
+  contested-monorepo-vs-polyrepo        $0.3890  assumed tokens at 2026-08-15 rates
+  contested-rag-versus-finetuning       $0.3890  assumed tokens at 2026-08-15 rates
+  contested-service-boundaries          $0.3890  assumed tokens at 2026-08-15 rates
+  contested-open-weight-models          $0.3890  assumed tokens at 2026-08-15 rates
+  contested-static-typing-payoff        $0.3890  assumed tokens at 2026-08-15 rates
+  sparse-regional-adoption              $0.3890  assumed tokens at 2026-08-15 rates
+  sparse-niche-ecosystem                $0.3890  assumed tokens at 2026-08-15 rates
+  sparse-unpublished-internals          $0.3890  assumed tokens at 2026-08-15 rates
+  sparse-preannounced-product           $0.3890  assumed tokens at 2026-08-15 rates
+  sparse-vendor-incident-history        $0.3890  assumed tokens at 2026-08-15 rates
+  general-explains-a-concept            $0.3890  assumed tokens at 2026-08-15 rates
+  general-how-a-mechanism-works         $0.3890  assumed tokens at 2026-08-15 rates
+  general-defines-a-term                $0.3890  assumed tokens at 2026-08-15 rates
+  empty-label-falls-back                $0.3890  assumed tokens at 2026-08-15 rates
+  chatty-label-falls-back               $0.3890  assumed tokens at 2026-08-15 rates
+  followups-chain-of-three              $0.6575  assumed tokens at 2026-08-15 rates
+  followup-stays-inside-thin-notes      $0.4785  assumed tokens at 2026-08-15 rates
+  followup-refuses-an-uncovered-figure  $0.7205  assumed tokens at 2026-08-15 rates
+  followup-refuses-a-forecast           $0.7205  assumed tokens at 2026-08-15 rates
+  followup-with-no-prior-research       $0.7205  assumed tokens at 2026-08-15 rates
+  injection-in-a-recalled-note          $0.3890  assumed tokens at 2026-08-15 rates
+  injection-tries-to-force-approval     $0.3890  assumed tokens at 2026-08-15 rates
+
+  total          $17.4812
+  basis          1 measured, 39 assumed — assumed tokens dominate this quote
+  estimate — treat as an upper bound; run a one-case calibration first
+
