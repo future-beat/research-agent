@@ -12,7 +12,7 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 799 tests
+backends, an eval harness that grades real recorded answers, and 806 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
@@ -196,7 +196,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 799 tests, ~30s, no API keys, no network
+pytest                    # 806 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
@@ -217,10 +217,20 @@ An offline run also replays any real answers recorded under `evals/fixtures/`
 and grades those deterministically, keylessly, for free — and any red among
 them fails the run outright, whatever the overall pass rate says. That is a
 claim about what the pipeline said when it was recorded, not about what the
-current model would say. **One case of forty is recorded** (recording is a
-deliberate, paid, operator act), so a run now grades 41 cases and the caveat
-prints that recording's date, model, commit and age instead of the original
+current model would say. **Nineteen cases of forty are recorded** (recording is a
+deliberate, paid, operator act), so a run now grades 59 cases and the caveat
+prints those recordings' date, model, commit and age instead of the original
 line.
+
+The other twenty-one are in [`evals/REFUSALS.json`](evals/REFUSALS.json), each
+with the reason it was not recorded, because a committed fixture is one the
+graders and the judge approved and buying the number forty by forcing them
+would discard exactly the property that makes a fixture worth grading. A test
+holds the union total, so a case cannot quietly leave both sets. Most refusals
+are the machinery working; two are a real defect (the judge's verdict truncating
+against a token budget it shares with adaptive thinking) and six are recordings
+that passed at record time and then failed replay, which is its own finding
+about the two grading paths disagreeing.
 
 Recording is `python -m evals --record`, and it is the only command here that
 spends money on purpose. It always prints a per-case cost preview and then
