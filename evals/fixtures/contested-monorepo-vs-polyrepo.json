@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "case_id": "contested-monorepo-vs-polyrepo",
+  "recorded_at": "2026-08-15T14:55:26+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "713d172",
+  "pipeline_cost_usd": 0.148608,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "d40522245e174794b412adbf93a37974",
+        "owner": "",
+        "task": "Should a small engineering team use a monorepo or separate repositories?",
+        "mode": "research",
+        "topic_type": "contested",
+        "research_notes": "Here\u2019s a synthesis of recent, concrete findings on the monorepo vs. polyrepo question, especially as it applies to small teams:\n\n**1. Data suggests polyrepos process pull requests faster \u2014 but with smaller PRs.**\nA widely-cited 2025/2026 analysis draws on Faros AI's study of 320 engineering teams, finding Faros AI studied 320 engineering teams: median PR cycle time 19 hours (monorepo) vs 2 hours (polyrepo). Importantly, the same source cautions that this isn't a clean win for polyrepos: monorepo PRs are larger. The delta signals that PR discipline matters more than repo layout.\n\n**2. Explicit sizing guidance: monorepos are often not worth it below ~10 engineers.**\nThe same 2026 decision guide gives a concrete engineer-count recommendation: For 1-10 engineers: usually no. The tooling overhead of a monorepo exceeds the benefit at small scale. For teams slightly larger, it gets more specific: For 5-15 engineers with a JS/TS-only stack and fewer than 5 deployable services, Turborepo is a low-friction choice, while also advising teams to Avoid Bazel or complex Nx setups at that scale \u2014 a direct pushback against over-engineering repo tooling prematurely.\n\n**3. Modern tooling (Nx) reframes the decision as organizational, not technical.**\nNx's own documentation argues the historical technical objections to monorepos have largely been solved: With modern build tooling, the technical challenges of maintaining a large repository are solvable, so the choice is mostly organizational: how your teams want to share code, review changes, and release. It further characterizes the trade-off as Monorepos optimize for atomic changes and shared tooling, while polyrepos optimize for team isolation.\n\n**4. A new AI-agent-era argument is emerging in favor of monorepos.**\nNx highlights a factor that didn't figure in older monorepo/polyrepo debates: Polyrepos also fragment the context AI agents work with. The Polygraph meta-harness addresses this by linking your repositories into a synthetic monorepo, so one agent session works across all of them with shared context and coordinated changes. This suggests that as teams adopt AI coding assistants, unified codebases may offer a growing practical advantage \u2014 a consideration not present in pre-2024 discussions of this topic.\n\n**5. Sources disagree on whether \"growing popularity\" favors monorepos or if polyrepo caution is warranted.**\nBuildkite's analysis (2024) takes a more skeptical stance toward jumping to either extreme, noting that It's true that monorepos are regaining ground and growing in popularity, but I'll still fly a little flag for polyrepos. It explicitly warns small/growing teams against overcorrecting: organizational complexity, not technical limits, tends to be the real driver, and adopting polyrepo/microservices structure to \"pre-empt\" future scaling problems risks premature-optimiza[tion] \u2014 i.e., solving problems the team doesn't have yet.\n\n**Where the disagreement lies:**\n- **Speed metrics vs. developer experience**: The Faros AI data favors polyrepo on raw PR cycle time, but Nx/Buildkite frame the decision around team coordination and code-sharing needs rather than throughput metrics alone.\n- **Tooling maturity**: Nx argues monorepo tooling has matured enough that scale is \"solved,\" while the 2026 decision guide explicitly warns small teams away from heavier tools (Bazel, complex Nx) as overkill, recommending lighter options like Turborepo instead.\n- **Premature optimization**: Buildkite frames early polyrepo/microservice adoption as often premature, while sizing-focused guides frame early monorepo adoption as the more common misstep for teams under 10 engineers.\n\n**Bottom line for a small team:** the recent consensus converges on: default to a single repo (or a lightweight monorepo with tools like Turborepo) if the team is small, JS/TS-focused, and has few deployable services \u2014 while avoiding heavyweight monorepo tooling until real coordination pain (not anticipated future scale) justifies it.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# Should a Small Engineering Team Use a Monorepo or Separate Repositories?\n\n## Recommendation\n\nFor most small teams (roughly 1\u201310 engineers), **default to a single repository**. If the team is JS/TS-focused with fewer than 5 deployable services, a lightweight monorepo tool like Turborepo is a reasonable step up \u2014 but heavier tooling (Bazel, complex Nx configurations) should be avoided until real coordination pain justifies it. This is not a permanent verdict: as team size, service count, or coordination needs grow, the calculus shifts.\n\n## 1. What the Data Shows\n\nA 2025/2026 analysis of 320 engineering teams (Faros AI) found polyrepos process pull requests faster: median PR cycle time was 19 hours for monorepos versus 2 hours for polyrepos. However, this comes with an important caveat \u2014 monorepo PRs tend to be larger. This suggests the gap reflects PR discipline and change size as much as repo structure itself, and shouldn't be read as a clean technical win for polyrepos.\n\n## 2. Explicit Sizing Guidance\n\nThe same 2026 decision guide offers concrete thresholds:\n- **1\u201310 engineers**: generally, no monorepo \u2014 tooling overhead exceeds the benefit at this scale.\n- **5\u201315 engineers, JS/TS-only, fewer than 5 deployable services**: Turborepo is a low-friction option.\n- At this scale, avoid Bazel or complex Nx setups \u2014 they represent over-engineering relative to team needs.\n\n## 3. Tooling Maturity Has Changed the Calculus\n\nNx's documentation argues that many historical *technical* objections to monorepos (build times, tooling complexity) are now largely solved. In its framing, the decision is now mostly **organizational**: how teams want to share code, review changes, and release \u2014 with monorepos optimizing for atomic changes and shared tooling, and polyrepos optimizing for team isolation.\n\n## 4. An Emerging AI-Agent Consideration\n\nA newer argument, not present in pre-2024 discussions, concerns AI coding assistants. Nx notes that polyrepos fragment the context available to AI agents, and highlights tools (e.g., the Polygraph meta-harness) that link multiple repos into a synthetic monorepo so a single agent session can work across all of them with shared context. This suggests unified codebases may offer a growing practical advantage as AI-assisted development becomes more common \u2014 though this is an emerging consideration rather than an established finding.\n\n## 5. Where Sources Disagree \u2014 Including on Premature Optimization\n\nThe research notes surface a genuine, unresolved tension about which kind of premature optimization is the more common risk for small teams:\n\n- **Buildkite's (2024) view**: warns against small/growing teams jumping to polyrepo or microservice structures to \"pre-empt\" future scaling problems, framing this as solving problems the team doesn't yet have.\n- **The 2026 sizing guide's view**: warns in the opposite direction \u2014 that teams under 10 engineers commonly adopt monorepo tooling before it's warranted, incurring overhead that exceeds the benefit at that scale.\n\nBoth cautions appear in the source material, and neither is presented as more empirically common than the other. The practical implication is not that one failure mode is more likely, but that a small team should be alert to *both*: don't adopt polyrepo/microservice separation merely to anticipate scale you don't have, and don't adopt monorepo tooling merely to anticipate coordination needs you don't have yet either.\n\n## Bottom Line\n\nThere is no universal \"correct\" structure \u2014 the sources converge on decision factors (team size, language/stack homogeneity, number of deployable services, and now AI-agent workflows) rather than a fixed rule. For a small team today, the recommended default is a single repository or a lightweight monorepo (e.g., Turborepo) if working in a JS/TS stack with few services \u2014 while treating heavier tooling, and any structural change made purely to anticipate future scale, as something to justify with actual pain, not anticipation.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 34122,
+          "output_tokens": 6031,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 2,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.148608,
+          "embedding_tokens": 900,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 5.4e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "contested"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 4005,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3795,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3995,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "All specific claims trace to the notes: the Faros AI study of 320 teams with 19h vs 2h median PR cycle time and larger monorepo PRs; the 2026 sizing guidance (1-10 engineers no monorepo, 5-15 JS/TS with <5 services favoring Turborepo, avoid Bazel/complex Nx); Nx's 'technical challenges solved / organizational decision' framing and the atomic-changes vs team-isolation trade-off; the AI-agent argument with the Polygraph meta-harness and synthetic monorepo, framed as post-2024; and Buildkite's (2024) premature-optimization caution alongside the sizing guide's opposite caution. Dates and named entities all match. The only minor elaboration ('build times, tooling complexity' as examples of technical objections) is consistent with the notes' references to technical challenges and tooling overhead and reads as fair illustration rather than an unsupported new claim.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers the question by providing a clear recommendation (default to a single repository for small teams, with a lightweight monorepo tool like Turborepo as a reasonable step for JS/TS teams with few services), and supports it with data, sizing thresholds, tooling considerations, and acknowledgment of source disagreements. It is squarely on-topic.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

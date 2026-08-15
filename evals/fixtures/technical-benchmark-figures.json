@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "case_id": "technical-benchmark-figures",
+  "recorded_at": "2026-08-15T14:42:24+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "6bdd4c4",
+  "pipeline_cost_usd": 0.244499,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "2e028a9c80f64592bbd19d25ae9553d7",
+        "owner": "",
+        "task": "What throughput and p99 latency does pgvector report for HNSW index scans?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Based on my research, here are 4-5 concrete, recent facts on pgvector HNSW throughput and p99 latency:\n\n**1. AWS/Aurora benchmark (pgvector 0.4.1\u20130.7.0, ANN-Benchmarks methodology)**\nAmazon Web Services carried out a large-scale test of pgvector across different releases, running on the Aurora PostgreSQL service, measuring recall, storage size, index build time, p99 latency, and single-connection throughput (QPS). The environment used two 64 vCPU / 512 GiB instances (r7gd.16xlarge with local NVMe and r7i.16xlarge with gp3), with PostgreSQL 16.2 configured for high parallelism (64 parallel workers), and index builds fixed at HNSW m=16, ef_construction=256.\n\n**2. ~30x throughput/p99 improvement over IVFFlat (pgvector 0.7.0)**\nOn the dbpedia-openai-1000k-angular dataset, Instaclustr reports that throughput and p99 latency improved by ~30x over IVFFlat at the same recall, with serial query execution. On x86-64 instances, results mirrored the ARM tests, with 100x+ build speedups with binary quantization and ~30x gains in QPS and p99 versus IVFFlat at 99% recall \u2014 this is specifically noted as tied to SIMD dispatch added in pgvector 0.7.0.\n\n**3. Jonathan Katz's year-in-review benchmark (pgvector 0.5.0 \u2192 0.7.0)**\nKatz's official pgvector blog post explicitly notes that between HNSW numbers show a significant boost in throughput and p99 latency across the year of releases, using glove-100-angular as one test dataset. His methodology defines p99 latency as how long it takes to return a single result at the 99th percentile (\"very slow\" queries), serving as an \"upper bound\" on latency, while single-connection throughput/QPS measures how many queries can be executed each second.\n\n**4. pgvector 0.8.0 relaxed_order feature (Amazon Aurora)**\nAWS's blog on pgvector 0.8.0 reports p99 latency measurements in milliseconds for different configurations, with substantial performance improvements even at 10-million product scale, attributing gains to the new `relaxed_order` scan mode, which allows pgvector to prioritize speed by returning results as they're discovered rather than sorting them perfectly, significantly reducing query latency while typically maintaining 95-99% of result quality compared to strict ordering. (Note: I could not extract the exact millisecond values from the table itself \u2014 only the qualitative description was retrievable from the search snippet.)\n\n**5. pgvector vs. Qdrant comparison (Tiger Data / pgvectorscale, 2025)**\nIn a head-to-head at 90% recall, Qdrant showed lower latency, but at a 90% recall threshold, Qdrant achieves 50.3% lower p50 query latency (4.74 ms vs. 9.54 ms), 58.6% lower p95 latency (5.50 ms vs. 13.30 ms), and 63.2% lower p99 query latency (5.79 ms vs. 15.73 ms) compared to pgvector/pgvectorscale. However, on throughput, Postgres with pgvector and pgvectorscale achieves 11.4x higher throughput than Qdrant at 99% recall when searching over 50M embeddings, with Postgres handling 471.57 queries per second compared to Qdrant's 41.47 queries per second.\n\n**Flag on unverifiable specifics:** I could not independently verify the exact numeric p99/QPS tables from the Jonathan Katz blog post or the AWS pgvector 0.8.0 blog post (search snippets described the charts qualitatively but didn't surface the raw numbers in text form) \u2014 for precise figures from those two sources, the original blog posts should be checked directly. Additionally, a \"Vector Database Benchmark 2026\" site citing generic 4\u201325ms figures for Qdrant/Redis was excluded here since it did not specifically report pgvector/HNSW numbers with verifiable sourcing.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# pgvector HNSW: Throughput and p99 Latency \u2014 Research Summary\n\n## Overview\n\npgvector's HNSW index has been benchmarked across several releases (0.4.1 through 0.8.0) and against competing systems, with throughput (single-connection QPS) and p99 latency as the primary reported metrics. Findings below are drawn from AWS/Aurora testing, Instaclustr, pgvector's own release notes, and a third-party comparison against Qdrant.\n\n## Key Findings\n\n**1. AWS/Aurora ANN-Benchmarks testing (pgvector 0.4.1\u20130.7.0)**\nAWS benchmarked pgvector across multiple versions on Aurora PostgreSQL 16.2, using two 64 vCPU / 512 GiB instance types (r7gd.16xlarge with local NVMe, r7i.16xlarge with gp3), with HNSW built at m=16, ef_construction=256 and 64 parallel workers. The study tracked recall, storage, build time, p99 latency, and single-connection QPS across versions, but exact numeric values from this benchmark were not retrievable from available sources.\n\n**2. ~30x improvement over IVFFlat (pgvector 0.7.0)**\nOn the dbpedia-openai-1000k-angular dataset, Instaclustr reported that HNSW throughput and p99 latency improved by roughly 30x compared to IVFFlat at equivalent recall, under serial query execution. This was observed on both ARM and x86-64 instances, with the x86-64 tests also showing 100x+ build-time speedups from binary quantization. The gains were attributed specifically to SIMD dispatch introduced in pgvector 0.7.0.\n\n**3. Katz year-in-review benchmark (pgvector 0.5.0 \u2192 0.7.0)**\nJonathan Katz's official pgvector blog post describes a \"significant boost\" in HNSW throughput and p99 latency across the year of releases, using glove-100-angular as one of the test datasets (not necessarily the only one). The post defines p99 latency as the time to return a single result at the 99th percentile (an \"upper bound\" on worst-case latency) and single-connection throughput as queries executed per second. Specific numeric values from this post could not be confirmed from available sources.\n\n**4. pgvector 0.8.0 relaxed_order feature (Amazon Aurora)**\nAWS's blog on pgvector 0.8.0 reports p99 latency in milliseconds across configurations, showing improvements even at 10-million-product scale. Gains are attributed to the new `relaxed_order` scan mode, which returns results as they're discovered rather than fully sorting them \u2014 trading a small amount of result quality (typically retaining 95\u201399% of strict-ordering accuracy) for reduced latency. Exact millisecond figures could not be extracted from available sources; only the qualitative description was available.\n\n**5. pgvector/pgvectorscale vs. Qdrant (Tiger Data, 2025)**\n\nThis comparison reports two different metrics under two different recall conditions, which should not be conflated:\n\n- **Latency, measured at 90% recall:** Qdrant showed lower latency than pgvector/pgvectorscale \u2014 50.3% lower p50 (4.74 ms vs. 9.54 ms), 58.6% lower p95 (5.50 ms vs. 13.30 ms), and 63.2% lower p99 (5.79 ms vs. 15.73 ms).\n- **Throughput, measured at 99% recall on 50M embeddings:** pgvector/pgvectorscale showed higher throughput than Qdrant \u2014 471.57 QPS vs. 41.47 QPS, an 11.4x advantage.\n\nBecause these two metrics were tested at different recall targets, the latency and throughput results are not directly comparable to each other within this dataset.\n\n## Summary Table\n\n| Source | Metric | Recall Condition | Result |\n|---|---|---|---|\n| Instaclustr (0.7.0) | Throughput & p99 latency vs. IVFFlat | same recall (unspecified %) | ~30x improvement |\n| Tiger Data vs. Qdrant | p50/p95/p99 latency | 90% recall | pgvector/pgvectorscale slower (e.g., p99: 15.73ms vs. Qdrant's 5.79ms) |\n| Tiger Data vs. Qdrant | Throughput (50M embeddings) | 99% recall | pgvector/pgvectorscale faster (471.57 QPS vs. Qdrant's 41.47 QPS) |\n| AWS/Aurora, Katz blog | Various | m=16, ef_construction=256 (AWS test) | Reported improvements across versions; exact figures unconfirmed |\n| AWS 0.8.0 relaxed_order | p99 latency (ms) | 95\u201399% result quality vs. strict ordering | Qualitative improvement reported; exact ms values unconfirmed |\n\n## Caveats\n\n- Precise numeric tables from the AWS/Aurora multi-version benchmark, the Katz blog post, and the AWS 0.8.0 relaxed_order post could not be independently verified from available search results \u2014 only qualitative descriptions were retrievable. Readers needing exact figures should consult the original blog posts directly.\n- A \"Vector Database Benchmark 2026\" source citing generic 4\u201325ms latency figures for Qdrant/Redis was excluded, as it did not report pgvector/HNSW-specific numbers with verifiable sourcing.\n- The Qdrant comparison's throughput and latency results come from different recall thresholds (90% vs. 99%) and should be read as separate findings, not a single unified result.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 69480,
+          "output_tokens": 6548,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 4,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.24449862,
+          "embedding_tokens": 977,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 5.862e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3599,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3277,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 4775,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is traceable to the research notes. Version ranges (0.4.1\u20130.8.0), instance types (r7gd.16xlarge, r7i.16xlarge), config (m=16, ef_construction=256, 64 parallel workers, PostgreSQL 16.2), the ~30x IVFFlat improvement with SIMD/ARM/x86-64 details, Katz's p99 definition, the relaxed_order description with 95-99% quality, and all Qdrant comparison numbers (4.74/9.54, 5.50/13.30, 5.79/15.73 ms; 471.57/41.47 QPS; 11.4x; 50M embeddings; 90%/99% recall percentages) all match the notes precisely. The report also faithfully preserves the caveats about unverifiable figures. The connective prose (e.g., not conflating the two recall conditions) is reasonable and supported.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses the question of pgvector HNSW throughput and p99 latency. It provides concrete numeric results where available (e.g., Tiger Data/Qdrant comparison: p99 15.73ms, throughput 471.57 QPS, ~30x improvement over IVFFlat) and honestly explains where exact figures could not be verified from sources (AWS/Aurora, Katz blog, 0.8.0 relaxed_order). This is a legitimate, on-topic response that mixes real findings with transparent acknowledgment of research limitations, satisfying the passing criteria.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

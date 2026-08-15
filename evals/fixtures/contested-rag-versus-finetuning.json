@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "case_id": "contested-rag-versus-finetuning",
+  "recorded_at": "2026-08-15T14:58:07+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "713d172",
+  "pipeline_cost_usd": 0.132926,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "6c3bbed1c93c4c1392b01ddb43b88a18",
+        "owner": "",
+        "task": "Is retrieval-augmented generation or fine-tuning the better way to add domain knowledge?",
+        "mode": "research",
+        "topic_type": "contested",
+        "research_notes": "Based on my research, here's a summary of recent, concrete findings on the RAG vs. fine-tuning debate \u2014 and where sources disagree.\n\n**1. Multiple academic studies find RAG generally beats fine-tuning for factual knowledge injection.** A recent industrial QA paper notes that Ovadia et al. (2023) have shown that RAG consistently outperforms unsupervised FT for both in and out-of-distribution knowledge, examining domains including anatomy, biology, and physics, a conclusion echoed by a follow-up study on Wikipedia articles categorized by popularity.\n\n**2. But a controlled medical-QA study at smaller model scale found the opposite.** A 2025 paper doing a paired comparison on the MedQA-USMLE benchmark using a 4B-parameter model concluded that domain fine-tuning of a 4B model significantly outperforms RAG over a textbook-style corpus, while RAG does not significantly help either the general or the domain-tuned backbone, suggesting that for small, locally-deployed open-weight models, domain knowledge in the weights appears to dominate domain knowledge in the prompt.\n\n**3. Task type matters \u2014 even within \"RAG vs FT,\" retrieval method itself splits results.** In an industrial code-completion study, researchers found that for C++ specifically, lexical matching might be more effective than semantic matching through neural embeddings, potentially because C++'s strict syntax and prevalence of domain-specific identifiers make exact keyword matches more indicative of relevance than contextual similarity.\n\n**4. A concrete agriculture benchmark shows fine-tuning and hybrids can add measurable accuracy gains.** According to industry analysis, a domain-specific agriculture benchmark study found that fine-tuning improved model accuracy from 75% to 81%, while hybrid systems (fine-tuning + retrieval) reached 86%, and more broadly RAG dominates enterprise AI due to flexibility, but fine-tuning excels at scale, latency, and structured outputs, with RAG adding recurring costs from context and retrieval while fine-tuning shifts cost upfront with stable per-query pricing.\n\n**5. Consensus is emerging around hybrid approaches for production systems.** Databricks' 2025 guidance states that a hybrid approach combining both RAG and fine tuning typically outperforms either method alone\u2014fine tuning handles behavioral consistency while RAG keeps responses factually current from live knowledge bases. This is echoed by a large-scale industry deployment: a recommendation-system paper describes a hybrid update strategy that leverages the long-term knowledge adaptation of periodic fine-tuning with the agility of low-cost RAG, and reports that on a billion-user platform, live A/B experiments show this hybrid approach yields statistically significant improvements in user outcomes.\n\n**Where sources disagree:**\n- **Scale/domain dependent:** Larger, more general benchmark studies (Ovadia et al., Wikipedia-based studies) favor RAG, while a more recent controlled study specifically on small (4B) models in the medical domain favors fine-tuning \u2014 suggesting model size and domain specificity change which method wins.\n- **Task type flips the answer:** For code completion in strict-syntax languages like C++, even the *retrieval* method matters more than whether you fine-tune, complicating a simple \"RAG vs FT\" framing.\n- **Cost/latency tradeoffs cut differently:** Databricks and Actian frame RAG as better for frequently-changing information and low upfront cost, while fine-tuning is framed as better for stable knowledge, low latency, and consistent structured outputs \u2014 meaning the \"better\" choice depends heavily on how dynamic the underlying knowledge is and deployment constraints, not just accuracy.\n\nOverall, the clearest point of convergence across sources is that **practitioners increasingly favor hybrid strategies** (fine-tuning + RAG together) rather than treating this as a binary choice, especially in production enterprise settings.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# RAG vs. Fine-Tuning for Domain Knowledge Injection: A Research Summary\n\n## Bottom Line\n\nThere is no universal winner. The evidence suggests the better approach depends on model scale, domain, task type, and deployment constraints\u2014and the strongest point of convergence across sources is that **hybrid approaches (combining both methods) increasingly outperform either alone** in production settings.\n\n## The Case for RAG\n\nMultiple academic studies find RAG generally superior for factual knowledge injection at scale. Ovadia et al. (2023) showed RAG consistently outperforms unsupervised fine-tuning for both in- and out-of-distribution knowledge across domains including anatomy, biology, and physics\u2014a finding echoed by a follow-up study using Wikipedia articles categorized by popularity.\n\n## The Case for Fine-Tuning\n\nThis conclusion doesn't hold universally. A 2025 controlled study on MedQA-USMLE using a 4B-parameter model found the opposite result: domain fine-tuning significantly outperformed RAG over a textbook-style corpus, and RAG did not meaningfully help either the general or fine-tuned backbone. This suggests that for small, locally-deployed open-weight models, domain knowledge embedded in the weights may dominate domain knowledge supplied via the prompt.\n\nAn agriculture benchmark adds a data point on magnitude: fine-tuning alone improved accuracy from 75% to 81%, demonstrating fine-tuning can deliver measurable, substantial gains independent of retrieval.\n\n## Complicating Factors: Task Type and Retrieval Method\n\nThe \"RAG vs. FT\" framing itself can be too simple. In an industrial code-completion study, researchers found that for C++, lexical (keyword) matching outperformed semantic matching via neural embeddings\u2014likely because C++'s strict syntax and domain-specific identifiers make exact keyword matches more indicative of relevance than contextual similarity. This shows that even *within* a RAG approach, the retrieval method chosen can matter as much as the RAG-vs-FT choice itself.\n\n## Cost and Deployment Tradeoffs\n\nBeyond accuracy, RAG and fine-tuning cut differently on cost and latency:\n- RAG offers flexibility and keeps responses factually current from live knowledge bases, but adds recurring costs from context and retrieval.\n- Fine-tuning excels at scale, latency, and structured outputs, shifting costs upfront with stable per-query pricing.\n\nThis means the \"right\" choice depends heavily on how dynamic the underlying knowledge is, not accuracy alone.\n\n## Where the Field Is Converging: Hybrid Approaches\n\nThe clearest area of agreement is that combining both methods typically beats either alone in production:\n\n- **Agriculture benchmark:** Hybrid systems (fine-tuning + retrieval) reached 86% accuracy, exceeding fine-tuning alone (81%) and the baseline (75%).\n- **Databricks (2025):** A hybrid approach combining RAG and fine-tuning typically outperforms either method alone\u2014fine-tuning handles behavioral consistency while RAG keeps responses factually current.\n- **Large-scale industry deployment:** A recommendation-system paper describes a hybrid update strategy combining periodic fine-tuning (long-term knowledge adaptation) with low-cost RAG (agility). On a billion-user platform, live A/B experiments showed statistically significant improvements in user outcomes from this hybrid approach.\n\n## Conclusion\n\nThe RAG-vs-fine-tuning question resists a single answer:\n- **Scale/domain dependent:** Larger, general benchmarks favor RAG; small-model, domain-specific studies (e.g., medical QA at 4B parameters) favor fine-tuning.\n- **Task type flips the answer:** Even retrieval method choice (lexical vs. semantic) matters for specialized tasks like code completion.\n- **Cost/latency tradeoffs cut differently:** RAG suits frequently-changing information; fine-tuning suits stable knowledge and low-latency, structured-output needs.\n\nGiven these conflicting findings, practitioners increasingly favor **hybrid strategies** over treating this as a binary choice\u2014particularly in production enterprise settings where both accuracy and operational constraints matter.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 34449,
+          "output_tokens": 4398,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 2,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.13292606,
+          "embedding_tokens": 801,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 4.806e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "contested"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3960,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 4119,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is traceable to the research notes: Ovadia et al. (2023) with anatomy/biology/physics and Wikipedia popularity follow-up; the 2025 MedQA-USMLE 4B-parameter study favoring fine-tuning; the agriculture benchmark numbers (75%\u219281%, hybrid 86%); the C++ lexical vs. semantic retrieval finding; Databricks 2025 hybrid guidance; and the billion-user recommendation-system A/B hybrid deployment. The cost/latency tradeoffs and hybrid convergence conclusions all match the notes. No unsupported numbers, dates, or named entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses the question of whether RAG or fine-tuning is better for adding domain knowledge. It presents evidence for both approaches, discusses when each is preferable (scale, domain, task type, deployment constraints), and concludes with a nuanced answer that hybrid approaches often outperform either alone. This is a legitimate, substantive response to the question.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

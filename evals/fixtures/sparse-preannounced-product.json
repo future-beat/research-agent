@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "case_id": "sparse-preannounced-product",
+  "recorded_at": "2026-08-15T15:12:43+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5"
+  },
+  "git_sha": "713d172",
+  "pipeline_cost_usd": 0.186334,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "841218a12c034aefa175ce7cf7f25dc5",
+        "owner": "",
+        "task": "What are the confirmed specifications of the unreleased Voyage 4 embedding model?",
+        "mode": "research",
+        "topic_type": "sparse",
+        "research_notes": "Based on my research, it turns out the \"Voyage 4\" model family is actually **already released** (not unreleased) \u2014 Voyage AI launched it on January 15, 2026. Here's what I found, since coverage of this launch is fairly recent and somewhat limited in depth:\n\n1. **Four-model lineup with a shared embedding space**: the Voyage 4 series is a new generation of text embedding models featuring industry-first shared embedding spaces, including voyage-4-large, voyage-4, voyage-4-lite, and the open-weighted voyage-4-nano. This shared space means customers can mix and match models for query and document embedding based on their specific accuracy, latency, and cost requirements.\n\n2. **voyage-4-large uses a mixture-of-experts architecture**: voyage-4-large leverages a mixture-of-experts (MoE) model, and it is described as the first production embedding model to use a mixture-of-experts architecture, released January 15, 2026, where MoE activates only a subset of parameters per token, achieving flagship-level retrieval accuracy at lower inference cost than a dense model of equivalent quality.\n\n3. **Context length and embedding dimensions**: According to Voyage's documentation, voyage-4-large has a 32,000 token context length with embedding dimensions of 1024 (default), 256, 512, and 2048. More broadly, voyage-4 supports embeddings in 2048, 1024, 512, and 256 dimensions, with multiple quantization options, enabled by Matryoshka learning and quantization-aware training.\n\n4. **Performance and pricing claims for voyage-4-large**: Voyage AI reports that voyage-4-large surpasses voyage-3-large on retrieval accuracy at a lower price point, with serving costs about 40% below comparable dense models, and it is priced at $0.12 per M tokens with a 32,000 token context window.\n\n5. **voyage-4-nano is open-weight**: it is Voyage AI's first open-weight model, freely available on Hugging Face under the Apache 2.0 license, and voyage-4-nano is ideal for local development and prototyping with an easy path to production.\n\n6. **Free usage tier**: the first 200 million tokens for voyage-4-large, voyage-4, voyage-4-lite, voyage-context-4, and voyage-code-3 are free for every account.\n\n**Gap/caveat**: I could not find independent third-party benchmark verification (outside Voyage AI's own blog and reseller listings like AWS Marketplace, Azure AI catalog, Vercel AI Gateway, and OpenRouter) confirming the accuracy claims. Also, note that despite the phrasing \"unreleased\" in your query, all evidence indicates Voyage 4 has already shipped (as of January 15, 2026) with public API access, pricing, and Hugging Face weights for the nano variant \u2014 so if you're looking for a model that's still unreleased, this may not be it, or you may be referring to a different/future Voyage model not yet covered in search results.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# Voyage 4 Embedding Model Family: Specification Report\n\n**Note on status:** Despite the framing of \"unreleased,\" available evidence indicates the Voyage 4 family has already shipped \u2014 Voyage AI launched it on January 15, 2026, with public API access, published pricing, and open-weight availability for one variant. This report treats it accordingly.\n\n**Important caveat on source reliability:** Coverage of this launch is recent and limited in depth. Beyond the specific lack of independent third-party benchmark verification (noted below), *all* details in this report \u2014 architecture, specs, pricing, and licensing \u2014 derive from a narrow set of sources (Voyage AI's own materials and reseller/platform listings such as AWS Marketplace, Azure AI catalog, Vercel AI Gateway, and OpenRouter). No broader independent confirmation was found. These specifications should be treated as provisional pending further corroboration.\n\n## Lineup\nFour models sharing a common embedding space (enabling mixing/matching for query vs. document embedding):\n- **voyage-4-large**\n- **voyage-4**\n- **voyage-4-lite**\n- **voyage-4-nano** (open-weight)\n\n## Architecture\n- **voyage-4-large** uses a mixture-of-experts (MoE) design, reportedly the first production embedding model to do so \u2014 activating only a subset of parameters per token.\n- Other models' internal architectures are not specified in available sources.\n\n## Context Length & Embedding Dimensions\n- **voyage-4-large**: 32,000 token context length; embedding dimensions of 1024 (default), 256, 512, and 2048.\n- **voyage-4 (general)**: supports 2048, 1024, 512, and 256 dimensions, enabled by Matryoshka learning and quantization-aware training, with multiple quantization options.\n- Dimension/context specifics for voyage-4-lite and voyage-4-nano are not detailed in available sources.\n\n## Pricing & Performance Claims (unverified by independent sources)\n- voyage-4-large: $0.12 per million tokens, 32,000 token context window.\n- Claimed to surpass voyage-3-large on retrieval accuracy at a lower price, with serving costs ~40% below comparable dense models.\n- **These performance and pricing claims come solely from Voyage AI and reseller listings; no independent third-party benchmark verification was found.**\n\n## Licensing\n- **voyage-4-nano**: Voyage AI's first open-weight model, freely available on Hugging Face under Apache 2.0 license, positioned for local development/prototyping with a path to production.\n\n## Free Tier\n- First 200 million tokens free for voyage-4-large, voyage-4, voyage-4-lite, voyage-context-4, and voyage-code-3.\n\n## Summary Caveat\nGiven the limited depth and recency of available coverage, the specifications above should be regarded as the best currently available information rather than fully confirmed, independently verified facts. Broader confirmation may emerge as third-party coverage and benchmarking develop.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 49711,
+          "output_tokens": 4687,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 4,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.1863337,
+          "embedding_tokens": 695,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 4.17e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "sparse"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 2820,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2062,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2892,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is supported by the research notes. The launch date (January 15, 2026), the four-model lineup with shared embedding space, voyage-4-nano being open-weight, the MoE architecture claim, context length (32,000 tokens) and embedding dimensions (1024 default, 256, 512, 2048), the voyage-4 general dimensions with Matryoshka/quantization-aware training, pricing ($0.12/M tokens), performance claims (surpasses voyage-3-large, ~40% below dense serving costs), licensing (Hugging Face, Apache 2.0), and the 200M free tokens for the listed models all appear in the notes. The caveats about source reliability and lack of independent verification also match the notes. No unsupported numbers, dates, or entities were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses the question about Voyage 4 embedding model specifications, providing detailed information on the lineup, architecture (MoE design), context length, embedding dimensions, pricing, licensing, and free tier. It also honestly caveats that these specs derive from limited sources and lack independent verification, and it directly engages with the 'unreleased' framing by noting the model appears to have shipped. This is a relevant, on-topic response that answers what was asked while transparently qualifying the level of confirmation available.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

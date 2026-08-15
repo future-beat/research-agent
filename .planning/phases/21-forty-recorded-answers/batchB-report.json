@@ -1,0 +1,1058 @@
+{
+  "mode": "record",
+  "model": "claude-sonnet-5",
+  "judge_model": "claude-opus-4-8",
+  "judge_calls": 22,
+  "generated_at": "2026-08-15T15:05:28+0800",
+  "cases": [
+    {
+      "case_id": "technical-version-numbers",
+      "why": "Version numbers are the figures a model is most willing to guess at. A support matrix the notes never gave sends a reader into an upgrade that breaks their build, and it reads exactly like a researched one.",
+      "passed": false,
+      "error": "",
+      "cost_usd": 0.275373,
+      "turns": [
+        {
+          "label": "research",
+          "passed": false,
+          "cost_usd": 0.275373,
+          "duration_ms": 116180.0,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": false,
+              "detail": "expected approved=True, got False (forced_stop_reason='max_revisions_exceeded')",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": false,
+              "detail": "unexpected guardrail: 'max_revisions_exceeded'",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "3 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3906 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2754",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "2774 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report\u2014the release date (June 30, 2024), the statistics (846 commits, 700+ tests, 20000+ changes in 310 files), the mailing list corroboration, the Numpy scalar support details, notifications handling, PostgreSQL-format parameters, async/safe cancel, PgBouncer-compatible prepared statements, and the libpq 17 dependency\u2014maps directly to the research notes. The report faithfully relays the unverifiable Python version support caveat and the psycopg2 vs psycopg3 distinction. No numbers, dates, or named entities appear that are absent from the notes.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The question has two parts: (1) which Python versions psycopg 3.2 supports, and (2) what the release changed. The report thoroughly addresses part 2 with detailed changes (Numpy scalar support, notifications handling, PostgreSQL-format parameters, async/safe cancel, PgBouncer-compatible prepared statements, libpq 17 dependency). For part 1, the report honestly and transparently explains that the research could not confirm the specific Python version range, while helpfully warning against conflating psycopg2's version support with psycopg 3.2. Per the audit guidance, a report that honestly explains that the research found little on a point passes. The report is directly on-topic and engages the question fully.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "technical-benchmark-figures",
+      "why": "A benchmark answer is all numbers, so a single invented one is invisible among the real ones. This is the densest target the grounding rubric has.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.244499,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.244499,
+          "duration_ms": 270747.7,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "4775 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2445",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3599 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is traceable to the research notes. Version ranges (0.4.1\u20130.8.0), instance types (r7gd.16xlarge, r7i.16xlarge), config (m=16, ef_construction=256, 64 parallel workers, PostgreSQL 16.2), the ~30x IVFFlat improvement with SIMD/ARM/x86-64 details, Katz's p99 definition, the relaxed_order description with 95-99% quality, and all Qdrant comparison numbers (4.74/9.54, 5.50/13.30, 5.79/15.73 ms; 471.57/41.47 QPS; 11.4x; 50M embeddings; 90%/99% recall percentages) all match the notes precisely. The report also faithfully preserves the caveats about unverifiable figures. The connective prose (e.g., not conflating the two recall conditions) is reasonable and supported.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the question of pgvector HNSW throughput and p99 latency. It provides concrete numeric results where available (e.g., Tiger Data/Qdrant comparison: p99 15.73ms, throughput 471.57 QPS, ~30x improvement over IVFFlat) and honestly explains where exact figures could not be verified from sources (AWS/Aurora, Katz blog, 0.8.0 relaxed_order). This is a legitimate, on-topic response that mixes real findings with transparent acknowledgment of research limitations, satisfying the passing criteria.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "technical-cache-pricing",
+      "why": "Prices under ten dollars are the figures a naive grounding rule throws away, and a quietly altered rate is the subtlest wrong number there is. This case exists to keep that path exercised.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.139118,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.139118,
+          "duration_ms": 52798.5,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "2056 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1391",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "2917 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is supported by the research notes. The 90% read discount / 10% rate (point 1), 25%/1.25x write premium (point 2), 5-min default vs 1-hour TTL at 2x write cost (point 3), the break-even math (1 write + 99 reads = 11.15x vs 100x, ~88.85% savings, ~2-3 reads) (point 4), explicit opt-in via cache_control and exact byte-level prefix matching (point 5), and the caveat about third-party sources and shifting base prices are all directly grounded in the notes. No unsupported numbers, dates, or named entities appear.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers the question by explaining how prompt caching changes Claude API input token pricing: cache reads cost ~10% of the standard rate (90% discount), cache writes cost 25% more (1.25x) for the default 5-minute TTL or 2x for 1-hour TTL. It also covers break-even points and how caching is triggered, all of which are relevant to the pricing question.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "technical-release-dates",
+      "why": "Dates and version numbers together are where a plausible answer drifts: the right feature attributed to the wrong release is a wrong answer that survives a proofread.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.147571,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.147571,
+          "duration_ms": 46942.9,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "2235 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1476",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "2801 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is grounded in the research notes: pgvector 0.5.0 introducing HNSW support, the '29 Aug' tag with year 2023 inferred contextually (explicitly framed as inferred in both notes and report), the October 2023 AWS announcement, the ivfflat parallelization and distance function improvements, the HNSW paper/layered neighborhoods description, UPDATE/DELETE and concurrent insert support, IVFFLAT being the only prior index type, Google Cloud SQL and Aurora adoption, and pgvector 0.8.0 with HNSW performance improvements available in Aurora by April 2025. The report also faithfully reproduces the caveat about the release date's precision. No unsupported numbers, dates, or named entities appear.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers both parts of the question: it identifies pgvector version 0.5.0 as introducing HNSW support and gives the release date of August 29, 2023. Both required elements (version and timing) are addressed.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "technical-default-limits",
+      "why": "Defaults are quoted from memory more often than any other figure. A wrong default is copied into production configuration and only shows up under load.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.236558,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.236558,
+          "duration_ms": 97837.5,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "2 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3107 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2366",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3322 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "All factual claims in the report trace back to the notes: min_size default of 4 as the fundamental parameter, max_size default None pinning to min_size, NullConnectionPool fixing min_size at 0 while allowing max_size, resize() available since 3.1/3.2, num_workers default 3, max_waiting default 0 with TooManyRequests, and the version note confirming defaults across 3.0.18/3.1.16/3.3.5.dev1 snapshots. Named versions and numbers all appear in the notes. The added hedges about not independently re-verifying cross-version stability are consistent with the notes' uncertainty flagging. No ungrounded numbers, dates, or entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers both parts of the question: it states the default pool sizes (min_size=4, max_size=None, plus related NullConnectionPool, num_workers, and max_waiting defaults) and explains that they can be raised, both at construction time and via resize(). The default of min_size=4 and max_size=None is accurate for psycopg_pool's ConnectionPool. The report is on-topic and responsive, with appropriate caveats about verification.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "technical-percentage-figures",
+      "why": "A percentage is the figure readers act on without checking, and it is the one a summary is most likely to round into something the notes never said.",
+      "passed": false,
+      "error": "",
+      "cost_usd": 0.186058,
+      "turns": [
+        {
+          "label": "research",
+          "passed": false,
+          "cost_usd": 0.186058,
+          "duration_ms": 346813.7,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "technical",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3288 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1861",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "2576 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": false,
+              "detail": "Nearly all figures and entities match the notes, but the report labels the M3DR paper as 'Peer-reviewed/arXiv paper' and later says its figures come from 'peer-reviewed sources.' The notes only describe it as 'a 2025 arXiv paper.' arXiv is a preprint server and the notes make no claim of peer review, so this 'peer-reviewed' characterization is an unsupported addition not grounded in the source.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The question presupposes a single specific 'reported migration,' but the report honestly explains that no single migration could be identified and instead documents five candidate cases with their respective storage reductions (4\u00d7, 63.7%, up to 32\u00d7, ~3\u00d7, 70%). This directly engages the question's subject matter\u2014quantization's effect on embedding storage\u2014provides concrete figures for each plausible source, and transparently explains the ambiguity while inviting clarification. It is an honest, on-topic treatment rather than an evasion or a report about something else.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "contested-monorepo-vs-polyrepo",
+      "why": "A run that picks a winner the sources never agreed on is confidently wrong, and the reader cannot see that the question was open. The pins name both camps so flattening is detectable.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.148608,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.148608,
+          "duration_ms": 167495.9,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "contested",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "1 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3995 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1486",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4005 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "All specific claims trace to the notes: the Faros AI study of 320 teams with 19h vs 2h median PR cycle time and larger monorepo PRs; the 2026 sizing guidance (1-10 engineers no monorepo, 5-15 JS/TS with <5 services favoring Turborepo, avoid Bazel/complex Nx); Nx's 'technical challenges solved / organizational decision' framing and the atomic-changes vs team-isolation trade-off; the AI-agent argument with the Polygraph meta-harness and synthetic monorepo, framed as post-2024; and Buildkite's (2024) premature-optimization caution alongside the sizing guide's opposite caution. Dates and named entities all match. The only minor elaboration ('build times, tooling complexity' as examples of technical objections) is consistent with the notes' references to technical challenges and tooling overhead and reads as fair illustration rather than an unsupported new claim.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly answers the question by providing a clear recommendation (default to a single repository for small teams, with a lightweight monorepo tool like Turborepo as a reasonable step for JS/TS teams with few services), and supports it with data, sizing thresholds, tooling considerations, and acknowledgment of source disagreements. It is squarely on-topic.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "contested-rag-versus-finetuning",
+      "why": "Two vendor write-ups that disagree are the commonest evidence base there is. An answer that picks one and drops the other looks authoritative and is not.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.132926,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.132926,
+          "duration_ms": 150709.0,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "contested",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "4119 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1329",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "3960 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is traceable to the research notes: Ovadia et al. (2023) with anatomy/biology/physics and Wikipedia popularity follow-up; the 2025 MedQA-USMLE 4B-parameter study favoring fine-tuning; the agriculture benchmark numbers (75%\u219281%, hybrid 86%); the C++ lexical vs. semantic retrieval finding; Databricks 2025 hybrid guidance; and the billion-user recommendation-system A/B hybrid deployment. The cost/latency tradeoffs and hybrid convergence conclusions all match the notes. No unsupported numbers, dates, or named entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the question of whether RAG or fine-tuning is better for adding domain knowledge. It presents evidence for both approaches, discusses when each is preferable (scale, domain, task type, deployment constraints), and concludes with a nuanced answer that hybrid approaches often outperform either alone. This is a legitimate, substantive response to the question.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "contested-service-boundaries",
+      "why": "Both sides have case studies, which is exactly the shape that tempts a summary into declaring a consensus that does not exist.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.18091,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.18091,
+          "duration_ms": 65732.9,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "contested",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3838 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1809",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4634 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every factual claim in the report is grounded in the research notes. The named reversals (Istio control plane, Amazon Prime Video monitoring, Segment, InVision), the 2024 multivocal literature review with 32 articles, the 2025 practitioner account and its quote, the 85% adoption claim, the DZone startup analysis, and Microsoft's Azure Architecture Center guidance (mature DevOps, correlated logging, compatibility, over-granular services) all appear in the notes. Dates are stated in less specific but consistent form (e.g., '2024' vs 'April 2024'), and 'top reasons' reasonably paraphrases 'five main reasons.' No fabricated numbers, dates, or entities were introduced.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses the question of whether microservices reduce or increase operational complexity for a ten-person team. It provides a clear answer (leaning toward increasing complexity), presents evidence for both sides, discusses conditions under which each holds, and concludes with a bottom line specifically tailored to a ten-person team. This is a substantive, on-topic response to the question asked.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "contested-open-weight-models",
+      "why": "A contested security question is where a flattened answer does real damage: it becomes the sentence quoted in a risk review that nobody traces back to two disagreeing sources.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.191901,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.191901,
+          "duration_ms": 73813.2,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "contested",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "4802 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.1919",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "5098 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "Every substantive claim in the report traces back to the notes: the Hugging Face/OpenAI sandbox breakout, the 17,000 attack events, GLM-5.2 from Zhipu AI, the guardrail refusals, vendor advocacy from Cisco/Google/Microsoft/OpenAI, the enterprise-strategy compliance framing, the Verizon 2025 DBIR 30% figure, the automated red-team jailbreak findings (MITRE ATLAS/OWASP), and the International AI Safety Report 2026 statements on irreversibility, monitoring difficulty, and the sub-one-year capability gap. The disagreement section (AvePoint, Cisco red-team, UK AI Security Institute) and conclusion (security-ownership plan) all match the notes. No unsupported numbers, dates, or named entities appear; the only additions are connective/interpretive prose consistent with the source.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly engages the question of whether open-weight models are a security liability or asset for enterprises. It lays out the case for 'asset' (data sovereignty, forensic flexibility, vendor advocacy, capability narrowing), the case for 'liability' (supply-chain/tampering risk, jailbreak susceptibility, irreversibility and monitoring difficulty), analyzes where the disagreement lies across different threat models, and delivers a reasoned conclusion that the answer is contingent on which risk the enterprise is most exposed to. This is a substantive, on-topic answer to the question posed.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "contested-static-typing-payoff",
+      "why": "The two studies cited measure different things, which is the failure mode a confident summary hides: it reports a result neither study supports.",
+      "passed": true,
+      "error": "",
+      "cost_usd": 0.272054,
+      "turns": [
+        {
+          "label": "research",
+          "passed": true,
+          "cost_usd": 0.272054,
+          "duration_ms": 264978.9,
+          "grades": [
+            {
+              "grader": "terminates",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "never_silently_unapproved",
+              "passed": true,
+              "detail": "",
+              "judged": false
+            },
+            {
+              "grader": "topic_type",
+              "passed": true,
+              "detail": "contested",
+              "judged": false
+            },
+            {
+              "grader": "approval",
+              "passed": true,
+              "detail": "approved",
+              "judged": false
+            },
+            {
+              "grader": "forced_stop",
+              "passed": true,
+              "detail": "no guardrail fired, as expected",
+              "judged": false
+            },
+            {
+              "grader": "revisions",
+              "passed": true,
+              "detail": "0 (not asserted)",
+              "judged": false
+            },
+            {
+              "grader": "answer_present",
+              "passed": true,
+              "detail": "3570 chars",
+              "judged": false
+            },
+            {
+              "grader": "within_budget",
+              "passed": true,
+              "detail": "$0.2721",
+              "judged": false
+            },
+            {
+              "grader": "notes_stored",
+              "passed": true,
+              "detail": "4573 chars",
+              "judged": false
+            },
+            {
+              "grader": "judge_grounding",
+              "passed": true,
+              "detail": "All factual claims trace to the notes: the 2024 Meta/Microsoft/JetBrains survey (1,000+ developers, 88% always/often use types, IDE/docs/bug-catching drivers, usability friction), Eightfold's gradual typing approach (two-tier config, diff-aware CI, no typing team), Kraken's scale (5M lines Python, 10M+ line monorepo, Django stub challenges with django-stubs/django-types), the anti-pitch 'prohibitive' cost for old large codebases, and the HN anecdotal productivity claim. No unsupported numbers, dates, or named entities appear; the conditional framing and 'no controlled ROI study' caveat are also supported by the notes.",
+              "judged": true
+            },
+            {
+              "grader": "judge_answers_the_question",
+              "passed": true,
+              "detail": "The report directly addresses whether static type checking pays for itself in a Python codebase, providing a nuanced 'it depends' answer with supporting evidence (cases for and against), identifying conditional factors, and honestly noting the limitations of available evidence. It stays on topic throughout.",
+              "judged": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "cases": 11,
+    "passed": 9,
+    "failed": 2,
+    "pass_rate": 0.8182,
+    "errored": 0,
+    "by_grader": {
+      "terminates": {
+        "passed": 11,
+        "failed": 0
+      },
+      "never_silently_unapproved": {
+        "passed": 11,
+        "failed": 0
+      },
+      "topic_type": {
+        "passed": 11,
+        "failed": 0
+      },
+      "approval": {
+        "passed": 10,
+        "failed": 1
+      },
+      "forced_stop": {
+        "passed": 10,
+        "failed": 1
+      },
+      "revisions": {
+        "passed": 11,
+        "failed": 0
+      },
+      "answer_present": {
+        "passed": 11,
+        "failed": 0
+      },
+      "within_budget": {
+        "passed": 11,
+        "failed": 0
+      },
+      "notes_stored": {
+        "passed": 11,
+        "failed": 0
+      },
+      "judge_grounding": {
+        "passed": 10,
+        "failed": 1
+      },
+      "judge_answers_the_question": {
+        "passed": 11,
+        "failed": 0
+      }
+    },
+    "cost_usd": 2.155575,
+    "duration_ms": 1654050.2,
+    "ok": false,
+    "min_pass_rate": 0.9
+  },
+  "recordings": [
+    {
+      "case_id": "technical-version-numbers",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'technical-version-numbers': approval, forced_stop failed. A committed fixture is one the graders and the judge approved; pass force=True to record it anyway (it will be stamped forced).",
+      "cost_usd": 0.275373
+    },
+    {
+      "case_id": "technical-benchmark-figures",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/technical-benchmark-figures.json",
+      "refusal": "",
+      "cost_usd": 0.244499
+    },
+    {
+      "case_id": "technical-cache-pricing",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/technical-cache-pricing.json",
+      "refusal": "",
+      "cost_usd": 0.139118
+    },
+    {
+      "case_id": "technical-release-dates",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/technical-release-dates.json",
+      "refusal": "",
+      "cost_usd": 0.147571
+    },
+    {
+      "case_id": "technical-default-limits",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/technical-default-limits.json",
+      "refusal": "",
+      "cost_usd": 0.236558
+    },
+    {
+      "case_id": "technical-percentage-figures",
+      "written": false,
+      "path": null,
+      "refusal": "refusing to record 'technical-percentage-figures': judge_grounding failed. A committed fixture is one the graders and the judge approved; pass force=True to record it anyway (it will be stamped forced).",
+      "cost_usd": 0.186058
+    },
+    {
+      "case_id": "contested-monorepo-vs-polyrepo",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/contested-monorepo-vs-polyrepo.json",
+      "refusal": "",
+      "cost_usd": 0.148608
+    },
+    {
+      "case_id": "contested-rag-versus-finetuning",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/contested-rag-versus-finetuning.json",
+      "refusal": "",
+      "cost_usd": 0.132926
+    },
+    {
+      "case_id": "contested-service-boundaries",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/contested-service-boundaries.json",
+      "refusal": "",
+      "cost_usd": 0.18091
+    },
+    {
+      "case_id": "contested-open-weight-models",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/contested-open-weight-models.json",
+      "refusal": "",
+      "cost_usd": 0.191901
+    },
+    {
+      "case_id": "contested-static-typing-payoff",
+      "written": true,
+      "path": "/Users/hesamabbaszadi/Documents/Projects/Research agent/evals/fixtures/contested-static-typing-payoff.json",
+      "refusal": "",
+      "cost_usd": 0.272054
+    }
+  ]
+}
