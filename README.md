@@ -325,19 +325,37 @@ migration, CI, the embedding-migration procedure, and the full configuration tab
 
 ## Limitations
 
-Known, and deliberate for the scope. **The v1.0 README listed nine limitations,
-and v1.1 has now closed all nine** — the last of them in phase 17, where
-follow-ups stopped being unable to reach for new information. Several were
-closed by narrowing rather than erasing, so their narrower successors are still
-here; everything below is one of those or a limit the v1.1 work created.
+Known, and deliberate for the scope. **The v1.0 README listed nine limitations
+and v1.1 closed all nine; v1.2 has now closed four more.** The eval judge
+stopped sharing the critic's model, `/health` stopped calling a revoked key
+healthy, notes gained a second bound beside expiry, and the recorded-answers
+claim was rebuilt on a real paid run — the eval section above reports what that
+bought, refusals included, every number in it derived from the tree rather than
+typed. Those four are *gone* from this list rather than reworded into it, which
+is the only version of "closed" worth writing.
 
-- **The eval judge shares the critic's model.** Production runs the critic on Opus 5 — a more capable model than the Sonnet 5 writer it gates — and the judge on Opus 5 too, so a recorded verdict is independent of the writer's model and not of the critic's ([ADR-0010](docs/adr/0010-judge-rederived-for-an-independent-critic.md)).
-- **Only one of forty answers is recorded.** Offline runs grade real recorded answers, but recording costs real money and only the calibration case has been run. Until the rest are recorded, the suite claims one measured answer, not a benchmark — and even then it reports what the pipeline said on a stated date and model, never what the model would say today. `--live` is the only thing that answers that. [ADR-0009](docs/adr/0009-recorded-answer-quality-evals.md) states what each grader can and cannot see.
-- **Reported cost is an approximation, never the invoice.** Nothing here reads a bill. Provider token counts are telemetry — measured live, Voyage reported 25 tokens where the tokenizer counted 40, and 0 for a one-word document that embedded fine. `/pricing` shows the rate window and multipliers in effect; read it there, not from a number in a document.
+**Three remain, and this milestone's work was to stop them standing bare.**
+Several of the nine closed by narrowing rather than erasing, so their narrower
+successors are still here; each of the three below is one of those or a limit
+the v1.1 work created, and each now ends at the record that argues it — an ADR,
+or an operations note — so the position can be checked rather than taken.
+
+**The paid run also found three things free testing structurally could not
+see**, and a close-out claiming otherwise would be the one dishonest sentence in
+the section. The classifier was mislabelling: 32 of 38 labelled cases where Opus
+5 got 37, on a probe run once and kept, and *fixed* rather than recorded
+([ADR-0013](docs/adr/0013-classifier-on-its-own-model.md)). The other two are
+defects rather than positions — the judge's verdict truncating against a token
+budget it shares with adaptive thinking, and record-time grading disagreeing
+with replay-time grading — and they sit in the eval section above with their
+per-case evidence and the reason neither is fixed here. A defect belongs there,
+not in a list of choices.
+
+What remains below is **chosen, recorded, and argued for**.
+
+- **Reported cost is an approximation, never the invoice.** Nothing here reads a bill: provider token counts are telemetry — measured live, Voyage reported 25 tokens where the tokenizer counted 40, and 0 for a one-word document that embedded fine. Recorded as [ADR-0014](docs/adr/0014-cost-approximation-by-design.md), which also states why reconciling against Anthropic's Admin cost API was rejected.
 - **Identities are free to mint.** Clearing browser storage gets you a fresh one with fresh limits, so per-caller limits buy fairness, not a bound on the bill. The global rolling daily spend cap is the actual backstop. Recorded as [ADR-0007](docs/adr/0007-anonymous-identity-fairness-global-cap.md).
-- **`/health` checks that the API keys are *present*, not that they work.** It reads `bool(os.environ.get(...))`, so a key that is revoked, expired or simply wrong reports healthy — and Fly's check passes while every run fails upstream. Deliberate as far as it goes: a liveness probe that calls Anthropic would get a perfectly healthy container restarted during a provider outage. What is missing is the other signal, and `/metrics` is where an operator would currently see it.
-- **The database is a single region on a free tier.** Supabase Nano in `ap-southeast-2`, no read replica, a 60-connection ceiling of which the fleet holds ten. Fine at this traffic; the first thing to look at if it isn't.
-- **Notes are bounded by expiry alone.** Within one identity there's no dedup or summarisation — neither has semantics that four vector backends can agree on, and identical behaviour across them is the claim being defended.
+- **The database is a single region on a free tier.** Fine at this traffic, and the first thing to look at if it isn't — the tier, the measured headroom behind that judgement, and the one part of the upgrade path that is not a toggle are in [the database posture note](docs/OPERATIONS.md#the-free-tier-posture-and-the-upgrade-path).
 
 ---
 
