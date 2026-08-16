@@ -123,12 +123,19 @@ curl -sN localhost:8000/research/stream -H 'content-type: application/json' \
 
 ```
 event: node
+data: {"node": "classifier", "status": "started"}
+event: node
 data: {"node": "classifier", "topic_type": "technical"}
 event: node
 data: {"node": "critic", "approved": false}
 event: result
 data: {"session_id": "3f2a…", "approved": true, "cost_usd": 0.14, …}
 ```
+
+A `node` event carrying `status` announces a stage *beginning*; the same event
+without it reports that stage *finishing*, with its detail. The supervisor's
+own hops never reach the wire — what a started event names is the node about to
+run — and the terminal routing that ends the run is not announced at all.
 
 Interactive docs at `/docs`.
 
