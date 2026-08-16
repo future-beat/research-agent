@@ -70,7 +70,11 @@
        are text, not buttons, and the page's weight ramp stays {600, 700}. */
     font: inherit; font-size: .9rem; cursor: pointer;
   }
-  .session-row .task { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* `text-align: start` rather than inheriting the row's `left`: the span
+     carries dir="auto", so a Persian or Arabic title resolves RTL and must
+     align to its own start edge. Inheriting `left` would set the direction
+     correctly and then pin the text to the wrong side anyway. */
+  .session-row .task { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
   .session-row .age { color: var(--muted); flex: none; }
   .session-row:hover .task, .session-row:focus-visible .task { color: var(--accent); }
   .session-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
@@ -177,6 +181,24 @@ function el(tag, cls, text) {
   return n;
 }
 
+/* The question, echoed above its answer, with the label kept out of the
+   direction decision.
+
+   `dir="auto"` resolves from the first strong directional character, so a
+   single element holding "Question: <persian>" would resolve LTR off the "Q"
+   and left-align the Persian. Splitting them lets the label stay LTR and the
+   question own its own direction -- which is the whole reason the browser's
+   bidi algorithm is doing this instead of a script-range regex of mine:
+   Persian, Arabic, Hebrew and Urdu all come free, and mixed text (a Persian
+   question naming an English product) resolves per-run rather than per-guess. */
+function questionLine(question, isFollowup) {
+  const line = el("div", "stage", isFollowup ? "Follow-up: " : "Question: ");
+  const text = el("span", null, question);
+  text.dir = "auto";
+  line.appendChild(text);
+  return line;
+}
+
 /* A deliberately small Markdown subset: headings, bold, inline code, bullets.
    Everything is inserted as text and only these tags are constructed, so a
    report can never inject markup -- the model's output is untrusted input. */
@@ -272,8 +294,7 @@ function renderTurnCard(turn, isFollowup) {
   const frag = document.createDocumentFragment();
 
   if (turn.question) {
-    frag.appendChild(el("div", "stage",
-      (isFollowup ? "Follow-up: " : "Question: ") + turn.question));
+    frag.appendChild(questionLine(turn.question, isFollowup));
   }
 
   const card = el("div", "card");
@@ -300,6 +321,9 @@ function renderTurnCard(turn, isFollowup) {
   if (badges.childNodes.length) card.appendChild(badges);
 
   const body = el("div", "report");
+  // The model answers in the language it was asked in, so the report decides
+  // its own direction; headings, lists and paragraphs inherit it from here.
+  body.dir = "auto";
   renderReport(turn.answer || "(no answer produced)", body);
   card.appendChild(body);
   frag.appendChild(card);
@@ -326,7 +350,7 @@ async function run(question) {
     : "/research/stream";
   const isFollowup = Boolean(session);
 
-  out.appendChild(el("div", "stage", (isFollowup ? "Follow-up: " : "Question: ") + question));
+  out.appendChild(questionLine(question, isFollowup));
   const stages = el("div");
   out.appendChild(stages);
 
@@ -485,7 +509,9 @@ function sessionRow(summary) {
   row.type = "button";   // inside no form, but explicit: never a submit
   // The task is a stranger's text on somebody else's screen when the operator
   // is looking, so it goes in as text like every other untrusted string here.
-  row.appendChild(el("span", "task", String(summary.task || "").split("\n")[0]));
+  const task = el("span", "task", String(summary.task || "").split("\n")[0]);
+  task.dir = "auto";   // a Persian question in the list reads right-to-left too
+  row.appendChild(task);
   row.appendChild(el("span", "age", relativeAge(summary.updated_at)));
   row.addEventListener("click", () => resume(summary.session_id, row));
   return row;

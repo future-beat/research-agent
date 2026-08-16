@@ -3309,6 +3309,49 @@ def test_demo_page_is_served_with_a_hash_based_csp(make_client):
     assert response.text == _demo_page()
 
 
+def test_the_page_lets_right_to_left_text_choose_its_own_direction(make_client):
+    """A Persian report must not be left-aligned, and the label must not decide.
+
+    Three surfaces carry text somebody else wrote -- the report body, the echoed
+    question, and each row of the session list -- and all three get `dir="auto"`
+    so the browser's bidi algorithm resolves direction from the first strong
+    character. That is deliberately not a script-range regex of ours: Persian,
+    Arabic, Hebrew and Urdu all come free, and a Persian question naming an
+    English product resolves per-run instead of per-guess.
+
+    The question line is the one with a trap, and it is the reason this gate
+    names the helper rather than counting attributes. "Question: " is a strong
+    LTR run, so a single element wrapping label+question resolves LTR off the
+    "Q" and left-aligns the Persian anyway -- correct-looking code, wrong
+    output. `questionLine` exists to keep the label out of the decision, and
+    both call sites (the live echo and the replayed card) must go through it.
+
+    The `.task` rule matters for the same reason one layer down: `.session-row`
+    sets `text-align: left`, which a resolved-RTL span would otherwise inherit
+    and be pinned by. `text-align: start` is what lets direction win.
+    """
+    page = _demo_page()
+
+    # The report body decides its own direction, and headings/lists inherit it.
+    body_dir = re.compile(
+        r'const body = el\("div", "report"\);\s*(?://[^\n]*\n\s*)*body\.dir = "auto";'
+    )
+    assert body_dir.search(page), "the report body must carry dir=auto"
+
+    # The label is split out of the direction decision, in one helper...
+    assert "function questionLine(" in page
+    # ...and neither call site rebuilds the concatenation the helper exists to avoid.
+    assert 'questionLine(turn.question, isFollowup)' in page
+    assert 'questionLine(question, isFollowup)' in page
+    assert '"Question: " + ' not in page and '"Follow-up: " + ' not in page, \
+        "a call site is concatenating the label back onto the question"
+
+    # The session row: attribute AND the CSS that lets it take effect.
+    assert re.search(r'task\.dir = "auto";', page)
+    assert re.search(r"\.session-row \.task \{[^}]*text-align: start;", page), \
+        "a resolved-RTL title would inherit the row's text-align: left"
+
+
 def test_csp_hashes_are_derived_from_the_page_not_hand_maintained(make_client):
     """The load-bearing gate: recompute both hashes independently and compare.
 
