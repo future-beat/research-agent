@@ -140,8 +140,9 @@ phases close.
 - [x] **Phase 18: Independent eval judge** - `EVAL_JUDGE_MODEL` defaults to `claude-opus-4-8`, independent of the critic and the writer; ADR-0012 supersedes ADR-0010
 - [x] **Phase 19: Credential validity, log addressability, demo CSP** - `/health` reports whether keys actually work; `run_finished` carries `session_id`; the demo page ships a hash-based CSP header
 - [x] **Phase 20: Note count bound** - A per-owner count cap with oldest-first eviction, identical across all four backends
-- [ ] **Phase 21: Forty recorded answers** - All 40 golden cases carry a real recorded answer, graded keylessly on every push
-- [ ] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the four closed bullets are deleted, not rewritten into release notes
+- [x] **Phase 21: Forty recorded answers** - Every golden case is recorded or carries a documented refusal (amended mid-run, user-ratified): 19 recorded, 21 in `evals/REFUSALS.json`, union enforced by test; $9.90 actual vs $17.48 quoted
+- [ ] **Phase 21.5: Classifier on Opus 5** - The classifier moves to the model measured better on the golden labels (34/38 vs 29/38, zero regressions, +0.2%/run); the four both-models-disagree labels resolved deliberately; six topic_type-refused recordings re-attempted at a paid checkpoint
+- [ ] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the closed bullets are deleted, not rewritten into release notes
 
 ## Phase Details
 
@@ -331,21 +332,73 @@ abandoned judge)
 **Plans**: 3 plans
 
 Plans:
-- [ ] 21-01-PLAN.md — keyless machinery: the completeness and settled-judge gates proven red in both directions before any spend, the pre-spend baseline measured, the operator runbook and fresh quote captured (wave 1)
-- [ ] 21-02-PLAN.md — the paid operator act: checkpoint 1 → one-case calibration (re-records the stale-judge fixture, closes Phase 18's deferred judge probe), constants corrected, re-quote → checkpoint 2 → the 39 in four resumable `--case` batches, refusals surfaced as findings (wave 2)
-- [ ] 21-03-PLAN.md — closure: the real-directory pins go live with their reds observed, the 80-check denominator and runtime measured, README/OPERATIONS re-derived (Limitations bullet byte-untouched), actual-vs-quote reconciled from report JSONs (wave 3)
+- [x] 21-01-PLAN.md — keyless machinery: the completeness and settled-judge gates proven red in both directions before any spend, the pre-spend baseline measured, the operator runbook and fresh quote captured (wave 1)
+- [x] 21-02-PLAN.md — the paid operator act: checkpoint 1 → one-case calibration (re-records the stale-judge fixture, closes Phase 18's deferred judge probe), constants corrected, re-quote → checkpoint 2 → the 39 in four resumable `--case` batches, refusals surfaced as findings (wave 2)
+- [x] 21-03-PLAN.md — closure: the real-directory pins go live with their reds observed, the denominator and runtime measured, README/OPERATIONS re-derived (Limitations bullet byte-untouched), actual-vs-quote reconciled from report JSONs (wave 3)
 
 **Sequencing note:** three sequential waves, no parallelism — 21-02 spends real money only
 against gates 21-01 proved can bite, and 21-03's pins can only be committed green once
 21-02's fixtures exist. The two paid stages inside 21-02 are blocking user checkpoints
 (`autonomous: false`); nothing passes `--yes` outside them.
 
+**Executed 2026-08-15** (merged PR #30, deployed Fly v20 — a no-behaviour-change release;
+the image excludes `evals/`). Five paid stages, each user-approved: calibration $0.2496,
+batches A–D $1.9011/$2.1556/$2.2025/$3.3932 — **$9.9019 total against the $17.4812 quote
+(56.6%)**, metered pipeline only; 85 judge calls bill separately and are not metered.
+**Criterion 1 was amended mid-run, user-ratified:** batch A refused 3 of 10, exposing the
+requirement's two clauses (all forty recorded; only grader-approved fixtures committed) as
+incompatible on the real pipeline. Landed: **19 recorded, 21 documented in
+`evals/REFUSALS.json`**, the union enforced by test with three mutations observed red.
+Nothing forced. Findings the run bought: (1) classifier drift — six refusals on the same
+`topic_type expected 'general', got 'technical'` mismatch, invisible to the keyless suite
+which stubs the classifier (→ Phase 21.5); (2) the judge's verdict truncated twice at
+`max_tokens=1500` shared with adaptive thinking, exactly as `graders.py:758` predicted;
+(3) record-time and replay-time grading disagree — six fixtures passed record-time and
+failed replay: five on contested-case pins whose re-authoring was tried and reverted (the
+pins must also satisfy the hand-authored reference reports; `dataset.py` ends the phase
+unmodified), one a hedged half-answer (admits the gap, then estimates anyway) that
+record-time grading approved — kept as a finding, not passed by widening
+`REFUSAL_PATTERNS`. Evals denominator 41 → **59** (40 behavioural + 19 replayed), exit 0;
+806 passed / 72 skipped; ruff clean.
+
+### Phase 21.5: Classifier on Opus 5
+**Goal**: Classification runs on the model measured better against the golden labels, the
+divergent labels are resolved deliberately, and the six topic_type-refused recordings get
+one re-attempt under the fixed classifier
+**Depends on**: Phase 21 (the record run is what surfaced and measured the drift; the
+refusal list it wrote is this phase's re-record input)
+**Requirements**: REQ-classifier-model
+**Success Criteria** (what must be TRUE):
+  1. The classifier calls `claude-opus-5` in production, as a deliberate per-node model
+     choice in the ADR record (the critic precedent: Phase 16 / `CRITIC_MODEL`), not a
+     silent constant edit.
+  2. The 2026-08-15 probe (34/38 vs 29/38, zero regressions, +$0.0005/run) is REPEATED at
+     execution and holds before the switch is trusted — the original was n=1 per case and
+     classification is not pinned deterministic.
+  3. The four cases both models label `technical` against a golden `general` are resolved
+     deliberately: labels corrected with the reasoning recorded, or the divergence
+     documented — the `general` stratum is not quietly gutted either way.
+  4. A user-approved paid checkpoint re-attempts the six `topic_type`-refused recordings
+     under the new classifier (~$2.40 at measured per-case actuals, re-quoted at run
+     time); successes move from `evals/REFUSALS.json` to `evals/fixtures/`, failures stay
+     documented, and the completeness union stays total throughout.
+  5. Suite, evals and docs reflect whatever the measurements produce — counts re-measured,
+     never carried.
+**Plans**: TBD
+
+**Sequencing note:** defined mid-milestone 2026-08-15 (the 10.5/17.5 precedent) after
+Phase 21's record run measured the drift. Runs BEFORE Phase 22 so the close-out records
+only what genuinely survives. The user proposed the upgrade; the measurement confirmed it
+against the orchestrator's initial skepticism, which is worth remembering when weighing
+"differently right" intuitions against a $0.05 probe.
+
 ### Phase 22: Limitations recorded
 **Goal**: Every surviving README limitation points at a record, and the Limitations section
 says plainly that what remains is chosen, not owed
-**Depends on**: Phases 18–21 (every closable limitation — judge independence, credential
-validity, the note count bound, and the forty recorded answers — must close before the
-section can be rewritten around what's left)
+**Depends on**: Phases 18–21 and 21.5 (every closable limitation — judge independence,
+credential validity, the note count bound, the record run, and the classifier fix — must
+close before the section can be rewritten around what's left; 21.5's re-record checkpoint
+also decides the final recorded/refused split this phase's prose cites)
 **Requirements**: REQ-limitations-recorded
 **Success Criteria** (what must be TRUE):
   1. A new ADR states the cost-approximation-by-design position and records why invoice
@@ -357,7 +410,17 @@ section can be rewritten around what's left)
      never rewritten into release notes.
   5. The Limitations section's intro states that what remains is chosen, recorded, and
      argued for.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 22-01-PLAN.md — the post-21.5 baseline re-measured before any edit; ADR-0013 (cost approximation by design, the four measured Admin-API rejection reasons) plus its index row; the OPERATIONS free-tier posture note; the eval-section defect record re-derived with a derived-counts gate in the ADR-index-test pattern (wave 1)
+- [ ] 22-02-PLAN.md — the Limitations rewrite: four deletions verified on the git axis, three survivors linked to their records, the honest-ledger intro ending "chosen, recorded, and argued for"; the no-orphan sweep with path-listed exemptions; the whole-README pass; the milestone close-out flips (REQUIREMENTS/ROADMAP/STATE/PROJECT, both Phase-20 deferred items) and 22-VALIDATION reconciliation (wave 2)
+
+**Planning note (2026-08-16):** planned before Phase 21.5 executed, deliberately — every
+count in these plans is a placeholder the execution re-measures; 22-01 Task 1 is that
+re-measurement and carries a precondition halting if 21.5's artifacts are absent. Wave 2
+depends on wave 1 for the records its links target (ADR-0013's filename, the OPERATIONS
+anchor) and the measured baseline its prose cites.
 
 ## Progress
 
