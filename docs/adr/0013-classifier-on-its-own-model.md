@@ -29,17 +29,34 @@ the dataset:
 | `claude-sonnet-5` | 29/38 | — | — |
 | `claude-opus-5` | 34/38 | 5 | 0 |
 
+**The repeat, 2026-08-16 — this is the number that governs.** The n=1 caveat below was
+answered rather than left standing: the committed probe re-ran against the corrected
+labels and the shape held.
+
+| Model | Correct | Fixes | Regressions |
+|-------|---------|-------|-------------|
+| `claude-sonnet-5` | **32/38** | — | — |
+| `claude-opus-5` | **37/38** | 5 | **0** |
+
+Measured $0.0459 against a $0.0439 quote; report archived at
+`.planning/phases/21.5-classifier-on-opus-5/classifier-probe-report.json`. The absolute
+counts moved because three labels were corrected first (below) — which is exactly why the
+trust criterion was written as a shape rather than a score. The single remaining miss is
+`chatty-label-falls-back`, the one case that could not be relabelled; 37/38 is the honest
+figure, not a rounding.
+
 Cost delta: roughly +$0.0005 a run (~140 input, ~5 output tokens), against a measured
 $0.21–0.32 per run — about 0.2%, two orders of magnitude below the critic's share. The
 project owner proposed the upgrade before the probe existed and the probe agreed with him;
 the orchestrator's initial scepticism was wrong and is recorded as such in the ROADMAP.
 
-**n=1.** Classification is not pinned deterministic and the probe ran each case once. This
-record is written on that evidence, and the phase re-runs the probe at execution
-(`evals/classifier_probe.py`, committed by this phase) before the switch is trusted. The
-trust criterion is a shape, not a score: Opus ≥ Sonnet **and** zero regressions. If the
-shape does not hold on the repeat, that is a checkpoint back to the owner with the new
-numbers — not a silent proceed and not a silent abort.
+**n=1, and what was done about it.** Classification is not pinned deterministic and the
+first probe ran each case once, so this record was written on evidence it did not yet
+trust. The trust criterion was a shape, not a score: Opus ≥ Sonnet **and** zero
+regressions, with a failure to hold being a checkpoint back to the owner with the new
+numbers — never a silent proceed, never a silent abort. The repeat ran on 2026-08-16
+(`evals/classifier_probe.py`, committed by this phase), the shape held, and the table
+above carries both measurements rather than quietly replacing the weaker one.
 
 **Four cases where both models disagreed with the dataset.** Two independent models reading
 the same label as wrong is evidence about the *dataset*, and the phase resolved all four

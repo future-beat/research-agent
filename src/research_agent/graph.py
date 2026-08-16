@@ -84,9 +84,9 @@ def classifier_model() -> str:
     deliberate.
 
     The default IS the upgrade. It is not a capability waiting for an operator
-    to opt in: the measurement was made and ratified (34/38 against Sonnet's
-    29/38 over the labelled golden set, five fixes, zero regressions, about
-    +$0.0005 a run), so the shipped behaviour is the chosen behaviour. That is
+    to opt in: the measurement was made, repeated and ratified (37/38 against
+    Sonnet's 32/38 over the labelled golden set, five fixes, zero regressions,
+    about +$0.0005 a run), so the shipped behaviour is the chosen behaviour. That is
     the whole difference from `critic_model()` above, whose neutral default
     exists precisely so that shipping the critic seam changed nothing until
     someone acted.

@@ -57,8 +57,9 @@ primary_region = 'syd'
   # remove it.
   CRITIC_MODEL = 'claude-opus-5'
   # The classifier also runs on Opus 5 -- docs/adr/0013-classifier-on-its-own-
-  # model.md records the measurement (34/38 against the writer's model's 29/38
-  # over the labelled golden set, five fixes, zero regressions, about +$0.0005
+  # model.md records the measurement (37/38 against the writer's model's 32/38
+  # over the labelled golden set on the 2026-08-16 repeat, five fixes, zero
+  # regressions -- the n=1 first pass read 34/38 vs 29/38 -- about +$0.0005
   # a run). Its label picks the researcher's strategy and the critic's rubric,
   # so getting it wrong mis-aims both.
   #
