@@ -359,6 +359,16 @@ async function run(question) {
   const decoder = new TextDecoder();
   let buffer = "";
   let sawTerminal = false;
+  // The one row currently in flight, and its node name. One pointer rather
+  // than a map keyed by node name: the revision loop draws writer and critic
+  // three times each, and a name-keyed store would have the third writer's
+  // completion upgrade the first writer's row. One pointer cannot collide,
+  // because the graph has no fan-out -- every worker returns to the
+  // supervisor, which picks exactly one target, so only one node is ever
+  // running. Declared here, beside `sawTerminal` and the `stages` container
+  // they point into, so an abandoned run cannot leak a row into the next one.
+  let pendingRow = null;
+  let pendingNode = null;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -379,9 +389,33 @@ async function run(question) {
       if (!name || !data) continue;
 
       if (name === "node") {
-        const row = stage(data.node, nodeDetail(data.node, data));
-        row.classList.add(data.node === "critic" && !data.approved ? "rejected" : "done");
-        stages.appendChild(row);
+        if (data.status === "started") {
+          // Deliberately classless: `.stage .dot` already renders muted, so
+          // "neither done nor rejected" IS the pending state and no CSS moves.
+          pendingRow = stage(data.node, null);
+          pendingNode = data.node;
+          stages.appendChild(pendingRow);
+        } else {
+          const detail = nodeDetail(data.node, data);
+          let row;
+          if (pendingRow && pendingNode === data.node) {
+            // Upgrade in place. The label's <b> was built from this same node
+            // name when the stage started, so the only thing a completion adds
+            // is the detail -- appended exactly as stage() would have.
+            row = pendingRow;
+            if (detail) row.lastChild.appendChild(document.createTextNode(" — " + detail));
+          } else {
+            // A completion with no matching pending row: today's behaviour,
+            // verbatim. It is what keeps a stale cached page correct against a
+            // server that sends no started events, so it is a supported path
+            // rather than unreachable decoration.
+            row = stage(data.node, detail);
+            stages.appendChild(row);
+          }
+          row.classList.add(data.node === "critic" && !data.approved ? "rejected" : "done");
+          pendingRow = null;
+          pendingNode = null;
+        }
       } else if (name === "result") {
         sawTerminal = true;
         result(data, isFollowup);
