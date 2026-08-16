@@ -384,7 +384,11 @@ refusal list it wrote is this phase's re-record input)
      documented, and the completeness union stays total throughout.
   5. Suite, evals and docs reflect whatever the measurements produce — counts re-measured,
      never carried.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 21.5-01-PLAN.md — the keyless wave: `classifier_model()` defaulting to `claude-opus-5` directly (the researched trap closed and mutation-gated), four-site threading with the three known smoke reds observed then deliberately updated, provenance-only `models.classifier` (the 19-red staleness cascade demonstrated and reverted), the committed spend-guarded probe importing the real prompt, the fly.toml pin with its inverted fail-direction, the three-way label resolution inside the stratum floors, ADR-0013, and the doc prose (wave 1)
+- [ ] 21.5-02-PLAN.md — the paid wave, autonomous: false: checkpoint 1 the probe repeat (~$0.05, shape must hold — Opus ≥ Sonnet, zero regressions — or checkpoint back with the numbers), checkpoint 2 the re-record of the DERIVED topic_type-refused list (eight per research, not the believed six; re-quoted at run time), one attempt each with same-commit union-gate discipline, then the close-out: counts re-measured, REQ-classifier-model flipped, Phase 22's exact precondition gates re-run and passing (wave 2)
 
 **Sequencing note:** defined mid-milestone 2026-08-15 (the 10.5/17.5 precedent) after
 Phase 21's record run measured the drift. Runs BEFORE Phase 22 so the close-out records
