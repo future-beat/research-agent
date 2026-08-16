@@ -26,13 +26,15 @@ in `syd` against Supabase Postgres. Live at `research-agent.fly.dev`.
 All nine limitations the v1.0 README listed are closed. Six were deliberate reversals, each
 superseding a numbered ADR rather than quietly contradicting prose — and the reversal register
 the milestone opened with closed as spent, then was reopened once, deliberately, by v1.2's
-ADR-0012. `docs/adr/` holds 12 records, four of them superseded.
+ADR-0012. `docs/adr/` holds 14 records, four of them superseded.
 
-749 tests pass with no API keys, and 67 more are Postgres-gated and skip without
-`DATABASE_URL` — 816 collected. (Measured 2026-08-14, keyless. The with-Postgres pass count
-used to be quoted here as 801; it is not restated because nobody has run that arm recently and
-deriving it from the keyless delta would be arithmetic, not a measurement. CI runs it on every
-push.) Offline evals grade 41 cases keylessly on every push, including one real recorded answer.
+828 tests pass with no API keys, and 72 more are Postgres-gated and skip without
+`DATABASE_URL` — 900 collected. (Measured 2026-08-16, keyless, at Phase 22's close. The
+with-Postgres pass count used to be quoted here as 801; it is not restated because nobody has
+run that arm recently and deriving it from the keyless delta would be arithmetic, not a
+measurement. CI runs it on every push.) Offline evals grade 65 cases keylessly on every push —
+40 behavioural plus 25 replayed real recorded answers, with the other 15 golden cases carrying
+documented refusals in `evals/REFUSALS.json`.
 
 **What is true now that was not at v1.0:** a stranger from a résumé link gets an auto-issued
 signed identity with no signup; sessions and notes belong to that caller and expire; the spend

@@ -43,7 +43,7 @@ rather than reversing, that is a new record too.
 
 ## Index
 
-Nine of the thirteen records are `Accepted` today. Four supersessions have actually
+Ten of the fourteen records are `Accepted` today. Four supersessions have actually
 happened — ADR-0007 overturned ADR-0006 in Phase 12, ADR-0010 overturned ADR-0005 in
 Phase 16, ADR-0011 overturned ADR-0003 in Phase 17, and ADR-0012 overturned ADR-0010 in
 Phase 18. **Three of the four were forecast by the record they overturned; the fourth was
@@ -55,8 +55,9 @@ and no row carrying an *expected* one. Phase 18 reopened that register once, del
 by moving the eval judge off the critic's model — and [ADR-0012](0012-judge-independent-of-the-critic.md)
 states the reopening in its own text rather than letting the table quietly grow a row. So
 the honest reading of the table today is: no supersession here is *pending*, and the
-register is no longer closed. ADR-0013 is the newest record and supersedes nothing — a
-second per-node model, not a reversal of the first.
+register is no longer closed. The two newest records supersede nothing: ADR-0013 adds a
+second per-node model rather than reversing the first, and ADR-0014 states a cost position
+no earlier record had argued.
 
 | # | Record | Title | Status | Superseded by |
 |---|--------|-------|--------|---------------|
@@ -73,15 +74,23 @@ second per-node model, not a reversal of the first.
 | 0011 | [0011-followups-reach-for-new-information.md](0011-followups-reach-for-new-information.md) | Follow-ups reach for new information; grounding means sole source of truth, not no new search | Accepted — supersedes [ADR-0003](0003-followups-reuse-critic-no-prior-research.md) | — |
 | 0012 | [0012-judge-independent-of-the-critic.md](0012-judge-independent-of-the-critic.md) | The eval judge is independent of the critic by model identity, and the family residual is stated rather than solved | Accepted — supersedes [ADR-0010](0010-judge-rederived-for-an-independent-critic.md) | — |
 | 0013 | [0013-classifier-on-its-own-model.md](0013-classifier-on-its-own-model.md) | The classifier runs on its own model, and its default is the upgrade rather than a neutral | Accepted | — |
+| 0014 | [0014-cost-approximation-by-design.md](0014-cost-approximation-by-design.md) | Reported cost is an estimate by design, and invoice reconciliation is rejected | Accepted | — |
 
 **ADR-0006 onward are the odd ones out.** Records 0001–0005 are promotions of
 existing `docs/DESIGN.md` passages and carry a `**Promoted from:**` line. ADR-0006 originates
 in the Phase 10.5 hotfix that closed the live endpoint exposure, ADR-0007 in Phase 12's
 identity work, ADR-0008 in Phase 13's embedding migration, ADR-0009 in Phase 15's
 answer-quality evals, ADR-0010 in Phase 16's independent critic model, ADR-0011 in
-Phase 17's follow-up reach, ADR-0012 in Phase 18's independent eval judge, and ADR-0013 in
-Phase 21.5's classifier model — there is no `docs/DESIGN.md` passage behind any of the
-eight, so all eight carry `**Source:**` instead. Do not go looking for one.
+Phase 17's follow-up reach, ADR-0012 in Phase 18's independent eval judge, ADR-0013 in
+Phase 21.5's classifier model, and ADR-0014 in Phase 22's close-out — there is no
+`docs/DESIGN.md` passage behind any of the nine, so all nine carry `**Source:**` instead.
+Do not go looking for one.
+
+ADR-0014 is worth one extra word here, because `docs/DESIGN.md` *does* have a Cost section
+and a reader may reasonably expect a promotion. That section covers the spend cap,
+effective-dating, and unpriced-model handling; it never argues that the reported figure is
+an estimate rather than the invoice. The position was operationally true and undocumented,
+which is why the record carries `**Source:**` like the eight before it.
 
 ADR-0011 is the one that could mislead, because the decision it reverses *did* come from
 `docs/DESIGN.md`: ADR-0003 was promoted from DEC-04. But a record's provenance line names

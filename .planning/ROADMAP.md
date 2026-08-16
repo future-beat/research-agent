@@ -142,7 +142,7 @@ phases close.
 - [x] **Phase 20: Note count bound** - A per-owner count cap with oldest-first eviction, identical across all four backends
 - [x] **Phase 21: Forty recorded answers** - Every golden case is recorded or carries a documented refusal (amended mid-run, user-ratified): 19 recorded, 21 in `evals/REFUSALS.json`, union enforced by test; $9.90 actual vs $17.48 quoted
 - [x] **Phase 21.5: Classifier on Opus 5** - The classifier runs `claude-opus-5`, measured 37/38 vs Sonnet 5's 32/38 against the corrected labels (five fixes, zero regressions, +0.2%/run); three disputed labels relabelled and one left with its structural conflict recorded; six of eight topic_type-refused cases re-recorded, the two remaining refusing on different graders
-- [ ] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the closed bullets are deleted, not rewritten into release notes
+- [x] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the closed bullets are deleted, not rewritten into release notes — seven bullets became three, the four deletions verified on the git axis and orphan-free everywhere the sweep reaches
 
 ## Phase Details
 
@@ -417,14 +417,38 @@ also decides the final recorded/refused split this phase's prose cites)
 **Plans**: 2 plans
 
 Plans:
-- [ ] 22-01-PLAN.md — the post-21.5 baseline re-measured before any edit; ADR-0013 (cost approximation by design, the four measured Admin-API rejection reasons) plus its index row; the OPERATIONS free-tier posture note; the eval-section defect record re-derived with a derived-counts gate in the ADR-index-test pattern (wave 1)
-- [ ] 22-02-PLAN.md — the Limitations rewrite: four deletions verified on the git axis, three survivors linked to their records, the honest-ledger intro ending "chosen, recorded, and argued for"; the no-orphan sweep with path-listed exemptions; the whole-README pass; the milestone close-out flips (REQUIREMENTS/ROADMAP/STATE/PROJECT, both Phase-20 deferred items) and 22-VALIDATION reconciliation (wave 2)
+- [x] 22-01-PLAN.md — the post-21.5 baseline re-measured before any edit; ADR-**0014** (cost approximation by design, the four measured Admin-API rejection reasons) plus its index row; the OPERATIONS free-tier posture note; the eval-section defect record re-derived with a derived-counts gate in the ADR-index-test pattern (wave 1)
+- [x] 22-02-PLAN.md — the Limitations rewrite: four deletions verified on the git axis, three survivors linked to their records, the honest-ledger intro ending "chosen, recorded, and argued for"; the no-orphan sweep with path-listed exemptions; the whole-README pass; the milestone close-out flips (REQUIREMENTS/ROADMAP/STATE/PROJECT, both Phase-20 deferred items) and 22-VALIDATION reconciliation (wave 2)
 
 **Planning note (2026-08-16):** planned before Phase 21.5 executed, deliberately — every
 count in these plans is a placeholder the execution re-measures; 22-01 Task 1 is that
 re-measurement and carries a precondition halting if 21.5's artifacts are absent. Wave 2
 depends on wave 1 for the records its links target (ADR-0013's filename, the OPERATIONS
 anchor) and the measured baseline its prose cites.
+
+**Executed 2026-08-16.** The close-out, in two waves, zero spend — every command ran with
+`ANTHROPIC_API_KEY="" VOYAGE_API_KEY=""` prefixed. **Wave 1** wrote the records the
+survivors point at: **ADR-0014** (*not* 0013 — 21.5 took that number between planning and
+execution, so the plan's renumber contingency became the live path and the slug-anchored
+gates needed no edit), its index row with every counting sentence re-derived, the
+OPERATIONS `### The free-tier posture, and the upgrade path` note, and the eval section's
+three-way refusal decomposition **7 grader / 2 judge_truncated / 6 recorded_then_failed_replay**
+behind a new derived-counts test — which caught an unquantified claim on its first run
+(the prose said "Most refusals are the machinery working" with no number, so the largest
+kind had never been stated anywhere in the milestone). **Wave 2** rewrote Limitations:
+**seven bullets → three**, the four closed ones DELETED and verified on the git axis (each
+distinctive phrase enters README once and leaves once, at `219e9e3`; no file outside
+`.planning/` planning records has ever carried them), the no-orphan sweep over `docs/` +
+`.planning/codebase/` returning **zero hits so the exemption list is empty**, every
+survivor link resolving including the OPERATIONS anchor re-derived from its heading text,
+and an intro that states which things were **closed**, which are **recorded by design**,
+and which the paid run **discovered** — ending on "chosen, recorded, and argued for".
+The whole-README pass re-derived three stale counts the rewrite exposed (827→828 at two
+sites, "twelve now"→"fourteen now" ADRs). Final gates: **828 passed / 72 skipped** keyless
+(900 collected), offline evals **PASS 65/65 with a real `$?` of 0**, `ruff check .` clean.
+**Four named mutations observed red and reverted** across the wave, two of them proving the
+deletion gate and the orphan sweep are genuinely different gates. **No milestone archival
+was performed — that is `/gsd:complete-milestone`'s step, deliberately not this phase's.**
 
 ## Progress
 
@@ -438,9 +462,13 @@ anchor) and the measured baseline its prose cites.
 | v1.0 Production pipeline | 1–9 (+9.1) | — | Complete | pre-GSD; remastered 2026-08-12 |
 | v1.1 Closing the limitations list | 10–17 (+10.5) | 43/43 | **Complete** | 2026-08-11, Fly v12 |
 | _(no milestone)_ | 17.5 | 1/1 | **Complete, deployed** | landed and shipped 2026-08-12, Fly v13 |
-| v1.2 Nothing uncovered | 18–22 | 0/TBD | **In progress** | roadmap created 2026-08-13 |
+| v1.2 Nothing uncovered | 18–22 (+21.5) | 16/16 | **All phases executed** 2026-08-16 | not yet shipped — verification, then `/gsd:complete-milestone` |
 
-**Next:** Phase 18 — independent eval judge. `/gsd:plan-phase 18`
+**Next:** phase verification for Phase 22, then `/gsd:complete-milestone` for v1.2.
+Still open across the milestone, carried rather than dropped: 19-VALIDATION's **two
+Manual-Only rows** (browser CSP enforcement on the live page, and a real provider
+round-trip through `/health`) both need the manual deploy, and `REQ-health-credential-validity`
+and `REQ-demo-csp-header` stay unchecked until it happens.
 
 ## Reversal register — spent at v1.1 close, reopened once by v1.2
 

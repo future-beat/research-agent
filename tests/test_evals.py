@@ -3262,7 +3262,12 @@ _SPELLED = {
     1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
     8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
     14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
-    19: "nineteen", 20: "twenty",
+    19: "nineteen", 20: "twenty", 21: "twenty-one", 22: "twenty-two",
+    23: "twenty-three", 24: "twenty-four", 25: "twenty-five", 26: "twenty-six",
+    27: "twenty-seven", 28: "twenty-eight", 29: "twenty-nine", 30: "thirty",
+    31: "thirty-one", 32: "thirty-two", 33: "thirty-three", 34: "thirty-four",
+    35: "thirty-five", 36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight",
+    39: "thirty-nine", 40: "forty",
 }
 
 
@@ -3333,6 +3338,89 @@ def test_the_adr_index_counting_prose_is_derived_from_the_table():
             f"supersedes ADR-{number}" in body
             or f"Carried forward from ADR-{number}" in body
         ), f"{target.group(1)} never claims ADR-{number}, which the index credits it with"
+
+
+def test_the_readme_eval_counts_are_derived_from_the_tree():
+    """A gate that greps for the string you just typed is not a gate (17-04).
+
+    README's "Tests and evals" section makes five claims that are COUNTS: how
+    many golden cases carry a recording, what denominator an offline run
+    therefore grades, how many cases are documented refusals instead, and how
+    that refusal list decomposes into the machinery working versus the two
+    defects Phase 21's paid run found. Every one of them was a literal until
+    this test, and every one of them has already gone stale at least once --
+    Phase 21.5 moved six cases from `REFUSALS.json` into `evals/fixtures/` and
+    all five numbers changed in the same commit.
+
+    So none of them is typed here. The fixture count comes from
+    `F.fixture_paths()`, the refusal counts from `documented_refusals()`, and
+    the denominator from `len(GOLDEN)` plus the fixtures -- the same sources the
+    union test and the CLI read. Record a twenty-sixth case and this test
+    demands the prose say twenty-six.
+
+    The kind list is held too, not just the per-kind numbers. A paid run that
+    surfaced a THIRD defect category would leave both quoted counts correct and
+    the paragraph silently incomplete, which is the one drift a per-number
+    check cannot see.
+    """
+    readme = pathlib.Path(__file__).resolve().parent.parent / "README.md"
+    heading, _, rest = readme.read_text().partition("## Tests and evals")
+    assert heading, "README.md has no `## Tests and evals` section"
+    # README is hard-wrapped, so a phrase can straddle a newline. Collapse
+    # whitespace before matching: the claim is the sentence, not its wrapping.
+    prose = re.sub(r"\s+", " ", rest.split("\n## ")[0]).lower()
+
+    fixtures = len(F.fixture_paths())
+    refusals = documented_refusals()
+    denominator = len(GOLDEN) + fixtures
+
+    kinds: dict[str, int] = {}
+    for entry in refusals.values():
+        kinds[entry["kind"]] = kinds.get(entry["kind"], 0) + 1
+
+    def spelled(n: int) -> str:
+        assert n in _SPELLED, f"extend _SPELLED past {n}, or move the prose to digits"
+        return _SPELLED[n]
+
+    def claim(phrase: str) -> None:
+        assert phrase in prose, (
+            f"the tree says {phrase!r}; README's eval section does not:\n{prose}"
+        )
+
+    claim(f"{spelled(fixtures)} cases of {spelled(len(GOLDEN))} are recorded")
+    claim(f"grades {denominator} cases")
+    claim(f"the other {spelled(len(refusals))} are in")
+
+    # The three kinds `REFUSALS.json` carries today, each with the phrase the
+    # prose uses for it. A kind at zero must be DROPPED from the prose rather
+    # than written as a zero -- an eval section announcing "zero are a real
+    # defect" reads as a boast, and the sentence that belongs there is none.
+    phrases = {
+        "grader": "{n} are the machinery working",
+        "judge_truncated": "{n} are a real defect",
+        "recorded_then_failed_replay": "{n} are recordings that passed at record time",
+    }
+    assert set(kinds) <= set(phrases), (
+        f"REFUSALS.json carries a refusal kind the eval-section prose does not "
+        f"describe: {sorted(set(kinds) - set(phrases))}. A new kind is a new "
+        f"finding; the paragraph moves, then this list does."
+    )
+    for kind, template in phrases.items():
+        count = kinds.get(kind, 0)
+        phrase = template.format(n=spelled(count)) if count else None
+        if count:
+            claim(phrase)
+        else:
+            for n in _SPELLED.values():
+                stale = template.format(n=n)
+                assert stale not in prose, (
+                    f"no refusal carries kind {kind!r} any more, but the prose "
+                    f"still says {stale!r} -- drop the sentence, do not zero it"
+                )
+
+    # The decomposition must be total. Three counts that are each right and do
+    # not sum to the refusal list would mean a kind went uncounted above.
+    assert sum(kinds.values()) == len(refusals)
 
 
 def test_judge_critic_collision_warning_leaves_the_judgeless_refusal_intact(tmp_path, capsys):
