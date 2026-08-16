@@ -143,6 +143,7 @@ phases close.
 - [x] **Phase 21: Forty recorded answers** - Every golden case is recorded or carries a documented refusal (amended mid-run, user-ratified): 19 recorded, 21 in `evals/REFUSALS.json`, union enforced by test; $9.90 actual vs $17.48 quoted
 - [x] **Phase 21.5: Classifier on Opus 5** - The classifier runs `claude-opus-5`, measured 37/38 vs Sonnet 5's 32/38 against the corrected labels (five fixes, zero regressions, +0.2%/run); three disputed labels relabelled and one left with its structural conflict recorded; six of eight topic_type-refused cases re-recorded, the two remaining refusing on different graders
 - [x] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the closed bullets are deleted, not rewritten into release notes — seven bullets became three, the four deletions verified on the git axis and orphan-free everywhere the sweep reaches
+- [x] **Phase 22.5: The demo shows progress (INSERTED, hotfix)** - The stream announces the stage it is STARTING, not only the one it finished, so the demo stops looking dead for the two minutes the researcher runs
 
 ## Phase Details
 
@@ -395,6 +396,62 @@ Phase 21's record run measured the drift. Runs BEFORE Phase 22 so the close-out 
 only what genuinely survives. The user proposed the upgrade; the measurement confirmed it
 against the orchestrator's initial skepticism, which is worth remembering when weighing
 "differently right" intuitions against a $0.05 probe.
+
+### Phase 22.5: The demo shows progress (INSERTED, hotfix)
+**Goal**: A visitor watching the demo sees the stage that is running, not the last one that
+finished, so the two minutes the researcher spends searching read as progress rather than
+a hang
+**Depends on**: Nothing. Inserted 2026-08-16 from a live report, the third time a demo-facing
+problem arrived from outside the roadmap (after 10.5 and 17.5)
+**Requirements**: REQ-demo-shows-progress
+**Success Criteria** (what must be TRUE):
+  1. The stream emits an event when a stage STARTS, derived from the supervisor's existing
+     `routed_to`, in addition to the completion events it already sends.
+  2. The demo page renders the starting stage immediately and resolves it when the matching
+     completion arrives — no stage row is ever orphaned or duplicated.
+  3. Phase 19's streaming guarantees survive: exactly one terminal event per stream, the
+     `run_finished`/`run_failed` pair unchanged, and the derived CSP still matches the page
+     after the edit (hashes re-derived, never hand-maintained).
+  4. The gap a visitor sees between the first and second visible stage is bounded by the
+     supervisor's routing, not by the researcher's runtime — measured, not asserted.
+  5. The blocking `/research` route and the follow-up routes are unaffected in shape.
+
+**Measured evidence this phase exists (2026-08-16, one $0.2235 reproduction against v21):**
+`classifier` at +2s, `researcher` at **+122s**, then writer/critic every 5–12s to a terminal
+`result` at +183s. The stream, the pipeline and the terminal contract were all healthy — the
+run recorded and was billed. The only defect is 120 seconds of silence at the front, which is
+exactly where a first-time visitor decides whether the thing works. `_stream` discards the
+supervisor event as "pure noise on the wire"; that comment was true when only completions
+mattered and is now backwards, because `routed_to` is the sole signal of what is starting.
+
+**Plans**: 1 plan
+
+Plans:
+- [x] 22.5-01-PLAN.md — the whole hotfix in one wave: T1 the tracer (the four-line `_stream`
+  forward with its headline gate observed red on today's code BEFORE the fix, the page's
+  per-run pending pointer upgraded in place inside the single `<script>` block with zero CSS,
+  the keyless wire-to-page vocabulary coupling, and the two falsified assertions updated in the
+  same commit so the suite is never red); T2 the gates one happy path cannot reach (the
+  terminal-routing filter with its non-vacuity trace assertion, the scripted two-revision
+  alternation that is the server-side proxy for the client's row-keying property, the
+  `/ask/stream` inheritance, and byte-identical proof for the two protected Phase 19 tests);
+  T3 README's public SSE example checked against a real capture, the VALIDATION record closed
+  with the paid post-deploy row honestly left open, and the arithmetic re-measured against
+  827/72 (wave 1)
+
+**Executed 2026-08-16.** 832 passed / 72 skipped keyless (827 → 832; `-k stream` 23 → 28);
+evals 65/65 exit 0; ruff clean. **The headline gate was observed red on a wholly unmodified
+tree** — `assert 1 == 2`, one researcher event where the gate demands two — which is what
+makes it evidence rather than ceremony. Eight mutations, each paired with the green half
+that gives it meaning: the revision-loop mutation reds at index 8 while every single-pass
+gate stays green, demonstrating exactly what a one-pass fixture cannot see. The two Phase 19
+tests the design promised not to disturb ended **byte-identical**, proven by extracting their
+source from the merge base rather than by reading hunk headers.
+
+A visitor now sees `searching the web` at the routing hop (~+2s) instead of at the
+researcher's completion (+122s, measured). The 120 seconds do not shrink — that work is
+honest — but the label shown during them stops being false. Found by the owner, not by any
+gate: the suite proved the stream's contract and never asked whether a human would wait.
 
 ### Phase 22: Limitations recorded
 **Goal**: Every surviving README limitation points at a record, and the Limitations section

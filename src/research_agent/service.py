@@ -379,8 +379,14 @@ def _sse(event: str, payload: dict) -> str:
 def _stream(
     state: dict, metrics: MetricsStore, limits_store: LimitsStore, on_complete
 ) -> Iterator[str]:
-    """Emit one SSE `node` event per finished node, then a single terminal
-    event -- `result` or `error`, never both, never neither.
+    """Emit an SSE `node` event when the supervisor routes to a worker and
+    another when that worker finishes, then a single terminal event --
+    `result` or `error`, never both, never neither.
+
+    The first of each pair is what makes a slow node visible while it runs: a
+    real reproduction measured the researcher's completion arriving 120s after
+    the classifier's, and a page that can only draw a finished stage shows a
+    stale label for all of it.
 
     A sync generator: Starlette iterates it in a worker thread, which is what
     we want anyway since the graph is blocking.
@@ -392,7 +398,16 @@ def _stream(
             for node_name, node_state in chunk.items():
                 final_state = node_state
                 if node_name == "supervisor":
-                    continue  # fires between every node; pure noise on the wire
+                    # The supervisor's own completion is still not wire-worthy,
+                    # but its chunk carries `next_step` -- the ONLY signal of
+                    # what is ABOUT to run. What goes out is the TARGET's name,
+                    # never `supervisor`, so "no supervisor hops on the wire"
+                    # stays literally true. `done` names no worker, so it
+                    # announces nothing: a row for it could never be resolved.
+                    routed_to = node_state["next_step"]
+                    if routed_to != "done":
+                        yield _sse("node", {"node": routed_to, "status": "started"})
+                    continue
                 yield _sse("node", {"node": node_name, **_node_detail(node_name, node_state)})
 
         if final_state is None:  # pragma: no cover - graph always yields

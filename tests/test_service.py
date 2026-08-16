@@ -1122,9 +1122,162 @@ def test_stream_emits_progress_then_exactly_one_result(make_client):
     assert names[:-1] == ["node"] * (len(names) - 1)
     assert names[-1] == "result"
     assert names.count("result") == 1
-    assert [payload["node"] for _, payload in events[:-1]] == [
-        "classifier", "researcher", "writer", "critic",
+    # The full interleaving, not just the completions: every stage is announced
+    # when the supervisor routes to it and reported again when it finishes.
+    assert [(payload["node"], payload.get("status")) for _, payload in events[:-1]] == [
+        ("classifier", "started"), ("classifier", None),
+        ("researcher", "started"), ("researcher", None),
+        ("writer", "started"), ("writer", None),
+        ("critic", "started"), ("critic", None),
     ]
+
+
+def test_stream_announces_a_stage_before_it_completes(make_client):
+    """The researcher is the 120-second node, so this is the whole phase in one
+    assertion: its row appears at the supervisor's routing hop, not at its own
+    completion two minutes later (repro-2026-08-16.log -- classifier +2s,
+    researcher +122s, and a stale label in between).
+
+    The index comparison is the machine-checkable half of that claim. Presence
+    alone would pass against a server that announced a stage only after running
+    it, which is a fair description of the defect this phase exists to fix.
+    """
+    client, _ = make_client()
+    response = client.post("/research/stream", json={"question": "why?"})
+
+    node_events = [
+        (index, payload)
+        for index, (name, payload) in enumerate(sse_events(response))
+        if name == "node"
+    ]
+    researcher = [(i, p) for i, p in node_events if p["node"] == "researcher"]
+
+    assert len(researcher) == 2, "expected one started and one completed researcher event"
+    (started_index, started), (completed_index, completed) = researcher
+
+    # An exact key set, not a subset: an `in` check would pass against a
+    # started payload carrying half of `_node_detail`, whose every field is
+    # post-execution and would misreport if read at routing time.
+    assert set(started) == {"node", "status"}
+    assert started["status"] == "started"
+
+    # The completion payload is untouched -- the non-vacuity half. A test that
+    # only looked for the started event would pass just as well against a
+    # server that had stopped sending completions altogether.
+    assert "status" not in completed
+    assert "recalled_from_memory" in completed
+
+    assert started_index < completed_index
+
+
+def test_the_demo_page_handles_the_started_status_the_stream_emits(make_client):
+    """The one keyless coupling between the wire and the page.
+
+    This repo has no JS harness -- no package.json, no jsdom, no Playwright --
+    so nothing here can assert what the DOM does. What can be asserted is that
+    the page knows the vocabulary the server speaks, and the literal is read
+    off a REAL stream rather than hardcoded, so renaming the server's field
+    reds this test instead of silently desyncing the page. What it cannot prove
+    is that the page does the right thing with the value; that is why
+    22.5-VALIDATION carries a manual browser row rather than claiming this
+    covers it.
+
+    The script block is extracted with a local regex rather than through
+    csp.inline_blocks, mirroring the independence discipline
+    test_csp_hashes_are_derived_from_the_page_not_hand_maintained states: a
+    gate that runs the implementation's own helper inherits its defects.
+    """
+    client, _ = make_client()
+    response = client.post("/research/stream", json={"question": "why?"})
+
+    statuses = {
+        payload["status"]
+        for name, payload in sse_events(response)
+        if name == "node" and "status" in payload
+    }
+    # Exactly one value, so a second status word cannot appear unnoticed -- and
+    # non-vacuous, since an empty set would satisfy a mere subset check.
+    assert statuses == {"started"}, statuses
+    (status,) = statuses
+
+    blocks = re.findall(r"<script>(.*?)</script>", _demo_page(), re.S)
+    assert len(blocks) == 1
+    source = re.sub(r"/\*.*?\*/", "", blocks[0], flags=re.S)
+    source = re.sub(r"//[^\n]*", "", source)
+
+    # Non-vacuity: a stripper that ate the whole block would otherwise make
+    # every assertion below trivially unsatisfiable rather than trivially true.
+    assert "sawTerminal" in source
+    assert f'"{status}"' in source
+
+
+def test_stream_never_announces_the_terminal_routing(make_client):
+    """`done` is the one routing value that names no worker node.
+
+    `LABELS` has no entry for it, so the page's `LABELS[node] || node` would
+    draw a literal "done" row -- always last, and unresolvable, because no
+    completion event for it can ever arrive. An orphaned row is exactly what
+    this phase's second success criterion forbids.
+
+    The trace assertion is the load-bearing half. Without it the test would
+    pass just as well against a server that had stopped routing to `done` at
+    all, or against a run that never terminated normally. The claim is that the
+    hop HAPPENS and is deliberately not announced.
+    """
+    client, _ = make_client()
+    response = client.post("/research/stream", json={"question": "why?"})
+    events = sse_events(response)
+
+    announced = {
+        payload["node"]
+        for name, payload in events
+        if name == "node" and payload.get("status") == "started"
+    }
+    assert announced == {"classifier", "researcher", "writer", "critic"}
+
+    assert any(
+        entry.get("node") == "supervisor" and entry.get("routed_to") == "done"
+        for entry in events[-1][1]["trace"]
+    )
+
+
+def test_stream_pairs_started_and_completed_across_a_revision_loop(make_client):
+    """The server-side proxy for a client property no harness here can test.
+
+    The page keeps ONE pending-row pointer, which is safe only because a start
+    and its own completion never interleave with another node's pair. The
+    graph's topology is the reason: every worker has a single edge back to the
+    supervisor (graph.py:730-731) and the conditional edge selects exactly one
+    target (graph.py:733-744), so there is no fan-out anywhere and only one
+    node is ever in flight.
+
+    A node-name-keyed row map would collide HERE and nowhere else -- the third
+    writer's completion upgrading the first writer's row. That is why the
+    default single-pass fixture and every lucky manual smoke test miss it, and
+    why this run is scripted with rejections instead.
+    """
+    client, _ = make_client(
+        critic_verdicts=("REJECTED", "REJECTED", "APPROVED") + ("APPROVED",) * 5
+    )
+    response = client.post("/research/stream", json={"question": "why?"})
+    events = sse_events(response)
+
+    assert [
+        (payload["node"], payload.get("status")) for name, payload in events if name == "node"
+    ] == [
+        ("classifier", "started"), ("classifier", None),
+        ("researcher", "started"), ("researcher", None),
+        ("writer", "started"), ("writer", None),
+        ("critic", "started"), ("critic", None),
+        ("writer", "started"), ("writer", None),
+        ("critic", "started"), ("critic", None),
+        ("writer", "started"), ("writer", None),
+        ("critic", "started"), ("critic", None),
+    ]
+
+    names = [name for name, _ in events]
+    assert names[-1] == "result"
+    assert names.count("result") == 1
 
 
 def test_stream_does_not_emit_supervisor_hops(make_client):
@@ -1163,8 +1316,39 @@ def test_ask_stream_persists_the_follow_up(make_client):
     response = client.post(f"/sessions/{session_id}/ask/stream", json={"question": "and?"})
 
     names = [name for name, _ in sse_events(response)]
-    assert names == ["node", "node", "result"]  # responder, critic
+    # responder started, responder completed, critic started, critic completed
+    assert names == ["node", "node", "node", "node", "result"]
     assert client.get(f"/sessions/{session_id}").json()["turns"] == 2
+
+
+def test_ask_stream_announces_its_stages_too(make_client):
+    """A property, not an inspection of the call site.
+
+    `/ask/stream` returns `_sse_response(...)` and therefore shares `_stream`
+    (service.py:1065), so the fix reaches the follow-up route with no
+    route-specific code. Reading that line proves the wiring; this proves the
+    behaviour, and the mutation "gate the emit on the run not being a
+    follow-up" is what shows it is not a restatement of the research-route
+    test.
+
+    Scope: the common follow-up shape only. A follow-up with no prior notes, or
+    with notes the responder finds insufficient, routes through the researcher
+    first (graph.py:634-664) and would announce that hop too -- which follows
+    from the same shared code path and is argued rather than gated here.
+    """
+    client, _ = make_client()
+    session_id = client.post("/research", json={"question": "why?"}).json()["session_id"]
+
+    response = client.post(f"/sessions/{session_id}/ask/stream", json={"question": "and?"})
+
+    assert [
+        (payload["node"], payload.get("status"))
+        for name, payload in sse_events(response)
+        if name == "node"
+    ] == [
+        ("responder", "started"), ("responder", None),
+        ("critic", "started"), ("critic", None),
+    ]
 
 
 def test_ask_stream_on_an_unknown_session_is_404_before_streaming(make_client):

@@ -12,7 +12,7 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 828 tests
+backends, an eval harness that grades real recorded answers, and 833 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
@@ -59,6 +59,7 @@ real answers — finds three things no free test could see.
 - [x] **21 — Forty recorded answers.** The paid record run, five operator-approved stages, $9.90 against a $17.48 quote. It measured the requirement's own two halves pulling against each other — record all forty, but commit only what the graders and judge approve — so every case is now either recorded or carries a documented refusal in [`evals/REFUSALS.json`](evals/REFUSALS.json), a union a test holds total. Nothing was forced to reach forty.
 - [x] **21.5 — Classifier on its own model.** The record run exposed the classifier mislabelling a whole stratum; a probe scored Opus 5 at 37/38 against Sonnet 5's 32/38, five fixes and no regressions, for about +0.2% a run. Fixed rather than recorded, and the switch was gated on repeating the measurement before trusting it ([ADR-0013](docs/adr/0013-classifier-on-its-own-model.md)). Live on Fly release v21.
 - [x] **22 — Limitations recorded.** This section, rebuilt: the four closed bullets deleted rather than reworded into it, the three survivors each ending at the record that argues them, and the defects the paid run found written down with their evidence instead of quietly carried.
+- [x] **22.5 — The demo shows progress.** The demo looked frozen: the page could only draw a stage when one *finished*, so it asserted "classifying the topic" for the two minutes the researcher spends searching. One reproduction measured it — classifier at +2s, researcher at +122s, a clean terminal result at +183s, the run recorded and billed — so nothing was broken except what a visitor could see. The supervisor already announces what it is routing to, and the stream was discarding it as noise; forwarding it moves "searching the web" from +122s to ~+2s. Found by a user, not by a gate.
 
 ---
 
@@ -123,12 +124,19 @@ curl -sN localhost:8000/research/stream -H 'content-type: application/json' \
 
 ```
 event: node
+data: {"node": "classifier", "status": "started"}
+event: node
 data: {"node": "classifier", "topic_type": "technical"}
 event: node
 data: {"node": "critic", "approved": false}
 event: result
 data: {"session_id": "3f2a…", "approved": true, "cost_usd": 0.14, …}
 ```
+
+A `node` event carrying `status` announces a stage *beginning*; the same event
+without it reports that stage *finishing*, with its detail. The supervisor's
+own hops never reach the wire — what a started event names is the node about to
+run — and the terminal routing that ends the run is not announced at all.
 
 Interactive docs at `/docs`.
 
@@ -208,7 +216,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 828 tests, ~30s, no API keys, no network
+pytest                    # 833 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
