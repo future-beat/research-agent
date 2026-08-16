@@ -167,6 +167,49 @@ Session mode, not transaction mode (`:6543`) — transaction mode is for
 transient serverless clients and breaks prepared statements and session state,
 and this is a persistent backend holding its own pool.
 
+### The free-tier posture, and the upgrade path
+
+The database is **one Supabase Nano project, in one region, with no read replica, on the
+free tier**. That is a choice, not a leftover, and it is worth stating as one because every
+part of it is visible from the outside and none of it is explained by the section above —
+"Why Supabase and not Neon" argues the *provider*, not the tier.
+
+**Why it is acceptable at this traffic**, in the order the numbers matter:
+
+- **Connections are not the constraint they look like.** Supabase Nano allows 60. The
+  connection budget below works out to at most 10 held by the whole fleet — `hard_limit = 16`
+  × 2 machines bounds in-flight requests, but `PG_POOL_MAX_SIZE` (5) bounds *connections*,
+  and requests past that queue on a bounded checkout rather than opening an eleventh. The
+  fleet would have to grow six-fold before the tier's ceiling became the binding limit, and
+  `PG_POOL_MAX_SIZE` is the knob that moves first.
+- **Latency has orders of magnitude of headroom, measured.** The three `/health` store
+  probes cost 2.84 / 3.23 / 3.39 ms at the p50 against a `HEALTH_PROBE_BUDGET` of 3000 ms —
+  roughly 435× headroom at the worst observed sample. A read replica's job is to take read
+  load off a primary that is struggling; this primary answers in single-digit milliseconds.
+- **The free tier's one idle hazard is already prevented, by design rather than by luck.**
+  A free project pauses after ~7 days of low activity. `/health` queries all three stores
+  every 30s per machine — the same probes that disqualify Neon's compute meter are what keep
+  this project awake. The pause is also non-destructive: it restores from the dashboard and
+  loses no data.
+
+Fine at this traffic, in other words — and the first thing to look at if it isn't.
+
+**The upgrade path**, and the one part of it that is not a toggle:
+
+- **Tier is reversible.** Moving off the free tier raises the connection ceiling and puts a
+  read replica within reach when read volume actually warrants one. Nothing in this repo
+  assumes a free-tier project; the DSN is a secret and the pool is a variable.
+- **Region is not.** The project region is fixed at creation (step 1 below), so `ap-southeast-2`
+  is a one-way door. Moving regions means a new project plus a data move, which is the same
+  shape of work the embedding-migration commands and the cutover order below already
+  rehearse — reversible in principle, but a procedure rather than a setting. That constraint
+  is the reason the region was chosen next to Fly's `syd` in the first place.
+- **One caveat, stated as a caveat.** "No read replica" is carried from the free tier's
+  published shape, not from a measurement this repository made. It has not been re-checked
+  against Supabase's current pricing page, and it is recorded here as the posture this
+  deployment was set up under rather than as a verified current fact. If it is ever wrong,
+  it is wrong in the safe direction: the posture claims less capability than exists.
+
 ### The cutover, in order
 
 The order is load-bearing. A machine with neither a volume nor a reachable
