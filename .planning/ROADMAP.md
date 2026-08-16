@@ -143,7 +143,7 @@ phases close.
 - [x] **Phase 21: Forty recorded answers** - Every golden case is recorded or carries a documented refusal (amended mid-run, user-ratified): 19 recorded, 21 in `evals/REFUSALS.json`, union enforced by test; $9.90 actual vs $17.48 quoted
 - [x] **Phase 21.5: Classifier on Opus 5** - The classifier runs `claude-opus-5`, measured 37/38 vs Sonnet 5's 32/38 against the corrected labels (five fixes, zero regressions, +0.2%/run); three disputed labels relabelled and one left with its structural conflict recorded; six of eight topic_type-refused cases re-recorded, the two remaining refusing on different graders
 - [x] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the closed bullets are deleted, not rewritten into release notes — seven bullets became three, the four deletions verified on the git axis and orphan-free everywhere the sweep reaches
-- [ ] **Phase 22.5: The demo shows progress (INSERTED, hotfix)** - The stream announces the stage it is STARTING, not only the one it finished, so the demo stops looking dead for the two minutes the researcher runs
+- [x] **Phase 22.5: The demo shows progress (INSERTED, hotfix)** - The stream announces the stage it is STARTING, not only the one it finished, so the demo stops looking dead for the two minutes the researcher runs
 
 ## Phase Details
 
@@ -427,7 +427,7 @@ mattered and is now backwards, because `routed_to` is the sole signal of what is
 **Plans**: 1 plan
 
 Plans:
-- [ ] 22.5-01-PLAN.md — the whole hotfix in one wave: T1 the tracer (the four-line `_stream`
+- [x] 22.5-01-PLAN.md — the whole hotfix in one wave: T1 the tracer (the four-line `_stream`
   forward with its headline gate observed red on today's code BEFORE the fix, the page's
   per-run pending pointer upgraded in place inside the single `<script>` block with zero CSS,
   the keyless wire-to-page vocabulary coupling, and the two falsified assertions updated in the
@@ -438,6 +438,20 @@ Plans:
   T3 README's public SSE example checked against a real capture, the VALIDATION record closed
   with the paid post-deploy row honestly left open, and the arithmetic re-measured against
   827/72 (wave 1)
+
+**Executed 2026-08-16.** 832 passed / 72 skipped keyless (827 → 832; `-k stream` 23 → 28);
+evals 65/65 exit 0; ruff clean. **The headline gate was observed red on a wholly unmodified
+tree** — `assert 1 == 2`, one researcher event where the gate demands two — which is what
+makes it evidence rather than ceremony. Eight mutations, each paired with the green half
+that gives it meaning: the revision-loop mutation reds at index 8 while every single-pass
+gate stays green, demonstrating exactly what a one-pass fixture cannot see. The two Phase 19
+tests the design promised not to disturb ended **byte-identical**, proven by extracting their
+source from the merge base rather than by reading hunk headers.
+
+A visitor now sees `searching the web` at the routing hop (~+2s) instead of at the
+researcher's completion (+122s, measured). The 120 seconds do not shrink — that work is
+honest — but the label shown during them stops being false. Found by the owner, not by any
+gate: the suite proved the stream's contract and never asked whether a human would wait.
 
 ### Phase 22: Limitations recorded
 **Goal**: Every surviving README limitation points at a record, and the Limitations section

@@ -21,7 +21,10 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-04)
 
 **Core value:** The pipeline never answers from model knowledge when it should be answering from research — and it is demonstrable to a stranger in one click.
-**Current focus:** v1.2's phases are all executed — next is Phase 22 verification, then `/gsd:complete-milestone`
+**Current focus:** Phase 22.5 (the demo hotfix) shipping as PR #34 — the last
+open work in v1.2. PR #33 merged 2026-08-17 ahead of it, so the close-out landed
+before the hotfix it needs to describe; README's Status list and the milestone
+records are reconciled on the 22.5 branch. Then `/gsd:complete-milestone`.
 
 ## Current Position
 
