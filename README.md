@@ -226,11 +226,44 @@ The other fifteen are in [`evals/REFUSALS.json`](evals/REFUSALS.json), each
 with the reason it was not recorded, because a committed fixture is one the
 graders and the judge approved and buying the number forty by forcing them
 would discard exactly the property that makes a fixture worth grading. A test
-holds the union total, so a case cannot quietly leave both sets. Most refusals
-are the machinery working; two are a real defect (the judge's verdict truncating
-against a token budget it shares with adaptive thinking) and six are recordings
-that passed at record time and then failed replay, which is its own finding
-about the two grading paths disagreeing.
+holds the union total, so a case cannot quietly leave both sets — and a second
+test derives every number in this section from that file and from
+`evals/fixtures/`, so none of them can go stale while still sounding confident.
+
+The fifteen split three ways, and the split is the point. **Seven are the
+machinery working** — a grader or the judge declined a recording, which is what
+they are for; two of those entries were rewritten when the Opus 5 classifier
+removed their original reason, rather than left carrying a cause that no longer
+applies. The other eight are two defects a paid run found, and **neither is
+fixed here**.
+
+**Two are a real defect.** The judge's verdict truncates against a
+`max_tokens=1500` budget it shares with adaptive thinking, so a long
+deliberation cuts the JSON off mid-object. `Judge.verdict`'s own docstring in
+`evals/graders.py` predicted this before any run had hit it, which is why it
+surfaces by name as truncation rather than as a malformed verdict — the failure
+is labelled correctly and still costs the recording. Raising or splitting that
+budget is a change to the judge, and
+[ADR-0012](docs/adr/0012-judge-independent-of-the-critic.md) is where the judge's
+configuration is decided; it does not move in a phase that is not about the
+judge. Successor-milestone work, deliberately.
+
+**Six are recordings that passed at record time and then failed replay**, which
+is its own finding about the two grading paths disagreeing. Five are contested-topic
+cases whose pins require the words *proponents* and *critics*; the recordings
+argue both sides at length in different words. The pins cannot simply be
+re-authored, and that was tried: the same `must_mention` must also hold against
+the case's hand-authored reference report in `dataset.py`, which is written in
+that vocabulary, so any replacement collapses to a word testing less than the pin
+it replaced. The sixth is a follow-up that admitted no source covered a forecast
+and then supplied a reasoned estimate anyway — the hedged half-answer the
+recorded-refusal grader's own docstring says it cannot catch. That record-time
+grading approved it at all is the finding; widening the patterns to keep it would
+teach the suite to accept the failure the pipeline exists to prevent.
+
+Neither defect is a limitation this project chose. They are things a paid run
+found that free testing structurally could not see, written down with their
+per-case evidence rather than averaged into a pass rate.
 
 Recording is `python -m evals --record`, and it is the only command here that
 spends money on purpose. It always prints a per-case cost preview and then
