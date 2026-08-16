@@ -18,7 +18,7 @@ that run with no API keys.
 It runs on two machines against Supabase Postgres, and a stranger following
 the demo link never signs up for anything.
 
-**Stack:** Python (3.14 in CI and the image) · LangGraph · Claude Sonnet 5 (Opus 5 critic) · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
+**Stack:** Python (3.14 in CI and the image) · LangGraph · Claude Sonnet 5 (Opus 5 critic and classifier) · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
 
 ---
 
@@ -278,6 +278,12 @@ what you actually pay; `SESSIONS_TOKEN` is the operator's cross-owner view of
 sessions. `/pricing` shows which are in effect. `CRITIC_MODEL` names the model
 the critic runs on — unset, it falls back to the writer's; production pins
 `claude-opus-5` in `fly.toml [env]`, as configuration rather than a secret.
+`CLASSIFIER_MODEL` is its mirror image: unset means `claude-opus-5`, because
+there the default *is* the production choice
+([ADR-0013](docs/adr/0013-classifier-on-its-own-model.md) records the
+measurement), and setting it is the emergency downgrade. `fly.toml` carries a
+matching line so the per-node stance reads in one place, but that line is
+deliberately not load-bearing — deleting it leaves the same model in effect.
 
 🚀 **[Operations →](docs/OPERATIONS.md)** — Fly.io setup, the Postgres
 migration, CI, the embedding-migration procedure, and the full configuration table.

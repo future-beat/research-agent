@@ -244,7 +244,11 @@ def _caveat(loaded: list[dict]) -> str:
 # re-calibration, and the honest input for it is the deferred full record run's
 # measurements, not another estimate. This is the follow-up to the 35%
 # under-quote Phase 15 corrected above -- same failure mode, stated before it
-# surprises anyone.
+# surprises anyone. Phase 21.5 widened the same gap a second time: the
+# classifier no longer runs on `graph.MODEL` either, it runs on
+# `graph.classifier_model()` (`claude-opus-5` by default, in EVERY shell rather
+# than only where a variable is set), so the preview under-quotes its share
+# too -- roughly $0.0005 a turn, two orders below the critic's.
 #
 # Phase 17 changed the topology rather than the numbers: a follow-up whose
 # notes cannot answer it now routes to the researcher, so an `expect_research`
