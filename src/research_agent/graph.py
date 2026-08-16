@@ -78,6 +78,41 @@ def critic_model() -> str:
     return os.environ.get("CRITIC_MODEL", "").strip() or MODEL
 
 
+def classifier_model() -> str:
+    """The model the classifier runs on. `CLASSIFIER_MODEL` unset or blank
+    means `claude-opus-5` -- NOT the writer's model, and that inversion is
+    deliberate.
+
+    The default IS the upgrade. It is not a capability waiting for an operator
+    to opt in: the measurement was made, repeated and ratified (37/38 against
+    Sonnet's 32/38 over the labelled golden set, five fixes, zero regressions,
+    about +$0.0005 a run), so the shipped behaviour is the chosen behaviour. That is
+    the whole difference from `critic_model()` above, whose neutral default
+    exists precisely so that shipping the critic seam changed nothing until
+    someone acted.
+
+    Defaulting to `MODEL` here would be the quiet failure. Every shell that
+    had not exported the variable -- CI, a fresh checkout, and above all the
+    operator's own shell during a record run -- would classify on Sonnet
+    while the deploy config claimed Opus, and the recordings would fail their
+    topic_type grader for exactly the reason this seam was added to fix. A
+    default that depends on remembering to override it is not a default.
+
+    The knob remains for the downgrade direction only: an Opus outage, a
+    deprecation, an operator deliberately measuring the old behaviour again.
+
+    Read on every call rather than cached in a module constant, the
+    `sessions_token()` idiom, for the same reasons `critic_model()` is: a
+    module-scope read freezes the value at import, so an operator changing
+    configuration would not change what the process does, and tests could not
+    flip it with monkeypatch.setenv.
+
+    No validation past strip-or-default, also as above. A model with no price
+    row is `pricing_unknown`'s job (DEC-12), not this accessor's.
+    """
+    return os.environ.get("CLASSIFIER_MODEL", "").strip() or "claude-opus-5"
+
+
 log = get_logger()
 
 # Both clients are built on first use, not at import. Constructing them at
@@ -284,26 +319,45 @@ CRITIC_RUBRIC = {
 }
 
 
+# The classifier's prompt, a constant rather than an inline f-string because
+# three things outside this node have to agree with it exactly.
+#
+# The trailing sentence's literal "Respond with exactly one word" is a load
+# bearing substring, not prose: it is how a call gets recognised as the
+# classifier's by `evals/harness.py`'s ScriptedClient, by
+# `tests/test_graph_smoke.py`'s FakeClient, and by nothing else -- both fakes
+# dispatch on it to decide which scripted answer to return. Reword that phrase
+# and both fall through to their writer branch, silently, with the offline
+# evals grading a research report as a topic label.
+#
+# The third consumer is `evals/classifier_probe.py`, which imports this
+# constant rather than copying the text, so a paid measurement of the
+# classifier can never drift from the classifier that ships. A copy would have
+# stayed green while measuring the wrong thing.
+CLASSIFIER_PROMPT_TEMPLATE = (
+    "Classify this research task into exactly one category: "
+    "technical, contested, sparse, or general.\n\n"
+    "technical = involves specific figures/versions/technical facts\n"
+    "contested = involves differing opinions or disputed claims\n"
+    "sparse = likely has limited web coverage (niche/local/very recent)\n"
+    "general = none of the above apply strongly\n\n"
+    "Task: {task}\n\n"
+    "Respond with exactly one word: technical, contested, sparse, or general."
+)
+
+
 @retry_node("classifier")
 def classifier_node(state: AgentState) -> AgentState:
     response = call_model(
         state,
         "classifier",
+        model=classifier_model(),
         max_tokens=20,
         thinking={"type": "disabled"},  # one-word label; no room (or need) for thinking
         output_config={"effort": "medium"},
         messages=[{
             "role": "user",
-            "content": (
-                f"Classify this research task into exactly one category: "
-                f"technical, contested, sparse, or general.\n\n"
-                f"technical = involves specific figures/versions/technical facts\n"
-                f"contested = involves differing opinions or disputed claims\n"
-                f"sparse = likely has limited web coverage (niche/local/very recent)\n"
-                f"general = none of the above apply strongly\n\n"
-                f"Task: {state['task']}\n\n"
-                f"Respond with exactly one word: technical, contested, sparse, or general."
-            ),
+            "content": CLASSIFIER_PROMPT_TEMPLATE.format(task=state["task"]),
         }],
     )
     label = _text(response).strip().lower()

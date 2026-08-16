@@ -47,7 +47,7 @@ about to be replaced would file verdicts from an abandoned judge.
   the union enforced by test. Landed 19 recorded / 21 documented, $9.9019 actual against
   the $17.4812 quote. Nothing was forced.
 
-- [ ] **REQ-classifier-model** *(defined mid-milestone 2026-08-15 as Phase 21.5, after
+- [x] **REQ-classifier-model** *(Phase 21.5 — complete, executed 2026-08-16; defined mid-milestone 2026-08-15, after
   Phase 21's record run surfaced the drift)*: The classifier runs on `claude-opus-5` —
   measured against all 38 golden cases carrying an expected label: 34/38 correct versus
   Sonnet 5's 29/38, five fixes, zero regressions, +$0.0005 per run (~0.2% of a measured
@@ -117,7 +117,7 @@ Every v1.2 requirement maps to exactly one phase. Filled by `/gsd:roadmap` on 20
 | REQ-demo-csp-header | Phase 19 — Credential validity, log addressability, demo CSP | **Verified** (`19-VERIFICATION.md`, criterion 5) — both hashes re-derived a fourth time by the verifier, byte-identical. **Awaiting deploy**: the requirement says "verified against the live page", and browser CSP enforcement cannot run in pytest. The automated half is done (derived seven-directive policy, no `unsafe-` source, six gates, four mutation reds, `index.html` at zero edits); UI-SPEC acceptance checks 1–7 against the deployed page are 19-VALIDATION's Manual-Only row |
 | REQ-note-count-bound | Phase 20 — Note count bound | **Complete** (verified, `20-VERIFICATION.md` status: passed, 3/3 criteria + the post-verification orphan-bucket gap closed; deployed Fly v19, 2026-08-15) |
 | REQ-forty-recorded-answers | Phase 21 — Forty recorded answers | **Complete under the amended criterion** (19 recorded / 21 documented refusals, union enforced by `test_every_golden_case_is_recorded_or_documented_as_refused`; $9.9019 actual vs $17.4812 quoted; merged PR #30, deployed Fly v20, 2026-08-15) |
-| REQ-classifier-model | Phase 21.5 — Classifier on Opus 5 (defined 2026-08-15) | Pending |
+| REQ-classifier-model | Phase 21.5 — Classifier on Opus 5 | **Complete** — probe repeated against the corrected labels: Opus 5 **37/38** vs Sonnet 5 **32/38**, five fixes, zero regressions, $0.0459 vs $0.0439 quoted. Classifier defaults to `claude-opus-5` directly (never `MODEL` — a `MODEL` default would have made local record runs classify with Sonnet and re-fail); mutation flipping it back reds 7 tests keylessly. Three labels relabelled, `chatty-label-falls-back` left untouched at its stratum floor with the conflict recorded. Re-record: 6 of 8 landed ($1.4001 vs $3.7120 quoted); the 2 refusals moved to *different* graders, which is the fix working. ADR-0013 |
 | REQ-limitations-recorded | Phase 22 — Limitations recorded | Pending |
 
 **Coverage:** 8/8 v1.2 requirements mapped (7 at milestone open + REQ-classifier-model,

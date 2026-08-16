@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "case_id": "general-explains-a-concept",
+  "recorded_at": "2026-08-16T14:24:47+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5",
+    "classifier": "claude-opus-5"
+  },
+  "git_sha": "a13bb86",
+  "pipeline_cost_usd": 0.098004,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "1e1f69ab69424f02ad02f2bb439203b3",
+        "owner": "",
+        "task": "What is a vector database and when would you use one?",
+        "mode": "research",
+        "topic_type": "general",
+        "research_notes": "Based on recent web research, here are 4-5 concrete, current facts about vector databases:\n\n**1. Rapid market growth driven by AI adoption**\nThe vector database market is expanding explosively due to AI demand. The Vector Database Market is projected to grow from USD 2.14 Billion in 2025 to USD 7.86 Billion by 2034, exhibiting a compound annual growth rate (CAGR) of 16.33% during the forecast period. Other estimates are even more bullish\u2014one report projects the market expected to grow substantially, projected to rise from USD 2,652.1 million in 2025 to USD 8,945.7 million by 2030, reflecting a CAGR of 27.5%.\n\n**2. Growth is specifically tied to real-time AI/ML workloads**\nMarket analysts attribute this surge to increasing adoption of AI and machine learning applications, rising demand for real-time data processing needs, confirming that vector databases are becoming core infrastructure for production AI systems rather than a niche technology.\n\n**3. Primary use case: semantic/natural-language search over exact keyword matching**\nThe core technical reason to choose a vector database is semantic understanding. As one industry analysis puts it, vector databases excel at powering semantic search systems that understand intent rather than just matching keywords\u2014for example, a developer searching \"how to handle webhook failures\" can retrieve relevant docs even without exact keyword overlap.\n\n**4. Enterprises are already using this in production**\nThis isn't just theoretical\u2014enterprises like Notion and Stripe use vector search to let users find documents through natural language queries, showing real production deployment for internal knowledge/documentation search.\n\n**5. Clear guidance on when to use one, and a key limitation**\nRecent practitioner guidance frames the decision criterion clearly: use a vector database when your primary requirement is semantic similarity, such as powering natural-language search, recommendations, or RAG, since these use cases depend on meaning rather than exact matches. However, a notable caveat for real-time applications: high-frequency updates can challenge vector indexes, which often need to be rebuilt or optimized to incorporate new data, meaning teams should evaluate ingestion/indexing performance before adopting one for fast-changing data (e.g., live news or stock feeds).\n\n**6. Tooling landscape is maturing with specialized options**\nFor practical selection, current guidance suggests for quick experimentation or local prototypes: Go with Chroma or Milvus Lite. Both are easy to set up locally (pip install simple), while more mature engines like Milvus offer multiple index types, such as HNSW, IVF, and DiskANN, to optimize performance for various use cases, illustrating the range of options from lightweight prototyping tools to production-grade systems used in RAG pipelines.\n\n**Bottom line:** Vector databases store data as high-dimensional embeddings and enable similarity/semantic search rather than exact-match lookups. Use one when you need natural-language search, recommendation systems, or retrieval-augmented generation (RAG) for LLMs\u2014especially in production AI applications\u2014but weigh index-rebuild overhead if your data updates very frequently in real time.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# Vector Databases: What They Are and When to Use One\n\n## What Is a Vector Database?\n\nA vector database is a specialized data store designed to hold data as high-dimensional embeddings, enabling **similarity/semantic search** rather than traditional exact-match lookups. Instead of matching keywords or exact values, these systems find data based on meaning and conceptual closeness.\n\n## Why It Matters Now: Market Growth\n\nVector databases have moved from niche technology to core AI infrastructure, driven by explosive demand:\n\n- Projected to grow from **$2.14B (2025) to $7.86B (2034)** at a 16.33% CAGR, according to one estimate\n- A more bullish estimate projects growth from **$2,652.1M (2025) to $8,945.7M (2030)** at a 27.5% CAGR\n- This growth is directly attributed to increasing AI/ML adoption and rising demand for **real-time data processing**, confirming these databases now support production AI systems at scale\n\n## Primary Use Case: Semantic Search\n\nThe core technical advantage of a vector database is its ability to power **semantic search**\u2014understanding user intent rather than just matching keywords. For example, a developer searching \"how to handle webhook failures\" can retrieve relevant documentation even without exact keyword overlap in the text.\n\n## Real-World Production Use\n\nThis is already deployed at scale: **Notion and Stripe** use vector search to let users find internal documents and knowledge through natural-language queries, demonstrating practical, production-grade adoption beyond experimentation.\n\n## When to Use a Vector Database\n\nUse one when your primary requirement is **semantic similarity**, specifically for:\n- Natural-language search\n- Recommendation systems\n- Retrieval-augmented generation (RAG) for LLMs\n\nThese use cases all depend on matching meaning rather than exact terms.\n\n## Key Limitation to Consider\n\n**High-frequency updates are a challenge.** Vector indexes often need to be rebuilt or optimized to incorporate new data efficiently. Teams working with fast-changing data (e.g., live news or stock feeds) should evaluate ingestion/indexing performance before committing to a vector database for such use cases.\n\n## Tooling Landscape\n\nThe ecosystem spans from lightweight prototyping to production-grade systems:\n- **For quick experimentation:** Chroma or Milvus Lite (simple `pip install` setup, good for local prototypes)\n- **For production use:** More mature engines like **Milvus** offer multiple index types (HNSW, IVF, DiskANN) to optimize performance for different workloads, including RAG pipelines\n\n## Bottom Line\n\nChoose a vector database when semantic understanding\u2014not exact matching\u2014is central to your application (search, recommendations, RAG). Weigh the index-rebuild overhead carefully if your data updates in real time, as this remains a practical constraint for fast-moving data streams.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 24944,
+          "output_tokens": 2760,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 2,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.09800436,
+          "embedding_tokens": 656,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 3.936e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "general"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3246,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2866,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "All factual claims in the report are grounded in the notes. The market figures ($2.14B to $7.86B at 16.33% CAGR; $2,652.1M to $8,945.7M at 27.5% CAGR) match exactly. Named entities (Notion, Stripe, Chroma, Milvus Lite, Milvus, HNSW, IVF, DiskANN) all appear in the notes. The semantic search example (webhook failures), the high-frequency update limitation, use cases (natural-language search, recommendations, RAG), and the tooling guidance all follow directly from the notes. No fabricated numbers, dates, or entities were found.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers both parts of the question: it defines a vector database (specialized store for high-dimensional embeddings enabling similarity/semantic search) and explains when to use one (semantic search, recommendations, RAG), while also noting limitations. It is squarely on topic.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

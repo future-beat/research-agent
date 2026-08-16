@@ -780,23 +780,34 @@ def test_critic_model_accessor_unset_is_byte_identical_to_setting_it(
     writer's model -- so the default path adds nothing, and shipping the
     capability is a no-op until an operator acts. Full payload dicts are
     compared, not just the model key: that also catches the default path
-    growing an extra kwarg.
+    growing an extra kwarg. Both runs classify on Opus 5, so the payload
+    equality still holds across the pair -- what moved in Phase 21.5 is which
+    model the classifier row names, not whether the two runs agree.
 
-    This is the CI guard too. The keyless 41/41 evals and the recorded
-    fixture's green replay both depend on `critic_model() == MODEL` in CI;
-    a future workflow that exports CRITIC_MODEL should surface as this red,
-    not as a mystery-stale fixture.
+    This is the CI guard too, and it now guards two variables rather than one.
+    The keyless evals and the recorded fixtures' green replay depend on
+    `critic_model() == MODEL` in CI, and equally on the classifier being
+    recorded-but-deliberately-uncompared (ADR-0013): `classifier_model()`
+    returns claude-opus-5 in every environment, so if `grade_fixture_current`
+    ever grew a classifier arm, all 19 committed fixtures would grade stale on
+    every push. A future workflow that exports either variable should surface
+    as this red, not as a mystery-stale fixture.
     """
     monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    monkeypatch.delenv("CLASSIFIER_MODEL", raising=False)
     unset_client, unset = _run(fake_client)
 
     monkeypatch.setenv("CRITIC_MODEL", graph.MODEL)
     set_client, _ = _run(fake_client)
 
-    assert set(_models_by_node(unset_client)) == {
-        "classifier", "researcher", "writer", "critic",
-    }
-    assert all(m == graph.MODEL for m in _models_by_node(unset_client).values())
+    unset_models = _models_by_node(unset_client)
+    assert set(unset_models) == {"classifier", "researcher", "writer", "critic"}
+    # Per node now, not one blanket equality: the classifier carries its own
+    # model with nothing exported, which is the whole of Phase 21.5.
+    assert unset_models["classifier"] == OPUS
+    assert unset_models["researcher"] == graph.MODEL
+    assert unset_models["writer"] == graph.MODEL
+    assert unset_models["critic"] == graph.MODEL
     assert unset_client.calls_with_kwargs == set_client.calls_with_kwargs
     assert unset["usage"]["pricing_unknown"] is False
 
@@ -807,14 +818,20 @@ def test_critic_model_accessor_unset_is_byte_identical_to_setting_it(
 def test_critic_threading_four_sites_a_reaches_the_api_payload(
     fake_client, monkeypatch
 ):
+    """The classifier row is compared against OPUS, this file's own constant,
+    rather than against `graph.classifier_model()`. Comparing to the accessor
+    would grade whatever this shell happens to resolve -- green even with
+    CLASSIFIER_MODEL exported to something wrong -- so the constant is what
+    makes it an assertion instead of a mirror."""
     monkeypatch.setenv("CRITIC_MODEL", HAIKU)
+    monkeypatch.delenv("CLASSIFIER_MODEL", raising=False)
     client, _ = _run(fake_client)
 
     models = _models_by_node(client)
     assert models["critic"] == HAIKU
     assert models["writer"] == graph.MODEL
     assert models["researcher"] == graph.MODEL
-    assert models["classifier"] == graph.MODEL
+    assert models["classifier"] == OPUS
 
 
 def test_critic_threading_four_sites_b_reaches_the_span(fake_client, monkeypatch):
@@ -965,17 +982,23 @@ def test_per_node_attribution_prices_the_critic_at_its_own_rate(
 def test_per_node_attribution_leaves_every_other_node_on_the_writers_model(
     fake_client, monkeypatch
 ):
-    """Independence is the critic's alone. A revision run makes two critic
-    calls and three writer calls; each is attributed to its own model, and the
-    token counts stay identical to a uniform-model run -- only the dollars
-    move."""
+    """What stays on the writer's model is the writer and the researcher.
+
+    Independence was the critic's alone until Phase 21.5; the classifier now
+    carries its own model too, and it does so with nothing exported -- so this
+    exact tuple list is the readable statement of which nodes are which. A
+    revision run makes two critic calls and three writer calls; each is
+    attributed to its own model, and the token counts stay identical to a
+    uniform-model run -- only the dollars move.
+    """
     monkeypatch.setenv("CRITIC_MODEL", OPUS)
+    monkeypatch.delenv("CLASSIFIER_MODEL", raising=False)
     client = fake_client(["REVISE: cite the scattering claim", "APPROVED"])
     result = app.invoke(initial_state("why is the sky blue?"))
 
     per_call = [(node, kwargs["model"]) for node, kwargs in client.calls_with_kwargs]
     assert per_call == [
-        ("classifier", graph.MODEL),
+        ("classifier", OPUS),
         ("researcher", graph.MODEL),
         ("writer", graph.MODEL),
         ("critic", OPUS),
@@ -1000,3 +1023,266 @@ def test_per_node_attribution_a_pricier_critic_costs_more(fake_client, monkeypat
     assert independent["usage"]["cost_usd"] > shared["usage"]["cost_usd"]
     assert independent["usage"]["input_tokens"] == shared["usage"]["input_tokens"]
     assert independent["usage"]["calls"] == shared["usage"]["calls"]
+
+
+# --------------------------------------------------------------------------
+# The classifier's own model
+#
+# The same four-site threading the critic got in Phase 16, extended to the
+# classifier in Phase 21.5 with no new mechanism -- so these groups mirror the
+# four above deliberately, and any structural change should be made to both.
+#
+# One thing is not a mirror: the default's polarity. `critic_model()` unset
+# means the writer's model, so shipping that seam changed nothing.
+# `classifier_model()` unset means claude-opus-5, because the upgrade IS the
+# shipped choice (ADR-0013). The accessor group below asserts that inversion
+# directly rather than trusting the docstring, because a default quietly
+# reverted to MODEL is invisible everywhere else in a keyless suite: the fakes
+# ignore the model they are handed, so nothing would go red until a paid
+# record run classified on Sonnet and refused the way Phase 21's did.
+# --------------------------------------------------------------------------
+
+
+# --- A. the accessor, and the non-neutral default --------------------------
+
+
+def test_classifier_model_accessor_defaults_to_opus_not_the_writers_model(monkeypatch):
+    """The trap gate, stated as an assertion.
+
+    Both halves matter. The first pins the value an unconfigured shell gets;
+    the second pins that it is NOT `graph.MODEL`, which is the mutation this
+    test exists to catch. Reverting the accessor's fallback to `MODEL` -- the
+    obvious "consistent with critic_model()" edit -- would leave every local
+    record run classifying on Sonnet while fly.toml and the ADR both claim
+    Opus, and the failure would surface only as a repeat of Phase 21's
+    topic_type refusals, after the money was spent.
+    """
+    monkeypatch.delenv("CLASSIFIER_MODEL", raising=False)
+    assert graph.classifier_model() == OPUS
+    assert graph.classifier_model() != graph.MODEL
+
+
+def test_classifier_model_accessor_returns_the_configured_model(monkeypatch):
+    """The knob is the emergency downgrade -- an Opus outage, a deprecation --
+    so it has to be honoured, in the downgrade direction as much as any."""
+    monkeypatch.setenv("CLASSIFIER_MODEL", HAIKU)
+    assert graph.classifier_model() == HAIKU
+
+
+def test_classifier_model_accessor_treats_blank_as_unset(monkeypatch):
+    """An env var exported empty by a deploy template must not name a model
+    called "" -- it means "not configured", which here means Opus 5."""
+    monkeypatch.setenv("CLASSIFIER_MODEL", "   ")
+    assert graph.classifier_model() == OPUS
+
+
+def test_classifier_model_accessor_reads_the_environment_on_every_call(monkeypatch):
+    """Read per call, never cached at import -- the `sessions_token()` idiom,
+    for the same reason `critic_model()` uses it."""
+    monkeypatch.delenv("CLASSIFIER_MODEL", raising=False)
+    assert graph.classifier_model() == OPUS
+
+    monkeypatch.setenv("CLASSIFIER_MODEL", HAIKU)
+    assert graph.classifier_model() == HAIKU
+
+    monkeypatch.setenv("CLASSIFIER_MODEL", graph.MODEL)
+    assert graph.classifier_model() == graph.MODEL
+
+    monkeypatch.delenv("CLASSIFIER_MODEL")
+    assert graph.classifier_model() == OPUS
+
+
+# --- B. all four naming sites ----------------------------------------------
+
+
+def test_classifier_threading_four_sites_a_reaches_the_api_payload(
+    fake_client, monkeypatch
+):
+    monkeypatch.setenv("CLASSIFIER_MODEL", HAIKU)
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    client, _ = _run(fake_client)
+
+    models = _models_by_node(client)
+    assert models["classifier"] == HAIKU
+    assert models["researcher"] == graph.MODEL
+    assert models["writer"] == graph.MODEL
+    assert models["critic"] == graph.MODEL
+
+
+def test_classifier_threading_four_sites_b_reaches_the_span(fake_client, monkeypatch):
+    """Telemetry that disagrees with the invoice is worse than no telemetry."""
+    spans = []
+
+    @contextmanager
+    def recording_span(name, **attributes):
+        spans.append((name, attributes))
+        yield None
+
+    monkeypatch.setattr(graph, "span", recording_span)
+    monkeypatch.setenv("CLASSIFIER_MODEL", HAIKU)
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    _run(fake_client)
+
+    by_name = dict(spans)
+    assert by_name["node.classifier"]["model"] == HAIKU
+    assert by_name["node.writer"]["model"] == graph.MODEL
+
+
+def test_classifier_threading_four_sites_c_reaches_the_cost_record(
+    fake_client, monkeypatch
+):
+    """The site that decides what the run says it cost.
+
+    Measured as a difference so no Sonnet rate appears in an exact figure: the
+    same run with an UNPRICED classifier contributes exactly $0 for that call
+    (record() catches UnknownModelPricing and returns 0.0), so the gap between
+    the two runs is the classifier call and nothing else. If record() were
+    still passed `MODEL`, the unpriced run would price the classifier at
+    Sonnet and this difference would be neither $0.0015 nor even positive.
+    """
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    monkeypatch.setenv("CLASSIFIER_MODEL", HAIKU)
+    _, priced = _run(fake_client)
+
+    monkeypatch.setenv("CLASSIFIER_MODEL", UNPRICED)
+    _, uncosted = _run(fake_client)
+
+    classifier_share = priced["usage"]["cost_usd"] - uncosted["usage"]["cost_usd"]
+    assert classifier_share == pytest.approx(HAIKU_CALL_USD, abs=1e-9)
+
+
+def test_classifier_threading_four_sites_d_reaches_the_log_line(
+    fake_client, monkeypatch, caplog
+):
+    """The agent logger deliberately does not propagate, so propagation is
+    turned on for the duration rather than the log call being replaced by a
+    fake. What is under test is the real `log.info(..., extra={"model": ...})`.
+    """
+    monkeypatch.setattr(graph.log, "propagate", True)
+    monkeypatch.setenv("CLASSIFIER_MODEL", HAIKU)
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+
+    with caplog.at_level(logging.INFO, logger=graph.log.name):
+        _run(fake_client)
+
+    by_node = {
+        r.node: r.model
+        for r in caplog.records
+        if getattr(r, "event", "") == "model_call"
+    }
+    assert by_node["classifier"] == HAIKU
+    assert by_node["writer"] == graph.MODEL
+
+
+# --- C. the misbilling discriminator ---------------------------------------
+
+
+def test_classifier_misbilling_discriminator_unpriced_classifier_is_reported(
+    fake_client, monkeypatch
+):
+    """`pricing_unknown` can flip only if the threaded name reached `record()`.
+    Threading `messages.create` alone changes nothing here -- the fakes ignore
+    the model they are handed -- so this is the one red that separates "the
+    classifier runs on its own model" from "the classifier runs on its own
+    model and the bill knows it". The rest of the run stays priced: an
+    unpriced classifier makes `cost_usd` a floor, not a zero.
+    """
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    monkeypatch.setenv("CLASSIFIER_MODEL", UNPRICED)
+    _, result = _run(fake_client)
+
+    assert result["usage"]["pricing_unknown"] is True
+    assert result["usage"]["cost_usd"] > 0
+    assert result["usage"]["calls"] == 4  # the call is counted, just not costed
+
+
+def test_classifier_misbilling_discriminator_stays_silent_when_unset(
+    fake_client, monkeypatch
+):
+    """The twin, and the "zero usage.py changes" claim tested rather than
+    asserted: the shipped default is claude-opus-5, which already has a PRICES
+    row because the critic has been running on it since Phase 16. If it did
+    not, every unconfigured run would silently report a floor cost.
+    """
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    monkeypatch.delenv("CLASSIFIER_MODEL", raising=False)
+    _, result = _run(fake_client)
+
+    assert result["usage"]["pricing_unknown"] is False
+    assert result["usage"]["cost_usd"] > 0
+
+
+# --- D. per-node attribution, exact and date-safe --------------------------
+
+
+def test_per_node_attribution_prices_the_classifier_at_its_own_rate(
+    fake_client, monkeypatch
+):
+    """Exact arithmetic without naming a dated rate.
+
+    One classifier call per run at 1000 in / 100 out. Opus $5/$25 and haiku
+    $1/$5 are both single undated windows, so the difference between the
+    default run and a downgraded one is fixed forever at
+    ($5000 + $2500 - $1000 - $500)/1M = $0.0060. Everything else -- three
+    Sonnet-priced calls and two web searches -- is identical and cancels,
+    which is what keeps the 2026-08-31 Sonnet boundary out of the assertion.
+    """
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    monkeypatch.setenv("CLASSIFIER_MODEL", HAIKU)
+    _, cheap = _run(fake_client)
+
+    monkeypatch.delenv("CLASSIFIER_MODEL")
+    _, dear = _run(fake_client)
+
+    delta = dear["usage"]["cost_usd"] - cheap["usage"]["cost_usd"]
+    assert delta == pytest.approx(OPUS_CALL_USD - HAIKU_CALL_USD, abs=1e-9)
+    assert delta == pytest.approx(0.0060, abs=1e-9)
+    assert cheap["usage"]["pricing_unknown"] is False
+    assert dear["usage"]["pricing_unknown"] is False
+
+
+def test_per_node_attribution_two_independent_nodes_move_separately(
+    fake_client, monkeypatch
+):
+    """Two seams, pointed at different models at once, on a revision run.
+
+    The exact tuple list is the readable statement that the classifier's model
+    and the critic's are independent of each other AND of the writer's -- a
+    single shared override would collapse this into one repeated name.
+    """
+    monkeypatch.setenv("CLASSIFIER_MODEL", HAIKU)
+    monkeypatch.setenv("CRITIC_MODEL", OPUS)
+    client = fake_client(["REVISE: cite the scattering claim", "APPROVED"])
+    result = app.invoke(initial_state("why is the sky blue?"))
+
+    per_call = [(node, kwargs["model"]) for node, kwargs in client.calls_with_kwargs]
+    assert per_call == [
+        ("classifier", HAIKU),
+        ("researcher", graph.MODEL),
+        ("writer", graph.MODEL),
+        ("critic", OPUS),
+        ("writer", graph.MODEL),
+        ("critic", OPUS),
+    ]
+    assert result["usage"]["calls"] == 6
+    assert result["usage"]["pricing_unknown"] is False
+
+
+# --- E. the prompt constant's load-bearing substring ------------------------
+
+
+def test_the_classifier_prompt_keeps_the_substring_the_fakes_dispatch_on():
+    """"Respond with exactly one word" is not prose, it is an interface.
+
+    Both scripted clients in this project -- `evals/harness.py`'s
+    ScriptedClient and this file's own FakeClient -- decide a call is the
+    classifier's by looking for exactly this substring in the prompt. Reword
+    it and both fall through to their writer branch silently: no exception,
+    just an offline eval grading a research report as though it were a topic
+    label. The third consumer is `evals/classifier_probe.py`, which imports
+    the constant rather than copying it.
+    """
+    assert "Respond with exactly one word" in graph.CLASSIFIER_PROMPT_TEMPLATE
+    rendered = graph.CLASSIFIER_PROMPT_TEMPLATE.format(task="why is the sky blue?")
+    assert "Respond with exactly one word" in rendered
+    assert "Task: why is the sky blue?" in rendered

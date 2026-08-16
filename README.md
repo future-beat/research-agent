@@ -12,13 +12,13 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 806 tests
+backends, an eval harness that grades real recorded answers, and 827 tests
 that run with no API keys.
 
 It runs on two machines against Supabase Postgres, and a stranger following
 the demo link never signs up for anything.
 
-**Stack:** Python (3.14 in CI and the image) · LangGraph · Claude Sonnet 5 (Opus 5 critic) · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
+**Stack:** Python (3.14 in CI and the image) · LangGraph · Claude Sonnet 5 (Opus 5 critic and classifier) · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
 
 ---
 
@@ -196,7 +196,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 806 tests, ~30s, no API keys, no network
+pytest                    # 827 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
@@ -217,12 +217,12 @@ An offline run also replays any real answers recorded under `evals/fixtures/`
 and grades those deterministically, keylessly, for free — and any red among
 them fails the run outright, whatever the overall pass rate says. That is a
 claim about what the pipeline said when it was recorded, not about what the
-current model would say. **Nineteen cases of forty are recorded** (recording is a
-deliberate, paid, operator act), so a run now grades 59 cases and the caveat
+current model would say. **Twenty-five cases of forty are recorded** (recording is a
+deliberate, paid, operator act), so a run now grades 65 cases and the caveat
 prints those recordings' date, model, commit and age instead of the original
 line.
 
-The other twenty-one are in [`evals/REFUSALS.json`](evals/REFUSALS.json), each
+The other fifteen are in [`evals/REFUSALS.json`](evals/REFUSALS.json), each
 with the reason it was not recorded, because a committed fixture is one the
 graders and the judge approved and buying the number forty by forcing them
 would discard exactly the property that makes a fixture worth grading. A test
@@ -278,6 +278,12 @@ what you actually pay; `SESSIONS_TOKEN` is the operator's cross-owner view of
 sessions. `/pricing` shows which are in effect. `CRITIC_MODEL` names the model
 the critic runs on — unset, it falls back to the writer's; production pins
 `claude-opus-5` in `fly.toml [env]`, as configuration rather than a secret.
+`CLASSIFIER_MODEL` is its mirror image: unset means `claude-opus-5`, because
+there the default *is* the production choice
+([ADR-0013](docs/adr/0013-classifier-on-its-own-model.md) records the
+measurement), and setting it is the emergency downgrade. `fly.toml` carries a
+matching line so the per-node stance reads in one place, but that line is
+deliberately not load-bearing — deleting it leaves the same model in effect.
 
 🚀 **[Operations →](docs/OPERATIONS.md)** — Fly.io setup, the Postgres
 migration, CI, the embedding-migration procedure, and the full configuration table.

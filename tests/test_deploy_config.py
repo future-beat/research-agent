@@ -235,6 +235,43 @@ def test_the_critic_model_pin_is_intact(fly):
     )
 
 
+# The classifier's model, pinned with the fail-direction INVERTED from the
+# critic's above. Same literal, opposite reasoning -- see the test's docstring.
+CLASSIFIER_MODEL_PIN = "claude-opus-5"
+
+
+def test_the_classifier_model_pin_is_intact(fly):
+    """Absence is legal here; a different VALUE is not.
+
+    The critic's pin above fails open when the key disappears, so it asserts
+    presence. This one cannot: `graph.classifier_model()` reads an absent or
+    blank `CLASSIFIER_MODEL` as claude-opus-5 (Phase 21.5's deliberately
+    non-neutral default, ADR-0013), so deleting the line leaves production on
+    exactly the model it was on. Asserting presence would red on a change that
+    is provably a no-op, and a test that fires on harmless edits gets deleted
+    by the next person who hits it.
+
+    The real failure mode is the opposite one. The knob is honoured live, so a
+    line here carrying some OTHER model silently moves the deployed classifier
+    off the measured choice -- the labels it emits pick the researcher's
+    strategy and the critic's rubric, so the whole run is quietly mis-aimed --
+    and every check in this repository stays green, because the code default
+    the rest of the suite exercises is untouched. Fly's tooling has rewritten
+    this file twice; a rewrite that carries a stale value is the shape this
+    pin exists to catch.
+    """
+    env = fly.get("env", {})
+    found = env.get("CLASSIFIER_MODEL")
+    assert found in (None, CLASSIFIER_MODEL_PIN), (
+        f"fly.toml's [env] sets CLASSIFIER_MODEL to {found!r}, which is neither "
+        f"absent nor {CLASSIFIER_MODEL_PIN!r}. Absence is fine -- the code default "
+        "in graph.classifier_model() is that same model -- but a DIFFERENT value "
+        "is honoured live and moves the deployed classifier off the choice "
+        "docs/adr/0013-classifier-on-its-own-model.md measured and recorded, with "
+        "nothing else in this repository going red."
+    )
+
+
 def test_the_runbook_names_no_unsupported_command():
     """`fly.toml`'s footer is a runbook, and a runbook is followed under time
     pressure by someone who is not reading critically.

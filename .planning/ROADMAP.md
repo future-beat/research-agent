@@ -141,7 +141,7 @@ phases close.
 - [x] **Phase 19: Credential validity, log addressability, demo CSP** - `/health` reports whether keys actually work; `run_finished` carries `session_id`; the demo page ships a hash-based CSP header
 - [x] **Phase 20: Note count bound** - A per-owner count cap with oldest-first eviction, identical across all four backends
 - [x] **Phase 21: Forty recorded answers** - Every golden case is recorded or carries a documented refusal (amended mid-run, user-ratified): 19 recorded, 21 in `evals/REFUSALS.json`, union enforced by test; $9.90 actual vs $17.48 quoted
-- [ ] **Phase 21.5: Classifier on Opus 5** - The classifier moves to the model measured better on the golden labels (34/38 vs 29/38, zero regressions, +0.2%/run); the four both-models-disagree labels resolved deliberately; six topic_type-refused recordings re-attempted at a paid checkpoint
+- [x] **Phase 21.5: Classifier on Opus 5** - The classifier runs `claude-opus-5`, measured 37/38 vs Sonnet 5's 32/38 against the corrected labels (five fixes, zero regressions, +0.2%/run); three disputed labels relabelled and one left with its structural conflict recorded; six of eight topic_type-refused cases re-recorded, the two remaining refusing on different graders
 - [ ] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the closed bullets are deleted, not rewritten into release notes
 
 ## Phase Details
@@ -384,7 +384,11 @@ refusal list it wrote is this phase's re-record input)
      documented, and the completeness union stays total throughout.
   5. Suite, evals and docs reflect whatever the measurements produce — counts re-measured,
      never carried.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 21.5-01-PLAN.md — the keyless wave: `classifier_model()` defaulting to `claude-opus-5` directly (the researched trap closed and mutation-gated), four-site threading with the three known smoke reds observed then deliberately updated, provenance-only `models.classifier` (the 19-red staleness cascade demonstrated and reverted), the committed spend-guarded probe importing the real prompt, the fly.toml pin with its inverted fail-direction, the three-way label resolution inside the stratum floors, ADR-0013, and the doc prose (wave 1)
+- [ ] 21.5-02-PLAN.md — the paid wave, autonomous: false: checkpoint 1 the probe repeat (~$0.05, shape must hold — Opus ≥ Sonnet, zero regressions — or checkpoint back with the numbers), checkpoint 2 the re-record of the DERIVED topic_type-refused list (eight per research, not the believed six; re-quoted at run time), one attempt each with same-commit union-gate discipline, then the close-out: counts re-measured, REQ-classifier-model flipped, Phase 22's exact precondition gates re-run and passing (wave 2)
 
 **Sequencing note:** defined mid-milestone 2026-08-15 (the 10.5/17.5 precedent) after
 Phase 21's record run measured the drift. Runs BEFORE Phase 22 so the close-out records

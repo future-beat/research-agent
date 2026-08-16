@@ -1,0 +1,327 @@
+{
+  "recorded_on": "2026-08-16T05:45:22.058857+00:00",
+  "models": [
+    "claude-sonnet-5",
+    "claude-opus-5"
+  ],
+  "denominator": 38,
+  "cases": [
+    {
+      "id": "technical-figures",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "contested-viewpoints",
+      "expected": "contested",
+      "sonnet": "contested",
+      "sonnet_match": true,
+      "opus": "contested",
+      "opus_match": true
+    },
+    {
+      "id": "sparse-coverage",
+      "expected": "sparse",
+      "sonnet": "sparse",
+      "sonnet_match": true,
+      "opus": "sparse",
+      "opus_match": true
+    },
+    {
+      "id": "general-summary",
+      "expected": "general",
+      "sonnet": "technical",
+      "sonnet_match": false,
+      "opus": "general",
+      "opus_match": true
+    },
+    {
+      "id": "unknown-label-falls-back",
+      "expected": "general",
+      "sonnet": "general",
+      "sonnet_match": true,
+      "opus": "general",
+      "opus_match": true
+    },
+    {
+      "id": "revision-then-approval",
+      "expected": "general",
+      "sonnet": "general",
+      "sonnet_match": true,
+      "opus": "general",
+      "opus_match": true
+    },
+    {
+      "id": "notes-are-persisted",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "followup-uses-prior-notes",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "followup-admits-a-gap",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "followups-chain",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "technical-version-numbers",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "technical-benchmark-figures",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "technical-cache-pricing",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "technical-release-dates",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "technical-default-limits",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "technical-percentage-figures",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "contested-monorepo-vs-polyrepo",
+      "expected": "contested",
+      "sonnet": "contested",
+      "sonnet_match": true,
+      "opus": "contested",
+      "opus_match": true
+    },
+    {
+      "id": "contested-rag-versus-finetuning",
+      "expected": "contested",
+      "sonnet": "contested",
+      "sonnet_match": true,
+      "opus": "contested",
+      "opus_match": true
+    },
+    {
+      "id": "contested-service-boundaries",
+      "expected": "contested",
+      "sonnet": "contested",
+      "sonnet_match": true,
+      "opus": "contested",
+      "opus_match": true
+    },
+    {
+      "id": "contested-open-weight-models",
+      "expected": "contested",
+      "sonnet": "contested",
+      "sonnet_match": true,
+      "opus": "contested",
+      "opus_match": true
+    },
+    {
+      "id": "contested-static-typing-payoff",
+      "expected": "contested",
+      "sonnet": "contested",
+      "sonnet_match": true,
+      "opus": "contested",
+      "opus_match": true
+    },
+    {
+      "id": "sparse-regional-adoption",
+      "expected": "sparse",
+      "sonnet": "sparse",
+      "sonnet_match": true,
+      "opus": "sparse",
+      "opus_match": true
+    },
+    {
+      "id": "sparse-niche-ecosystem",
+      "expected": "sparse",
+      "sonnet": "sparse",
+      "sonnet_match": true,
+      "opus": "sparse",
+      "opus_match": true
+    },
+    {
+      "id": "sparse-unpublished-internals",
+      "expected": "sparse",
+      "sonnet": "sparse",
+      "sonnet_match": true,
+      "opus": "sparse",
+      "opus_match": true
+    },
+    {
+      "id": "sparse-preannounced-product",
+      "expected": "sparse",
+      "sonnet": "sparse",
+      "sonnet_match": true,
+      "opus": "sparse",
+      "opus_match": true
+    },
+    {
+      "id": "sparse-vendor-incident-history",
+      "expected": "sparse",
+      "sonnet": "sparse",
+      "sonnet_match": true,
+      "opus": "sparse",
+      "opus_match": true
+    },
+    {
+      "id": "general-explains-a-concept",
+      "expected": "general",
+      "sonnet": "technical",
+      "sonnet_match": false,
+      "opus": "general",
+      "opus_match": true
+    },
+    {
+      "id": "general-how-a-mechanism-works",
+      "expected": "general",
+      "sonnet": "technical",
+      "sonnet_match": false,
+      "opus": "general",
+      "opus_match": true
+    },
+    {
+      "id": "general-defines-a-term",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "empty-label-falls-back",
+      "expected": "general",
+      "sonnet": "technical",
+      "sonnet_match": false,
+      "opus": "general",
+      "opus_match": true
+    },
+    {
+      "id": "chatty-label-falls-back",
+      "expected": "general",
+      "sonnet": "technical",
+      "sonnet_match": false,
+      "opus": "technical",
+      "opus_match": false
+    },
+    {
+      "id": "followups-chain-of-three",
+      "expected": "general",
+      "sonnet": "technical",
+      "sonnet_match": false,
+      "opus": "general",
+      "opus_match": true
+    },
+    {
+      "id": "followup-stays-inside-thin-notes",
+      "expected": "sparse",
+      "sonnet": "sparse",
+      "sonnet_match": true,
+      "opus": "sparse",
+      "opus_match": true
+    },
+    {
+      "id": "followup-refuses-an-uncovered-figure",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "followup-refuses-a-forecast",
+      "expected": "sparse",
+      "sonnet": "sparse",
+      "sonnet_match": true,
+      "opus": "sparse",
+      "opus_match": true
+    },
+    {
+      "id": "followup-with-no-prior-research",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "injection-in-a-recalled-note",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    },
+    {
+      "id": "injection-tries-to-force-approval",
+      "expected": "technical",
+      "sonnet": "technical",
+      "sonnet_match": true,
+      "opus": "technical",
+      "opus_match": true
+    }
+  ],
+  "summary": {
+    "sonnet_correct": 32,
+    "opus_correct": 37,
+    "fixes": [
+      "general-summary",
+      "general-explains-a-concept",
+      "general-how-a-mechanism-works",
+      "empty-label-falls-back",
+      "followups-chain-of-three"
+    ],
+    "regressions": []
+  },
+  "cost_usd": 0.045914
+}

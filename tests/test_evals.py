@@ -21,6 +21,7 @@ import pytest
 import tomllib
 
 from evals import __main__ as M
+from evals import classifier_probe
 from evals import fixtures as F
 from evals import graders as G
 from evals.__main__ import main
@@ -1188,13 +1189,29 @@ def test_cli_rejects_an_unknown_case_rather_than_running_nothing(capsys):
 
 
 def test_cli_writes_the_report(tmp_path, capsys):
+    """`--case` narrows the report to that case AND its recording, if it has one.
+
+    The count is derived, not pinned. It used to read `== 1`, which was true only
+    while `general-summary` had no fixture: Phase 21.5 recorded it and the literal
+    went stale overnight, because a selected case with a recording grades twice --
+    once behaviourally, once replayed with the `@recorded` suffix. That is the
+    additive denominator working as designed, so the assertion now says what the
+    selection means (this case, both its legs, nothing else) rather than a number
+    that any future record run can falsify.
+    """
+    case_id = "general-summary"
     path = tmp_path / "report.json"
-    main(["--case", "general-summary", "--quiet", "--report", str(path)])
+    main(["--case", case_id, "--quiet", "--report", str(path)])
 
     report = json.loads(path.read_text())
     assert report["mode"] == "offline"
     assert report["judge_model"] is None  # no judge offline
-    assert len(report["cases"]) == 1
+
+    graded = {case["case_id"] for case in report["cases"]}
+    expected = {case_id}
+    if (F.FIXTURES_DIR / f"{case_id}.json").exists():
+        expected.add(f"{case_id}@recorded")
+    assert graded == expected
 
 
 
@@ -2092,6 +2109,13 @@ def test_the_replay_model_gate_states_its_claim_boundary():
     assert "will NOT fire this gate" not in doc
     # The judge is the boundary now: recorded, deliberately uncompared.
     assert "JUDGE" in doc
+    # And since Phase 21.5 the classifier stands beside it in that paragraph --
+    # recorded, deliberately uncompared, but for a different reason, which the
+    # docstring has to say out loud or a future reader will "restore
+    # consistency" by adding the comparison and stale all 19 fixtures in CI.
+    assert "classifier" in doc.lower()
+    assert "CLASSIFIER" in doc
+    assert "19" in doc  # the cascade's measured size, not an adjective
 
 
 # --------------------------------------------------------------------------
@@ -2976,15 +3000,18 @@ def test_record_writes_a_fixture_per_case_with_fakes(tmp_path):
         # recording, however good it looks in a diff.
         fixture = F.load_fixture(tmp_path / f"{case_id}.json")
         assert fixture["case_id"] == case_id
-        # Three roles since Phase 16, and exact-equality so a fourth cannot
-        # arrive unannounced. `critic_model()` rather than a literal: this test
-        # runs in whatever environment the suite runs in, and the claim is that
-        # the recorder writes what the graph would actually use, not that the
-        # critic is any particular model.
+        # Four roles since Phase 21.5, and exact-equality so a fifth cannot
+        # arrive unannounced -- this pin did its job at the fourth, going red
+        # the moment the classifier's entry appeared and forcing the addition
+        # to be deliberate. Accessors rather than literals for the two knobbed
+        # roles: this test runs in whatever environment the suite runs in, and
+        # the claim is that the recorder writes what the graph would actually
+        # use, not that either is any particular model.
         assert fixture["models"] == {
             "pipeline": graph.MODEL,
             "judge": "claude-opus-5",
             "critic": graph.critic_model(),
+            "classifier": graph.classifier_model(),
         }
         assert fixture["git_sha"] and fixture["pipeline_cost_usd"] > 0
         assert "forced" not in fixture
@@ -3012,6 +3039,86 @@ def test_record_writes_the_models_map_critic_from_the_environment(tmp_path, monk
     assert fixture["models"]["critic"] == "claude-haiku-4-5"
     # And only the critic moved: the writer's model is not read from this knob.
     assert fixture["models"]["pipeline"] == graph.MODEL
+
+
+# --------------------------------------------------------------------------
+# The classifier's provenance (Phase 21.5)
+#
+# Recorded, and deliberately NOT compared. The three tests below pin both
+# halves of that: the recorder writes the truth, and the gate ignores it.
+#
+# The asymmetry with the critic is the point, and it comes entirely from the
+# default's polarity. `critic_model()` unset equals `graph.MODEL`, so its
+# staleness comparison is inert in CI and fires only where an operator opted
+# in. `classifier_model()` unset equals claude-opus-5 in EVERY environment, so
+# the same comparison would have graded all 19 committed fixtures stale on
+# every push from the moment Phase 21.5 merged -- none carries the key, and the
+# backfill would resolve to Sonnet. See ADR-0013.
+# --------------------------------------------------------------------------
+
+
+def test_record_writes_the_classifier_role_at_its_shipped_default(
+    tmp_path, monkeypatch
+):
+    """Provenance written, and written truthfully with nothing exported.
+
+    The literal is the assertion here, not `classifier_model()`: comparing the
+    recorder's output to the same accessor the recorder called would be a
+    mirror, green whatever the default became. What is claimed is that an
+    unconfigured record shell records claude-opus-5 -- which is exactly the
+    claim that fails if the default is ever reverted to MODEL.
+    """
+    monkeypatch.delenv("CLASSIFIER_MODEL", raising=False)
+
+    record_with_fakes(["technical-figures"], tmp_path)
+
+    fixture = F.load_fixture(tmp_path / "technical-figures.json")
+    assert set(fixture["models"]) == {"pipeline", "judge", "critic", "classifier"}
+    assert fixture["models"]["classifier"] == "claude-opus-5"
+    assert fixture["models"]["pipeline"] == graph.MODEL  # only the classifier moved
+
+
+def test_record_writes_the_classifier_role_from_the_environment(tmp_path, monkeypatch):
+    """The anti-vacuity twin, the same shape the critic's map pin has above:
+    read at record time, so a recording made from an operator shell that
+    downgraded the classifier says so in writing rather than claiming the
+    shipped default. Haiku for the usual reason -- undated row, unmistakably
+    not a production choice."""
+    monkeypatch.setenv("CLASSIFIER_MODEL", "claude-haiku-4-5")
+
+    record_with_fakes(["technical-figures"], tmp_path)
+
+    fixture = F.load_fixture(tmp_path / "technical-figures.json")
+    assert fixture["models"]["classifier"] == "claude-haiku-4-5"
+    assert fixture["models"]["pipeline"] == graph.MODEL
+
+
+def test_the_classifier_role_is_provenance_and_never_grades(monkeypatch):
+    """This green IS the design, not a gap in it.
+
+    A fixture recorded on a classifier that is NOT the one this tree runs still
+    grades current. The inverse -- a comparison, by symmetry with the critic's
+    -- was implemented under a temporary mutation, observed redding the replay
+    leg of all 19 committed fixtures, and reverted; the count and a verdict are
+    quoted in 21.5-01-SUMMARY.md. That demonstration is the argument, and this
+    test is the fence that keeps someone from re-adding the comparison and
+    finding out again at CI's expense.
+    """
+    monkeypatch.delenv("CRITIC_MODEL", raising=False)
+    monkeypatch.delenv("CLASSIFIER_MODEL", raising=False)
+    _, fixture, _ = replayable(models={**MODELS, "classifier": "claude-sonnet-5"})
+
+    assert graph.classifier_model() != fixture["models"]["classifier"]  # the premise
+    assert grade_fixture_current(fixture).passed
+
+
+def test_the_classifier_role_never_becomes_required():
+    """The additive contract, pinned where it is easy to break. Nineteen
+    committed fixtures predate this role; promoting it into
+    `REQUIRED_MODEL_ROLES` would stop every one of them LOADING -- a harder
+    failure than staleness, since the loader raises before any grader runs.
+    The critic has lived as an extra role since Phase 16 for the same reason."""
+    assert F.REQUIRED_MODEL_ROLES == ("pipeline", "judge")
 
 
 def test_judge_critic_collision_warning_is_silent_at_the_shipped_defaults(
@@ -3512,3 +3619,64 @@ def test_a_refused_recording_fails_the_build_at_a_rate_that_would_pass(
     out = capsys.readouterr().out
     assert "1 case(s) were NOT recorded" in out
     assert "judge_grounding" in out
+
+
+# --------------------------------------------------------------------------
+# The classifier probe (Phase 21.5)
+#
+# A committed tool that CAN spend needs its refusal proven, not assumed, and
+# its prompt proven to be the shipped one rather than a copy of it. Those are
+# the only two things about it CI can check -- the measurement itself is 76
+# paid calls and belongs to the operator.
+# --------------------------------------------------------------------------
+
+
+def test_the_probe_refuses_to_spend_without_yes(monkeypatch, capsys):
+    """The refusal proven at the level that matters: no client is CONSTRUCTED.
+
+    `anthropic.Anthropic` is replaced with a bomb, so a probe that built its
+    client before checking the flag would raise here rather than returning 2 --
+    which is the difference between "refused" and "refused after reading your
+    key and getting one edit away from spending". The preview is asserted to
+    have printed too: an operator who sees no quote has no way to tell a
+    refusal from a crash.
+    """
+    import anthropic
+
+    def bomb(*args, **kwargs):
+        raise AssertionError("a client was constructed on the refusal path")
+
+    monkeypatch.setattr(anthropic, "Anthropic", bomb)
+
+    assert classifier_probe.main([]) == 2
+
+    captured = capsys.readouterr()
+    assert "classifier probe:" in captured.out
+    assert "labelled case(s) x 2 models" in captured.out
+    assert "estimated total: $" in captured.out
+    assert "--yes is required to spend" in captured.err
+
+
+def test_the_probe_sends_the_shipped_prompt_by_identity():
+    """`is`, not `==`, and the distinction is the whole pin.
+
+    A probe carrying its own copy of the prompt would satisfy an equality
+    assertion on the day it was written and then silently measure a prompt the
+    pipeline no longer sends, the first time anyone edited the real one. There
+    is no way to notice that from the report -- the numbers would look
+    perfectly reasonable. Identity makes the drift structurally impossible
+    instead of merely unlikely.
+    """
+    assert classifier_probe.PROMPT_TEMPLATE is graph.CLASSIFIER_PROMPT_TEMPLATE
+
+
+def test_the_probes_case_list_is_derived_from_the_dataset():
+    """Derived, never hardcoded. Phase 21.5's own relabelling moves which
+    values are expected without moving which cases are present, and a pinned
+    denominator would turn any later dataset edit into a probe quietly
+    measuring a different population."""
+    cases = classifier_probe.labelled_cases()
+
+    assert cases == [c for c in GOLDEN if c.expect_topic_type is not None]
+    assert all(c.expect_topic_type for c in cases)
+    assert len(cases) < len(GOLDEN)  # it is a filter, not the whole dataset

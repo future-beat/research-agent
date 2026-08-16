@@ -56,6 +56,27 @@ primary_region = 'syd'
   # tooling twice, which is how a key disappears with nobody deciding to
   # remove it.
   CRITIC_MODEL = 'claude-opus-5'
+  # The classifier also runs on Opus 5 -- docs/adr/0013-classifier-on-its-own-
+  # model.md records the measurement (37/38 against the writer's model's 32/38
+  # over the labelled golden set on the 2026-08-16 repeat, five fixes, zero
+  # regressions -- the n=1 first pass read 34/38 vs 29/38 -- about +$0.0005
+  # a run). Its label picks the researcher's strategy and the critic's rubric,
+  # so getting it wrong mis-aims both.
+  #
+  # Read the safety direction here BACKWARDS from CRITIC_MODEL above. That
+  # line is load-bearing and deleting it fails open; deleting THIS one changes
+  # nothing at all, because graph.classifier_model() reads an absent or blank
+  # CLASSIFIER_MODEL as claude-opus-5 -- the code default is the same model
+  # this line names. It is written here so the per-node model stance is
+  # readable in one place, not because the deploy depends on it.
+  #
+  # What IS dangerous is drift, and that is what the deploy test pins. The
+  # knob is live: a value here other than claude-opus-5 silently moves
+  # production off the measured choice with every check in the repository
+  # still green. So tests/test_deploy_config.py asserts the VALUE while
+  # treating ABSENCE as legal -- the inverse of CRITIC_MODEL's pin, for the
+  # inverse reason.
+  CLASSIFIER_MODEL = 'claude-opus-5'
   # Demo guardrails. The per-run cap above (AGENT_MAX_RUN_COST_USD) bounds one
   # runaway run; these bound the bill for a URL anyone can reach. The session
   # read/delete tree is closed by SESSIONS_TOKEN, set as a secret (`fly secrets

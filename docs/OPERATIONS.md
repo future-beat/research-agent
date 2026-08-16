@@ -606,7 +606,7 @@ path is the work, not a flag.
 ## CI
 
 ```
-lint · tests · evals            ruff, 806 tests, 59 offline eval cases
+lint · tests · evals            ruff, 827 tests, 65 offline eval cases
 image build · smoke test        docker build, boot the container, probe it
 ```
 
@@ -659,6 +659,7 @@ Environment variables:
 | `CHROMA_PATH` · `CHROMA_COLLECTION` | Chroma location and collection | `chroma_store` / `research_notes` |
 | `VOYAGE_EMBEDDING_MODEL` | Embedding model | `voyage-3.5` |
 | `CRITIC_MODEL` | The model the in-graph critic runs on, read per call. Unset or blank means the critic runs on `MODEL`, exactly as before Phase 16. **Production pins `claude-opus-5`** (fly.toml `[env]`) — see below | *(unset — the critic runs on `MODEL`)* |
+| `CLASSIFIER_MODEL` | The model the classifier runs on, read per call. The default is **inverted** from `CRITIC_MODEL`'s: unset or blank means `claude-opus-5`, not `MODEL`, because there the default *is* the measured production choice (ADR-0013). Setting it is the emergency downgrade. fly.toml carries a matching, deliberately non-load-bearing line | *(unset — the classifier runs on `claude-opus-5`)* |
 | `AGENT_MAX_RUN_COST_USD` | Per-run spend cap; `0` disables. Bounds **multiplied** cost since Phase 14 — see below | `1.00` |
 | `COST_DISCOUNT_FACTOR` | Negotiated discount applied to computed Anthropic cost, including the per-search fee. `≤ 0` or unparseable falls back to `1.0`, so a typo cannot disarm the spend caps by costing every run at $0.00 | `1.0` |
 | `INFERENCE_GEO_MULTIPLIER` | The **rate** charged when a response reports `usage.inference_geo == "us"`; applicability is observed from the API per call, never declared here. Same clamp as the discount | `1.1` |
@@ -767,8 +768,14 @@ Since Phase 16 the in-graph critic runs on its own model, and production pins
 `CRITIC_MODEL = 'claude-opus-5'` in fly.toml `[env]` — committed configuration
 rather than a secret, so the stance is visible in the repo. The stance: **the
 critic that gates a draft is deliberately more capable than the writer that
-produced it** (ADR-0010). Every other node stays on `MODEL` (Sonnet 5); unset
-the variable and the critic goes back to `MODEL` with no other change.
+produced it** (ADR-0010). Unset the variable and the critic goes back to
+`MODEL` with no other change.
+
+Since Phase 21.5 the classifier joined the per-node models, at
+**+$0.0005 a run** (~140 input tokens, ~5 output, thinking disabled) — about
+0.2% of a run and two orders of magnitude below the critic's share, so it moves
+no reservation and no trigger below. Its knob's default is the inverse of this
+one's (ADR-0013). The writer and researcher are what stay on `MODEL` (Sonnet 5).
 
 **What it costs, and what finally moved the reservation.** The critic is a small
 part of the bill and was never the reason to resize: on the first live run after
@@ -824,9 +831,13 @@ so a recording made before the cutover grades stale in any environment that
 sets `CRITIC_MODEL`, which is correct: it describes a pipeline that no longer
 exists. CI runs keyless with the variable unset, so the offline suite is
 unaffected. Note what the gate compares and what it does not: the pipeline's
-model and the critic's, never the judge's. A fixture's judge verdicts are fixed
-data replayed as recorded grades, so moving the judge does not stale a single
-committed recording.
+model and the critic's — never the judge's, and since Phase 21.5 never the
+classifier's either. A fixture's judge verdicts are fixed data replayed as
+recorded grades, so moving the judge does not stale a single committed
+recording. The classifier's entry is recorded for provenance and left
+uncompared for a different reason: its default is non-neutral, so a comparison
+would grade every pre-21.5 recording stale in CI rather than only where an
+operator opted in (ADR-0013 records the measured nineteen-fixture cascade).
 
 **The collision note, and when it fires.** A record run prints one line only
 when the judge and the critic resolve to the *same* model — and since Phase 18
