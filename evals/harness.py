@@ -380,13 +380,29 @@ def grade_fixture_current(fixture: dict) -> G.Grade:
     keyless contexts never set the variable, so `critic_model() == graph.MODEL`
     there and the fixture stays green.
 
-    Cannot catch: a change to any model this map does not compare. The JUDGE's
-    is recorded and deliberately not checked -- its verdicts are fixed data in
-    the fixture, replayed as `recorded_*` grades, so pointing `JUDGE_MODEL`
-    somewhere new does not invalidate a word of what the old judge already
-    said; it changes only what a fresh recording would claim. Nor can it catch
-    a model this map never carried at all: the gate is only ever as wide as
-    the roles the recorder writes.
+    Cannot catch: a change to any model this map does not compare. Two roles
+    are recorded and deliberately left uncompared, for two DIFFERENT reasons,
+    and conflating them is how one of them would get "fixed" by mistake.
+
+    The JUDGE's verdicts are fixed data in the fixture, replayed as
+    `recorded_*` grades, so pointing `JUDGE_MODEL` somewhere new does not
+    invalidate a word of what the old judge already said; it changes only what
+    a fresh recording would claim. The recording is still true.
+
+    The CLASSIFIER's is uncompared because of the DEFAULT'S POLARITY, not
+    because its recording stays true. `classifier_model()` returns
+    claude-opus-5 in every environment -- CI included, with nothing exported
+    (Phase 21.5's non-neutral default, ADR-0013). The precondition that makes
+    the critic's comparison safe is exactly the opposite: `critic_model()`
+    equals `graph.MODEL` wherever nobody set the variable, so only a
+    deliberate override sees staleness. Comparing the classifier under a
+    non-neutral default would have graded ALL 19 pre-21.5 recordings stale in
+    CI the moment the phase merged -- none carries the key, and the backfill
+    would resolve to Sonnet against a current claude-opus-5. That cascade was
+    demonstrated under a temporary mutation and reverted, not shipped.
+
+    Nor can this gate catch a model this map never carried at all: it is only
+    ever as wide as the roles the recorder writes.
 
     It lives here rather than in graders.py so that graders.py never imports
     the graph: the quality rubrics are pure functions of a recorded state, and
@@ -575,10 +591,20 @@ def record_case_to_fixture(
             # from an operator shell with CRITIC_MODEL set says so, and
             # `grade_fixture_current` compares it directly instead of
             # backfilling.
+            #
+            # The classifier's entry (Phase 21.5) is PROVENANCE ONLY. It is
+            # written for the same reason the others are -- a reader of the
+            # file should be able to see which model did which job -- but
+            # `grade_fixture_current` deliberately does not compare it, and
+            # that asymmetry is a decision rather than an oversight. The
+            # reasoning is in that function's docstring and in ADR-0013:
+            # `classifier_model()`'s default is non-neutral, so a comparison
+            # would grade every pre-21.5 recording stale in CI on every push.
             models={
                 "pipeline": graph.MODEL,
                 "judge": judge.model,
                 "critic": graph.critic_model(),
+                "classifier": graph.classifier_model(),
             },
         )
         outcome.path = F.write_fixture(fixture, result, force=force, directory=directory)
