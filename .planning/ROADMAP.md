@@ -424,7 +424,20 @@ exactly where a first-time visitor decides whether the thing works. `_stream` di
 supervisor event as "pure noise on the wire"; that comment was true when only completions
 mattered and is now backwards, because `routed_to` is the sole signal of what is starting.
 
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 22.5-01-PLAN.md — the whole hotfix in one wave: T1 the tracer (the four-line `_stream`
+  forward with its headline gate observed red on today's code BEFORE the fix, the page's
+  per-run pending pointer upgraded in place inside the single `<script>` block with zero CSS,
+  the keyless wire-to-page vocabulary coupling, and the two falsified assertions updated in the
+  same commit so the suite is never red); T2 the gates one happy path cannot reach (the
+  terminal-routing filter with its non-vacuity trace assertion, the scripted two-revision
+  alternation that is the server-side proxy for the client's row-keying property, the
+  `/ask/stream` inheritance, and byte-identical proof for the two protected Phase 19 tests);
+  T3 README's public SSE example checked against a real capture, the VALIDATION record closed
+  with the paid post-deploy row honestly left open, and the arithmetic re-measured against
+  827/72 (wave 1)
 
 ### Phase 22: Limitations recorded
 **Goal**: Every surviving README limitation points at a record, and the Limitations section
