@@ -72,10 +72,16 @@ about to be replaced would file verdicts from an abandoned judge.
 
 ### Data
 
-- [ ] **REQ-note-count-bound**: Notes carry a per-owner count bound with oldest-first
+- [x] **REQ-note-count-bound** *(Phase 20 — complete, verified 2026-08-15, deployed Fly
+  v19)*: Notes carry a per-owner count bound with oldest-first
   eviction, with byte-identical semantics across json, memory, chroma, and pgvector,
   proven by the shared 4-arm contract suite. Notes are then bounded by expiry *and* count,
   which kills the README bullet rather than narrowing it.
+  **Checkbox flipped by Phase 22's close-out, on Phase 20's behalf.** The requirement was
+  verified (`20-VERIFICATION.md`, status passed, 3/3 criteria plus the post-verification
+  orphan-bucket gap) and its traceability row has read **Complete** since 2026-08-15; only
+  this checkbox was missed. Recorded as a correction rather than flipped silently — and
+  Phase 22 deleted the README bullet it killed, which is the evidence it is genuinely done.
 
 ### Security
 
@@ -85,12 +91,24 @@ about to be replaced would file verdicts from an abandoned judge.
 
 ### The record
 
-- [ ] **REQ-limitations-recorded**: Every surviving README limitation points at a record:
+- [x] **REQ-limitations-recorded** *(Phase 22 — complete, executed 2026-08-16)*: Every
+  surviving README limitation points at a record:
   a new ADR states cost-approximation-by-design (and why invoice reconciliation was
   rejected), mintable identities already carry ADR-0007, and the database posture moves to
   OPERATIONS with one honest README line. The four closed bullets are **deleted** per the
   standing convention (never rewritten into release notes), and the section intro is
   rewritten: what remains is chosen, recorded, and argued for.
+  **Landed:** seven bullets → three. The four closed bullets deleted and verified on the
+  git axis — each distinctive phrase enters README once (`+`) and leaves once (`-`, in
+  `219e9e3`), and no file outside `.planning/` planning records has ever carried them.
+  The three survivors each end at a record: cost → **ADR-0014**
+  (`cost-approximation-by-design`; **0014, not 0013** — 21.5 took 0013), identities →
+  ADR-0007 (linked since Phase 12, verified rather than re-authored), database → the
+  OPERATIONS anchor `#the-free-tier-posture-and-the-upgrade-path`. Intro closes on the
+  criterion-5 phrase verbatim. No-orphan sweep over `docs/` + `.planning/codebase/`:
+  **zero hits on all four patterns, so the exemption list is empty**. Gates: 828 passed /
+  72 skipped keyless, evals PASS 65/65 exit 0, ruff clean, derived-counts and ADR-index
+  tests green; four mutations observed red and reverted.
 
 ## Out of Scope
 
@@ -118,7 +136,14 @@ Every v1.2 requirement maps to exactly one phase. Filled by `/gsd:roadmap` on 20
 | REQ-note-count-bound | Phase 20 — Note count bound | **Complete** (verified, `20-VERIFICATION.md` status: passed, 3/3 criteria + the post-verification orphan-bucket gap closed; deployed Fly v19, 2026-08-15) |
 | REQ-forty-recorded-answers | Phase 21 — Forty recorded answers | **Complete under the amended criterion** (19 recorded / 21 documented refusals, union enforced by `test_every_golden_case_is_recorded_or_documented_as_refused`; $9.9019 actual vs $17.4812 quoted; merged PR #30, deployed Fly v20, 2026-08-15) |
 | REQ-classifier-model | Phase 21.5 — Classifier on Opus 5 | **Complete** — probe repeated against the corrected labels: Opus 5 **37/38** vs Sonnet 5 **32/38**, five fixes, zero regressions, $0.0459 vs $0.0439 quoted. Classifier defaults to `claude-opus-5` directly (never `MODEL` — a `MODEL` default would have made local record runs classify with Sonnet and re-fail); mutation flipping it back reds 7 tests keylessly. Three labels relabelled, `chatty-label-falls-back` left untouched at its stratum floor with the conflict recorded. Re-record: 6 of 8 landed ($1.4001 vs $3.7120 quoted); the 2 refusals moved to *different* graders, which is the fix working. ADR-0013 |
-| REQ-limitations-recorded | Phase 22 — Limitations recorded | Pending |
+| REQ-limitations-recorded | Phase 22 — Limitations recorded | **Complete** — seven Limitations bullets → three, executed 2026-08-16. Four deletions verified on the git axis (each phrase in once, out once at `219e9e3`; no `docs/` surface ever carried them) and the no-orphan sweep over `docs/` + `.planning/codebase/` returns **zero hits, exemption list empty**. Survivors linked: cost → **ADR-0014** (0014, not 0013 — 21.5 took 0013), identities → ADR-0007 (verified, not re-authored), database → `OPERATIONS.md#the-free-tier-posture-and-the-upgrade-path`, anchor re-derived from the heading. Intro is the closed/recorded/discovered ledger ending "chosen, recorded, and argued for". Whole-README pass re-derived three stale counts (827→828 twice, twelve→fourteen ADRs). 828/72 keyless, evals 65/65 exit 0, ruff clean, 4 mutations red |
 
 **Coverage:** 8/8 v1.2 requirements mapped (7 at milestone open + REQ-classifier-model,
 defined mid-milestone 2026-08-15). No orphans.
+
+**At milestone close (2026-08-16):** **6 of 8 checked**. The two unchecked —
+`REQ-health-credential-validity` and `REQ-demo-csp-header` — are **verified in their
+automated half and awaiting the manual deploy**, which is 19-VALIDATION's two Manual-Only
+rows: browser CSP enforcement and a real provider round trip cannot run in pytest. They
+are not incomplete work; they are work whose last gate is a deploy, and they stay
+unchecked rather than being flipped on a promise.

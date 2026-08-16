@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Nothing uncovered
-status: executing
-stopped_at: "Phase 21 COMPLETE (merged PR #30, deployed Fly v20) and Phase 21.5 DEFINED. The record run executed in five user-approved paid stages: $9.9019 actual vs $17.4812 quoted (56.6%), metered pipeline only. Criterion amended mid-run, user-ratified: batch A refused 3/10, exposing REQ-forty-recorded-answers' two clauses (all forty recorded; only grader-approved fixtures committed) as incompatible on the real pipeline — landed 19 recorded / 21 documented refusals in evals/REFUSALS.json, union enforced by test, three mutations observed red, nothing forced. Findings: (1) classifier drift — six identical topic_type mismatches (general read as technical), structurally invisible to the keyless suite; a $0.053 probe over all 38 labelled cases measured an Opus 5 classifier at 34/38 vs Sonnet 5's 29/38 with zero regressions at +$0.0005/run, so Phase 21.5 (classifier on Opus 5 + label resolution + checkpointed re-record of the six) was defined mid-milestone, the 10.5/17.5 precedent; (2) judge verdicts truncated twice at max_tokens=1500 shared with adaptive thinking, exactly as graders.py:758 predicted — still open, Phase 22 records it; (3) record-time and replay-time grading disagree: six fixtures passed record-time and failed replay — five on contested pins (re-authoring tried and REVERTED; the pins must also satisfy dataset.py's hand-authored reference reports, so dataset.py ended the phase unmodified), one a hedged half-answer record-time grading approved, kept as a finding rather than passed by widening REFUSAL_PATTERNS. Gates: 59/59 evals exit 0 (denominator 41→59, honestly grown), 806/72 keyless, ruff clean. Next: /gsd:plan-phase 22 (in progress on this branch), then plan+execute 21.5, then execute 22 last."
-last_updated: "2026-08-15T14:30:00.000Z"
-last_activity: "2026-08-15 — Phase 21 shipped and deployed; Phase 21.5 defined after the user's classifier-upgrade proposal was measured and confirmed (the orchestrator's initial skepticism was wrong; the $0.05 probe settled it). Phase 22 now runs LAST, after 21.5, so the close-out records only what survives."
+status: executed
+stopped_at: "Phase 22 COMPLETE — v1.2's LAST phase, so every phase of the milestone is now executed (18, 19, 20, 21, 21.5, 22; 16/16 plans). The README Limitations section went from seven bullets to three: the four v1.2 closed (judge independence, recorded answers, credential validity, the note count bound) were DELETED and verified on the git axis — each distinctive phrase enters README once and leaves once, at 219e9e3, and no file outside .planning/ planning records has ever carried them — while the three survivors each end at a record: cost -> ADR-0014 (NOTE: 0014, not 0013; 21.5 took 0013 for the classifier), identities -> ADR-0007 (linked since Phase 12, verified not re-authored), database -> docs/OPERATIONS.md#the-free-tier-posture-and-the-upgrade-path. The intro is the milestone's honest ledger — what v1.2 closed, what it records by design, what its paid run discovered — closing on 'chosen, recorded, and argued for'. No-orphan sweep over docs/ + .planning/codebase/: ZERO hits on all four patterns, so the exemption list is empty and no ADR historical text needed exempting. Wave 1 wrote ADR-0014 with its four Admin-API rejection reasons RE-READ at execution (one could not be reproduced on Anthropic's docs and the record says so, resting the reason on stronger current text), the OPERATIONS free-tier posture note, and the eval section's three-way refusal split 7 grader / 2 judge_truncated / 6 recorded_then_failed_replay behind a derived-counts test that caught an unquantified claim on its first run. Close-out flips done with evidence: REQ-limitations-recorded checked; REQ-classifier-model verified already flipped by 21.5; REQ-note-count-bound flipped HERE on Phase 20's behalf (verified and deployed since 2026-08-15, checkbox simply missed); ROADMAP Phase 22 + both plan boxes checked with an executed record; PROJECT.md's two-phase-stale counts settled (749/67/816 -> 828/72/900) plus its ADR count (12 -> 14). Both Phase-20 deferred items have written fates: PROJECT counts SETTLED, CONCERNS.md:242 DISPOSITIONED unedited per P-08 (dated audit snapshot, owner is a /gsd-map-codebase re-run). Gates: 828 passed / 72 skipped keyless, 900 collected; offline evals PASS 65/65 with a real $? of 0; ruff clean; four named mutations observed red and reverted. Zero spend — every command keyless. NOT DONE, deliberately: milestone archival (/gsd:complete-milestone owns it) and phase verification (no 22-VERIFICATION.md yet). STILL OPEN: 19-VALIDATION's two Manual-Only rows need the manual deploy, and REQ-health-credential-validity + REQ-demo-csp-header stay unchecked until it happens. --- PRIOR (Phase 21, kept for the record): Phase 21 COMPLETE (merged PR #30, deployed Fly v20) and Phase 21.5 DEFINED. The record run executed in five user-approved paid stages: $9.9019 actual vs $17.4812 quoted (56.6%), metered pipeline only. Criterion amended mid-run, user-ratified: batch A refused 3/10, exposing REQ-forty-recorded-answers' two clauses (all forty recorded; only grader-approved fixtures committed) as incompatible on the real pipeline — landed 19 recorded / 21 documented refusals in evals/REFUSALS.json, union enforced by test, three mutations observed red, nothing forced. Findings: (1) classifier drift — six identical topic_type mismatches (general read as technical), structurally invisible to the keyless suite; a $0.053 probe over all 38 labelled cases measured an Opus 5 classifier at 34/38 vs Sonnet 5's 29/38 with zero regressions at +$0.0005/run, so Phase 21.5 (classifier on Opus 5 + label resolution + checkpointed re-record of the six) was defined mid-milestone, the 10.5/17.5 precedent; (2) judge verdicts truncated twice at max_tokens=1500 shared with adaptive thinking, exactly as graders.py:758 predicted — still open, Phase 22 records it; (3) record-time and replay-time grading disagree: six fixtures passed record-time and failed replay — five on contested pins (re-authoring tried and REVERTED; the pins must also satisfy dataset.py's hand-authored reference reports, so dataset.py ended the phase unmodified), one a hedged half-answer record-time grading approved, kept as a finding rather than passed by widening REFUSAL_PATTERNS. Gates: 59/59 evals exit 0 (denominator 41→59, honestly grown), 806/72 keyless, ruff clean. Next: /gsd:plan-phase 22 (in progress on this branch), then plan+execute 21.5, then execute 22 last."
+last_updated: "2026-08-16T00:00:00.000Z"
+last_activity: "2026-08-16 — Phase 22 executed, the milestone's last: seven Limitations bullets became three, four deleted on the git axis and orphan-free, three pointing at ADR-0014 / ADR-0007 / the OPERATIONS posture note, under an intro that says what v1.2 closed, recorded and discovered. Milestone books closed with evidence (REQUIREMENTS, ROADMAP, STATE, PROJECT, both Phase-20 deferred items). Milestone archival deliberately NOT done — that is /gsd:complete-milestone's step."
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 12
-  completed_plans: 12
-  percent: 67
+  completed_phases: 6
+  total_plans: 16
+  completed_plans: 16
+  percent: 100
 ---
 
 # Project State
@@ -21,11 +21,43 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-04)
 
 **Core value:** The pipeline never answers from model knowledge when it should be answering from research — and it is demonstrable to a stranger in one click.
-**Current focus:** Phase 22 planning + Phase 21.5 (classifier on Opus 5), then 22 executes last
+**Current focus:** v1.2's phases are all executed — next is Phase 22 verification, then `/gsd:complete-milestone`
 
 ## Current Position
 
-Phase: 21 complete → 21.5 defined → 22 in planning (v1.2 "Nothing uncovered", Phases 18–22 + 21.5)
+Phase: **22 COMPLETE — v1.2 "Nothing uncovered" fully executed** (Phases 18, 19, 20, 21, 21.5, 22; 16/16 plans)
+
+**Phase 22 (2026-08-16), the milestone's close-out — two waves, zero spend.** Wave 1 wrote
+the records: **ADR-0014** cost-approximation-by-design (**0014, not 0013** — 21.5 took 0013
+between planning and execution, so the plan's renumber contingency became the live path and
+every slug-anchored gate passed unedited), its index row with the counting prose re-derived,
+`docs/OPERATIONS.md`'s `### The free-tier posture, and the upgrade path`, and the eval
+section's three-way refusal decomposition — **7 grader / 2 judge_truncated / 6
+recorded_then_failed_replay** — behind a new derived-counts gate. Wave 2 rewrote Limitations:
+**seven bullets → three**. The four v1.2 closed are **deleted**, verified on the git axis
+(each phrase enters README once and leaves once, at `219e9e3`; no file outside `.planning/`
+planning records has ever carried them), and the no-orphan sweep over `docs/` +
+`.planning/codebase/` returns **zero hits — the exemption list is empty**. Survivors point at
+ADR-0014, ADR-0007 (verified, not re-authored) and the OPERATIONS anchor, each link resolving
+and the anchor re-derived from its heading. The intro is the closed/recorded/**discovered**
+ledger ending "chosen, recorded, and argued for". Gates: **828 passed / 72 skipped** keyless
+(900 collected), evals **PASS 65/65, real `$?` 0**, ruff clean, **four named mutations
+observed red and reverted**.
+
+**Still open at milestone close, stated rather than dropped:** (1) **Phase 22 verification
+has not run** — no `22-VERIFICATION.md` exists; (2) **milestone archival is deliberately
+NOT done** — `/gsd:complete-milestone` owns it and this phase was fenced out of it;
+(3) the branch `gsd/phase-22-limitations-recorded` lands via a **pull request**;
+(4) **Phase 19's two Manual-Only rows remain OPEN** and both need the manual deploy — the
+live page under the CSP header (UI-SPEC acceptance checks 1–7) and a real provider probe
+round-trip (`/health` reading `valid: true` with a fresh `checked_at` inside one TTL) —
+which is why `REQ-health-credential-validity` and `REQ-demo-csp-header` are the two of eight
+requirements still unchecked; (5) the README **Status** list stops at 17.5 and has no v1.2
+block, so a reader sees "v1.2 has now closed four more" in Limitations with no Status entries
+behind it — recorded as a finding with `/gsd:complete-milestone` or a milestone summary as
+the natural owner, deliberately not authored here (see the SUMMARY's deferred section).
+
+--- prior position (Phase 21), kept for the record ---
 
 **Phase 21 (2026-08-15, PR #30, Fly v20):** the paid record run, five user-approved stages,
 $9.9019 vs $17.4812 quoted. Criterion amended mid-run (user-ratified): every golden case is
@@ -82,6 +114,9 @@ Last activity: 2026-08-14 — Phase 20 executed end to end: wave 1 wrote the cap
 | 18 | 4 of 4 (18-01 … 18-04) — **complete** | 135min | 34min |
 | 19 | 3 of 3 (19-01, 19-02, 19-03) — **complete** | 105min | 35min |
 | 20 | 2 of 2 (20-01, 20-02) — **complete** | 90min | 45min |
+| 21 | 3 of 3 (21-01, 21-02, 21-03) — **complete** | — | — |
+| 21.5 | 2 of 2 (21.5-01, 21.5-02) — **complete** | — | — |
+| 22 | 2 of 2 (22-01, 22-02) — **complete** | 130min | 65min |
 
 **Recent Trend:**
 
@@ -422,7 +457,25 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-08-14T08:05:00.000Z
+Last session: 2026-08-16T00:00:00.000Z
+Stopped at: **Phase 22 COMPLETE — v1.2's last phase; every phase of the milestone is executed
+(16/16 plans).** Three commits on `gsd/phase-22-limitations-recorded` for 22-02: `219e9e3`
+(the Limitations rewrite — four deletions, three linked survivors, the ledger intro),
+`ee3dd27` (the whole-README pass — three stale counts re-derived), and the close-out
+commit carrying REQUIREMENTS / ROADMAP / STATE / PROJECT / deferred-items / 22-VALIDATION.
+Five commits on the branch across the phase, with 22-01's `b10b8d1` and `1937c8a`.
+**828 passed / 72 skipped** keyless (900 collected); offline evals **PASS 65/65 with a real
+`$?` of 0**; `ruff check .` clean. **Zero spend** — every command ran keyless.
+**The phase's own finding:** the deletion gate and the no-orphan sweep look like one gate and
+are two. The mutation that restores a deleted README bullet reds the deletion gate and leaves
+the sweep clean; the mutation that plants the same sentence in `docs/DESIGN.md` reds the sweep
+and leaves the deletion gate green. Neither can stand in for the other, and only running both
+mutations shows it.
+**Deliberately not done:** milestone archival (`/gsd:complete-milestone`'s step) and Phase 22
+verification (no `22-VERIFICATION.md` yet). Phase 19's two Manual-Only rows still need the
+manual deploy.
+
+--- prior session (Phase 19, 2026-08-14), kept for the record ---
 Stopped at: **Phase 19 COMPLETE — all three waves executed, validation reconciled.** Six commits
 for 19-03 on `gsd/phase-19-credential-validity`: `7bc8295` (RED), `462a898` (the emission +
 the graph rename), `6ff6b7e` (RED for the other three routes), `114a28b` (the silent-stream
