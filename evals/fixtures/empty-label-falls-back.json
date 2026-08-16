@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "case_id": "empty-label-falls-back",
+  "recorded_at": "2026-08-16T13:48:44+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5",
+    "classifier": "claude-opus-5"
+  },
+  "git_sha": "a13bb86",
+  "pipeline_cost_usd": 0.148214,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "cdfcc2c99d654591a1972be411d8b119",
+        "owner": "",
+        "task": "Give an overview of how the Antikythera mechanism worked.",
+        "mode": "research",
+        "topic_type": "general",
+        "research_notes": "Here's a concise overview of how the Antikythera mechanism worked, based on recent research and analysis:\n\n**1. It functioned as a hand-cranked mechanical computer with over 30 gears.** The device incorporated more than 30 hand-operated bronze gears that modelled the cycles of astronomical phenomena, and analysis of its eclipse prediction function described an exploded computer reconstruction where the front plate includes zodiac and calendar dials, with the input contrate gear in the centre, turned via a keyway, alongside a planetary gearing system.\n\n**2. The front dial tracked the zodiac and calendar, while the back had multiple specialized dials.** On the back, at least four dials represented the Metonic cycle, the Saros cycle, the calendar of panhellenic sporting games and the exeligmos, used to refine eclipse predictions.\n\n**3. Eclipse prediction relied on the ancient Babylonian Saros cycle.** The eclipse prediction function is displayed on the mechanism by a dedicated dial on the lower back plate, based on the ancient Babylonian Saros Eclipse Prediction Cycle of 223 lunar months, just over 18 years. Specifically, eclipses are indicated on a four-turn spiral Saros Dial by glyphs, which describe type and timing.\n\n**4. 2024 research revealed the front calendar ring tracked the Greek lunar calendar, not the Egyptian solar calendar as long assumed.** Recent research has unveiled that the Antikythera mechanism, an ancient device often hailed as the world's oldest known computer, tracked the Greek lunar calendar, rather than the Egyptian solar calendar as previously thought.\n\n**5. University of Glasgow researchers used gravitational-wave statistical techniques to pin down the calendar ring's hole count.** Researchers concluded in 2024 that the ring likely contained 354 to 355 holes, an almost exact match for the lunar year, in a study from the University of Glasgow that applied techniques adapted from those used to study black holes.\n\n**6. Despite its sophistication, some 2024 studies question how reliably it actually operated.** A computer simulation study noted that recent findings challenge earlier assumptions about its effectiveness, incorporating both structural inaccuracies and the device's distinctive triangle-shaped gear teeth, with one researcher describing it as essentially \"just a toy prone to constant jamming\" due to the corrosion and distortion the bronze suffered over 2,000 years underwater.\n\nTogether, these findings paint the Antikythera mechanism as an extraordinarily ambitious ancient astronomical calculator \u2014 tracking lunar and solar calendars, eclipse cycles, and athletic games schedules through interlocking gear trains \u2014 though its precise original accuracy and reliability remain subjects of ongoing scientific debate.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# The Antikythera Mechanism: An Overview\n\n## Introduction\nThe Antikythera mechanism is often described as the world's oldest known computer\u2014a hand-cranked mechanical device that modeled astronomical cycles through an intricate system of gears. Recent research has refined and, in some cases, challenged earlier understandings of how it functioned.\n\n## Core Mechanics\nThe device operated as a hand-cranked mechanical computer containing more than 30 bronze gears. An input contrate gear at the center, turned via a keyway, drove a planetary gearing system that modeled various astronomical cycles.\n\n## Front Dial: Zodiac and Calendar\nThe front plate featured zodiac and calendar dials. Notably, 2024 research overturned a long-held assumption: the front calendar ring tracked the **Greek lunar calendar**, not the Egyptian solar calendar as previously believed. University of Glasgow researchers, applying statistical techniques adapted from gravitational-wave research, determined the calendar ring likely contained 354\u2013355 holes\u2014an almost exact match to the lunar year.\n\n## Back Dials: Specialized Cycles\nThe back of the mechanism housed at least four specialized dials representing:\n- The **Metonic cycle**\n- The **Saros cycle**\n- A calendar of **panhellenic sporting games**\n- The **exeligmos**, used to refine eclipse predictions\n\n## Eclipse Prediction\nEclipse forecasting was based on the ancient Babylonian Saros Eclipse Prediction Cycle\u2014223 lunar months, or just over 18 years. This function was displayed via a dedicated four-turn spiral Saros Dial on the lower back plate, where glyphs indicated the type and timing of predicted eclipses.\n\n## Questions About Reliability\nDespite its sophistication, some 2024 studies raise doubts about how reliably the mechanism actually performed. Computer simulations incorporating structural inaccuracies and the device's distinctive triangle-shaped gear teeth suggest it may have been prone to jamming. One researcher characterized it as essentially \"a toy prone to constant jamming,\" attributing this partly to corrosion and distortion the bronze suffered during 2,000 years underwater.\n\n## Conclusion\nThe Antikythera mechanism represented an extraordinarily ambitious attempt to model lunar and solar calendars, eclipse cycles, and athletic game schedules through interlocking gear trains. While its design reveals remarkable ancient engineering ambition, its precise original accuracy and operational reliability remain subjects of ongoing scientific debate.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 0,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 5,
+        "usage": {
+          "input_tokens": 40391,
+          "output_tokens": 2690,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 4,
+          "web_fetch_requests": 0,
+          "calls": 4,
+          "cost_usd": 0.14821384,
+          "embedding_tokens": 564,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 3.384e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "general"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 2786,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2508,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is supported by the research notes. All numbers (30+ gears, 354\u2013355 holes, 223 lunar months, 18 years, four-turn spiral, 2,000 years), named entities (University of Glasgow, gravitational-wave/black hole techniques, Metonic cycle, Saros cycle, exeligmos, panhellenic games, Greek lunar vs Egyptian solar calendar), and technical details (contrate gear, keyway, planetary gearing, triangle-shaped gear teeth, glyphs) appear in the notes. The quote 'a toy prone to constant jamming' matches the notes. No unsupported facts were introduced.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses how the Antikythera mechanism worked, covering its core mechanics (hand-cranked bronze gears, input contrate gear, planetary gearing), the front dial (zodiac and calendar), the back dials (Metonic, Saros, games, exeligmos cycles), and eclipse prediction functions. It provides a coherent overview of the device's operation, which is exactly what the question asks.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

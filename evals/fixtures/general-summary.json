@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "case_id": "general-summary",
+  "recorded_at": "2026-08-16T14:28:18+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5",
+    "classifier": "claude-opus-5"
+  },
+  "git_sha": "a13bb86",
+  "pipeline_cost_usd": 0.138195,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "e91341a9a2a04b36ab5bf4bf73d60d13",
+        "owner": "",
+        "task": "What is retrieval-augmented generation?",
+        "mode": "research",
+        "topic_type": "general",
+        "research_notes": "Based on recent web sources, here are 4-5 concrete, recent facts about retrieval-augmented generation (RAG):\n\n1. **RAG combines LLMs with external knowledge retrieval, originating from a 2020 paper.** As one recent academic overview explains, \"Retrieval-augmented generation (RAG) has been proposed as a new framework for AI that seeks to integrate additional knowledge, such as organizational data, and generate results that can be linked to that knowledge (Lewis et al. 2020).\" This approach \"allows users to access information from within an organization and reduces the risk of hallucinations.\"\n\n2. **The RAG market is experiencing explosive growth.** According to a MarketsandMarkets report published in October 2025, the Retrieval-Augmented Generation (RAG) market was valued at USD 1.94 billion in 2025 and is expected to grow to USD 9.86 billion by 2030, at a CAGR of 38.4% during the forecast period. This growth trajectory reflects rapidly rising enterprise adoption of the technology.\n\n3. **Major tech companies are actively building RAG infrastructure.** The market report notes that major technology companies, including Microsoft, AWS, Google, Anthropic, and Cohere, are involved in the RAG market, indicating this is now a core focus area for leading AI vendors rather than a niche research technique.\n\n4. **Enterprise chatbots are a leading real-world application.** A 2025 industry analysis highlights that RAG-powered chatbots now provide accurate, contextual responses by accessing real-time product documentation, FAQ databases, and support ticket histories, showing how businesses are deploying RAG to ground customer-facing AI in current, verifiable information rather than static training data.\n\n5. **Academic benchmarking of RAG systems is expanding through TREC.** The TREC 2025 RAG Track description notes that this second edition of the TREC Retrieval Augmented Generation Track advances research on systems that integrate retrieval and generation to address complex, real-world information needs, building on the foundation of the inaugural 2024 track, with the newer edition introducing more complex, multi-sentence query challenges\u2014signaling that RAG evaluation methodology itself is maturing as a formal research discipline.\n\nTogether, these facts show RAG evolving from an academic technique into a commercially significant, heavily benchmarked technology stack with billions of dollars in projected market growth and adoption by nearly every major AI company.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# What Is Retrieval-Augmented Generation?\n\n## Definition and Origins\n\nRetrieval-augmented generation (RAG) is a framework for AI that integrates large language models (LLMs) with external knowledge retrieval. The approach originated from a 2020 academic paper by Lewis et al., which proposed RAG as \"a new framework for AI that seeks to integrate additional knowledge, such as organizational data, and generate results that can be linked to that knowledge.\" A key benefit of this design is that it \"allows users to access information from within an organization and reduces the risk of hallucinations.\"\n\n## From Research Concept to Commercial Technology\n\nWhat began as an academic technique has evolved into a significant commercial technology stack. According to a MarketsandMarkets report published in October 2025, the RAG market was valued at USD 1.94 billion in 2025 and is projected to grow to USD 9.86 billion by 2030, reflecting a compound annual growth rate (CAGR) of 38.4%. This rapid growth reflects rising enterprise adoption of RAG-based systems.\n\nMajor technology companies\u2014including Microsoft, AWS, Google, Anthropic, and Cohere\u2014are actively building RAG infrastructure, indicating that RAG has become a core strategic focus for leading AI vendors rather than a niche research method.\n\n## Practical Applications\n\nOne of the leading real-world applications of RAG is enterprise chatbots. A 2025 industry analysis highlights how RAG-powered chatbots deliver accurate, contextual responses by accessing real-time product documentation, FAQ databases, and support ticket histories. This allows businesses to ground customer-facing AI systems in current, verifiable information sources.\n\n## Formalizing Evaluation\n\nAs RAG adoption has grown, so has the effort to rigorously evaluate these systems. The TREC 2025 RAG Track\u2014the second edition of this benchmarking effort\u2014continues to advance research on systems that integrate retrieval and generation to address complex, real-world information needs. Building on the inaugural 2024 track, the 2025 edition introduces more complex, multi-sentence query challenges, reflecting the maturation of RAG evaluation as a formal research discipline.\n\n## Summary\n\nRetrieval-augmented generation combines the generative capabilities of LLMs with external knowledge retrieval, enabling systems to link outputs to verifiable data sources and reduce the risk of hallucinations. Since its introduction in 2020, RAG has grown from an academic proposal into a rapidly expanding commercial market, adopted by major AI companies and increasingly benchmarked through formal evaluation efforts like TREC.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 42073,
+          "output_tokens": 3354,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 2,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.1381948,
+          "embedding_tokens": 530,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 3.18e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "general"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 2492,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2331,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2642,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is directly supported by the research notes. The origin (2020 Lewis et al. paper) and quotes match note 1. The market figures ($1.94B in 2025, $9.86B by 2030, 38.4% CAGR, MarketsandMarkets October 2025) match note 2 exactly. The named companies (Microsoft, AWS, Google, Anthropic, Cohere) match note 3. The enterprise chatbot application and 2025 industry analysis match note 4. The TREC 2025 RAG Track details (second edition, 2024 inaugural, multi-sentence query challenges) match note 5. No unsupported numbers, dates, or named entities were introduced; connective prose is consistent with the notes.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly answers 'What is retrieval-augmented generation?' by providing a clear definition (a framework integrating LLMs with external knowledge retrieval), its origins (2020 Lewis et al. paper), key benefits (linking outputs to verifiable sources, reducing hallucinations), practical applications, and market context. The core question is thoroughly addressed.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

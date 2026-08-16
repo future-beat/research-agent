@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "case_id": "general-defines-a-term",
+  "recorded_at": "2026-08-16T14:23:58+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5",
+    "classifier": "claude-opus-5"
+  },
+  "git_sha": "a13bb86",
+  "pipeline_cost_usd": 0.229596,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "0c1d4b2c522f47aaa62c5acd995622b6",
+        "owner": "",
+        "task": "What does idempotency mean for an HTTP API endpoint?",
+        "mode": "research",
+        "topic_type": "technical",
+        "research_notes": "Based on my research, here are 4-5 concrete, recent facts about HTTP API idempotency:\n\n1. **RFC 9110 is the current authoritative definition** \u2014 Published by the IETF in June 2022 as Internet Standard STD 97, edited by Roy Fielding, Mark Nottingham, and Julian Reschke, it replaced RFC 7231. Its precise wording: \"A request method is considered 'idempotent' if the intended effect on the server of multiple identical requests with that method is the same as the effect for a single such request.\" The RFC further clarifies that \"PUT, DELETE, and safe request methods [(GET, HEAD, OPTIONS, and TRACE) - author's note] are idempotent.\"\n\n2. **Idempotency is about intended effect, not side-logging** \u2014 RFC 9110 explicitly carves out an exception: \"the idempotent property only applies to what has been requested by the user; a server is free to log each request separately, retain a revision control history, or implement other non-idempotent side effects for each idempotent request.\"\n\n3. **PATCH is explicitly non-idempotent by spec** \u2014 \"PATCH is not idempotent by default, because a patch body can describe a relative change. A server can design an idempotent PATCH.\" A concrete illustration given is that a PATCH applying an increment (qty += 1) applied twice has a different result than applied once.\n\n4. **There's an active IETF standards-track effort to formalize an \"Idempotency-Key\" header** for non-idempotent methods like POST. The draft (authored by J. Jena and S. Dalal) has progressed through multiple revisions \u2014 draft-00 in 2022 up through **draft-ietf-httpapi-idempotency-key-header-07, published October 15, 2025, with an expiration date of April 18, 2026**, and it's currently under IESG evaluation. Its stated purpose: \"The HTTP Idempotency-Key request header field can be used to make... non-idempotent HTTP methods such as POST or PATCH fault-tolerant.\" Note: since this is still a Internet-Draft (not yet an RFC), it should be treated as \"work in progress\" rather than a finalized standard.\n\n5. **Stripe's widely-cited real-world implementation** uses a client-generated key with a defined server-side retention window: Stripe returns the same result for duplicate requests within 24 hours instead of creating a new charge, removing idempotency keys from its in-memory database after that period to reduce storage costs while giving enough time to retry failed requests. Industry surveys of this pattern note that before the IETF draft existed, \"some API developers have named an HTTP header as Request-Id, some define their own header (e.g. PayPal-Request-Id), some use x-idempotency-key (OpenBanking/PSD2)\" \u2014 illustrating the fragmentation the new IETF draft aims to resolve.\n\n**Unverified/flagged items:** I could not find an official RFC number for the Idempotency-Key header draft (it remains a draft, not yet an assigned RFC), so any claim that it's a finalized standard would be inaccurate. Also, PayPal's specific key-retention window (analogous to Stripe's 24 hours) was mentioned in a secondary Medium source rather than PayPal's own official documentation, so that particular duration figure isn't independently confirmed.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# What Does Idempotency Mean for an HTTP API Endpoint?\n\n## Definition\n\nPer **RFC 9110** (June 2022, Internet Standard STD 97, edited by Fielding, Nottingham, and Reschke \u2014 the current authoritative source, superseding RFC 7231):\n\n> \"A request method is considered 'idempotent' if the intended effect on the server of multiple identical requests with that method is the same as the effect for a single such request.\"\n\nIn practice: calling an idempotent endpoint once or many times in a row should leave the server in the same resulting state as calling it just once. The guarantee concerns the *intended effect* of the request, not the literal HTTP response returned each time.\n\n## What Counts as an Exception\n\nRFC 9110 explicitly clarifies that idempotency does **not** forbid incidental side effects:\n\n> \"The idempotent property only applies to what has been requested by the user; a server is free to log each request separately, retain a revision control history, or implement other non-idempotent side effects for each idempotent request.\"\n\nSo a server can still write audit logs, increment internal counters, or version history on each call \u2014 this doesn't break the endpoint's idempotency as long as the *user-visible resource state* stays the same.\n\n## Which Methods Are Idempotent\n\nRFC 9110 states directly: **\"PUT, DELETE, and safe request methods [GET, HEAD, OPTIONS, and TRACE] are idempotent.\"**\n\n**PATCH** is called out specifically as an exception: *\"PATCH is not idempotent by default, because a patch body can describe a relative change.\"* The RFC's example: a PATCH that increments a quantity (`qty += 1`) produces a different result if applied twice versus once. The RFC adds that \"a server can design an idempotent PATCH\" if it chooses to.\n\n**POST** is not listed among the idempotent methods in RFC 9110's enumeration; its non-idempotent status is standard REST convention (each POST typically creates a new resource) rather than a directly quoted statement in the RFC text.\n\n| Category | Methods |\n|---|---|\n| Idempotent | GET, HEAD, OPTIONS, TRACE, PUT, DELETE |\n| Not idempotent by default | POST, PATCH |\n\n## Handling Non-Idempotent Methods: The Idempotency-Key Header\n\nBecause POST (and by-default PATCH) aren't idempotent, retries after network failures or timeouts risk duplicate side effects (e.g., double charges, duplicate orders). To address this, an active IETF standards-track draft \u2014 **draft-ietf-httpapi-idempotency-key-header**, authored by J. Jena and S. Dalal, currently at revision **-07 (published October 15, 2025, expiring April 18, 2026)** and under **IESG evaluation** \u2014 proposes a standardized `Idempotency-Key` request header. Its stated purpose is to make \"non-idempotent HTTP methods such as POST or PATCH fault-tolerant\" by letting clients attach a key so servers can detect and safely respond to duplicate requests.\n\nThis is not yet a finalized RFC, so it should be treated as work in progress rather than an established standard.\n\n### Real-World Precedent\n\nBefore this draft existed, implementations were fragmented \u2014 different APIs used headers like `Request-Id`, `PayPal-Request-Id`, or `x-idempotency-key` (OpenBanking/PSD2). **Stripe's** widely-cited implementation is a concrete model: clients generate an idempotency key, and Stripe returns the same result for duplicate requests carrying that key within a **24-hour** window rather than creating a new charge, after which the key is purged from its in-memory store to limit storage costs while still allowing sufficient time for retries.\n\n## Summary\n\nIdempotency for an HTTP API endpoint means repeated identical requests produce the same server-side resource state as a single request \u2014 a property inherent to GET, HEAD, OPTIONS, TRACE, PUT, and DELETE by specification, but not guaranteed for POST or PATCH unless explicitly engineered (e.g., via client-supplied idempotency keys, a pattern now being formalized by the IETF but still in draft form).",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 63119,
+          "output_tokens": 5280,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 5,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.2295963,
+          "embedding_tokens": 755,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 4.53e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "technical"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 3153,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3419,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3958,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is traceable to the research notes: RFC 9110 details (June 2022, STD 97, editors Fielding/Nottingham/Reschke, superseding RFC 7231), the idempotency definition and side-effect exception quotes, the idempotent methods list (GET, HEAD, OPTIONS, TRACE, PUT, DELETE), PATCH non-idempotency with the qty+=1 example and 'server can design an idempotent PATCH' note, the IETF draft (draft-ietf-httpapi-idempotency-key-header-07, Oct 15 2025, expiring Apr 18 2026, authors J. Jena and S. Dalal, under IESG evaluation, purpose quote), Stripe's 24-hour in-memory key retention, and the header fragmentation examples. The report's characterization of POST as non-idempotent 'by REST convention rather than a directly quoted RFC statement' is a reasonable, non-fabricated framing consistent with the notes. It also correctly flags the draft as not yet a finalized RFC and does not include the unverified PayPal retention window.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly defines idempotency for an HTTP API endpoint (repeated identical requests produce the same server-side state as a single request), cites RFC 9110, explains exceptions for incidental side effects, lists which methods are idempotent, and covers practical handling via idempotency keys. It thoroughly addresses the question asked.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

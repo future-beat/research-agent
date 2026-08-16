@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "case_id": "general-how-a-mechanism-works",
+  "recorded_at": "2026-08-16T14:27:18+0800",
+  "models": {
+    "pipeline": "claude-sonnet-5",
+    "judge": "claude-opus-4-8",
+    "critic": "claude-sonnet-5",
+    "classifier": "claude-opus-5"
+  },
+  "git_sha": "a13bb86",
+  "pipeline_cost_usd": 0.119912,
+  "turns": [
+    {
+      "label": "research",
+      "state": {
+        "run_id": "51748c88f20e4f9bb8a490b795f3763f",
+        "owner": "",
+        "task": "How does dependency caching speed up a continuous integration pipeline?",
+        "mode": "research",
+        "topic_type": "general",
+        "research_notes": "Based on my search, here are 4-5 concrete, recent facts about how dependency caching accelerates CI pipelines:\n\n**1. Container/Docker layer caching delivers dramatic, measurable speedups.** In real-world microservices environments, teams use BuildKit with Docker layer caching, structuring Dockerfiles to group slow-changing layers near the top and using --cache-from and --cache-to with a remote registry to reuse base images and dependency layers across builds. The results are striking \u2014 container build times commonly go from five to seven minutes down to less than 90 seconds.\n\n**2. Caching commonly cuts overall build time by 30\u201360%.** Caching a package manager's download directory (node_modules, .m2, pip cache) between runs avoids re-downloading the same packages on every build, with most teams seeing a 30 to 60 percent reduction in build time from caching alone.\n\n**3. The mechanism is checksum/lock-file-based cache invalidation.** Modern CI platforms tie caches to dependency manifests so caches only refresh when needed \u2014 for example, GitHub Actions' actions/cache lets you cache directories like node_modules, .m2, or .venv based on key patterns tied to file hashes such as package-lock.json, while GitLab CI has a native cache directive and CircleCI offers dependency checksum keys.\n\n**4. Not all dependency managers benefit equally \u2014 caching binaries vs. source matters.** Some dependency managers, such as Carthage for iOS, support caching binaries, while others, like Swift Package Manager, only save the raw source, and caching binaries offers more speedup because it avoids more work. The benefit also scales with build frequency: if you're frequently building and re-building your application in CI, dependency caching can be highly beneficial, reducing build time for each iteration, while for projects with infrequent builds the benefits may be less noticeable.\n\n**5. \"Cold cache\" events after dependency updates can slow down entire teams, prompting scheduled cache-warming jobs.** A cold cache after a dependency update can slow down an entire team's builds, so some teams run a scheduled \"cache warming\" job that builds and caches dependencies on a regular schedule, ensuring the first developer to push after a dependency change still gets a warm cache.\n\n**Bonus \u2014 compiled-language caching:** For compiled languages, tools like ccache and sccache store compiled object files and reuse them if the source code hasn't changed, dramatically reducing compilation time, complementing dependency-level caching for build-output reuse.",
+        "source_report": "",
+        "conversation": [],
+        "draft": "# How Dependency Caching Speeds Up a CI Pipeline\n\n## Overview\n\nDependency caching reduces continuous integration (CI) build times by avoiding redundant work\u2014primarily re-downloading packages and re-fetching container layers\u2014across pipeline runs. The research below outlines the specific mechanisms and measurable impacts.\n\n## 1. Container/Docker Layer Caching\n\nTeams using BuildKit with Docker layer caching structure Dockerfiles to place slow-changing layers near the top, and use `--cache-from`/`--cache-to` with a remote registry to reuse base images and dependency layers across builds. In real-world microservices environments, this has taken container build times from five to seven minutes down to under 90 seconds.\n\n## 2. Overall Build Time Reduction\n\nCaching a package manager's download directory\u2014such as `node_modules`, `.m2`, or the pip cache\u2014between runs avoids re-downloading the same packages every build. Most teams see a **30\u201360% reduction in build time** from caching alone.\n\n## 3. Checksum/Lock-File-Based Cache Invalidation\n\nThe underlying mechanism relies on tying caches to dependency manifests so caches refresh only when needed. Examples include:\n- GitHub Actions' `actions/cache`, which caches directories like `node_modules`, `.m2`, or `.venv` using key patterns tied to file hashes (e.g., `package-lock.json`)\n- GitLab CI's native cache directive\n- CircleCI's dependency checksum keys\n\n## 4. Not All Dependency Managers Benefit Equally\n\nThe speedup depends on what's being cached and how often builds run:\n- **Binaries vs. source**: Some dependency managers, like Carthage (iOS), support caching binaries, while others, like Swift Package Manager, only cache raw source. Caching binaries offers more speedup because it avoids more work.\n- **Build frequency**: Projects that build and rebuild frequently in CI see the greatest benefit, since each iteration's build time is reduced. Projects with infrequent builds see less noticeable benefits.\n\n## 5. Cache Warming Prevents Team-Wide Slowdowns\n\nA \"cold cache\" event\u2014often triggered after a dependency update\u2014can slow down an entire team's builds. To mitigate this, some teams run a scheduled cache-warming job that builds and caches dependencies on a regular schedule, ensuring the first developer to push after a dependency change still benefits from a warm cache.\n\n## Bonus: Compiled-Language Build Caching\n\nFor compiled languages, tools like **ccache** and **sccache** store compiled object files and reuse them if the source hasn't changed, dramatically reducing compilation time. This complements dependency-level caching by also addressing build-output reuse.\n\n## Summary\n\nDependency caching speeds up CI pipelines through several concrete mechanisms: reusing container layers, avoiding redundant package downloads, using checksum-based cache keys to control invalidation, and (for compiled languages) reusing compiled object files. The magnitude of the benefit varies by caching approach (binary vs. source) and by how frequently a project builds, while proactive cache-warming helps avoid team-wide slowdowns after dependency changes.",
+        "critic_feedback": "",
+        "approved": true,
+        "reviewed": true,
+        "revision_count": 1,
+        "notes_insufficient": false,
+        "followup_research_done": false,
+        "forced_stop_reason": "",
+        "next_step": "done",
+        "iteration": 7,
+        "usage": {
+          "input_tokens": 30300,
+          "output_tokens": 3878,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "web_search_requests": 2,
+          "web_fetch_requests": 0,
+          "calls": 6,
+          "cost_usd": 0.11991226,
+          "embedding_tokens": 521,
+          "embedding_requests": 1,
+          "embedding_cost_usd": 3.126e-05,
+          "pricing_unknown": false
+        },
+        "trace": [
+          {
+            "node": "supervisor",
+            "routed_to": "classifier"
+          },
+          {
+            "node": "classifier",
+            "topic_type": "general"
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "researcher"
+          },
+          {
+            "node": "researcher",
+            "notes_length": 2557,
+            "recalled_from_memory": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 2939,
+            "revision_count": 0
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": false
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "writer"
+          },
+          {
+            "node": "writer",
+            "draft_length": 3118,
+            "revision_count": 1
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "critic"
+          },
+          {
+            "node": "critic",
+            "approved": true
+          },
+          {
+            "node": "supervisor",
+            "routed_to": "done"
+          }
+        ]
+      },
+      "judge": [
+        {
+          "grader": "judge_grounding",
+          "passed": true,
+          "detail": "Every factual claim in the report is grounded in the research notes. The Docker/BuildKit details, the 30-60% figure, the five-to-seven minutes to under 90 seconds claim, the actions/cache/GitLab/CircleCI examples, Carthage vs Swift Package Manager, build frequency, cache warming, and ccache/sccache all match the notes precisely. No numbers, dates, or named entities appear that are not in the notes.",
+          "judged": true
+        },
+        {
+          "grader": "judge_answers_the_question",
+          "passed": true,
+          "detail": "The report directly addresses how dependency caching speeds up CI pipelines by explaining concrete mechanisms: avoiding redundant package downloads, reusing container layers, checksum-based cache invalidation, cache warming, and compiled-object reuse. It also provides measurable impacts (30-60% build time reduction, container builds from 5-7 min to under 90 seconds). The content is on-topic and answers the question thoroughly.",
+          "judged": true
+        }
+      ]
+    }
+  ]
+}

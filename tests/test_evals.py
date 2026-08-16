@@ -1189,13 +1189,29 @@ def test_cli_rejects_an_unknown_case_rather_than_running_nothing(capsys):
 
 
 def test_cli_writes_the_report(tmp_path, capsys):
+    """`--case` narrows the report to that case AND its recording, if it has one.
+
+    The count is derived, not pinned. It used to read `== 1`, which was true only
+    while `general-summary` had no fixture: Phase 21.5 recorded it and the literal
+    went stale overnight, because a selected case with a recording grades twice --
+    once behaviourally, once replayed with the `@recorded` suffix. That is the
+    additive denominator working as designed, so the assertion now says what the
+    selection means (this case, both its legs, nothing else) rather than a number
+    that any future record run can falsify.
+    """
+    case_id = "general-summary"
     path = tmp_path / "report.json"
-    main(["--case", "general-summary", "--quiet", "--report", str(path)])
+    main(["--case", case_id, "--quiet", "--report", str(path)])
 
     report = json.loads(path.read_text())
     assert report["mode"] == "offline"
     assert report["judge_model"] is None  # no judge offline
-    assert len(report["cases"]) == 1
+
+    graded = {case["case_id"] for case in report["cases"]}
+    expected = {case_id}
+    if (F.FIXTURES_DIR / f"{case_id}.json").exists():
+        expected.add(f"{case_id}@recorded")
+    assert graded == expected
 
 
 
