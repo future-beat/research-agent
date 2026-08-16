@@ -209,6 +209,28 @@ Three warnings are recorded above, none of them a gap against this phase's goal:
 performed. The milestone can proceed to `/gsd:complete-milestone` once the two human items
 above are dispositioned — the prose read at PR review, and the Status-list decision.
 
+## The Status-list gap — closed after verification
+
+Verification's recommendation was taken. The README's Status list stopped at 17.5 while the
+new Limitations intro claimed "v1.2 has now closed four more", so `v1.2` appeared exactly
+once in the whole document and a top-down reader had no way to find out what it was. Six
+entries now sit under a **v1.2 — nothing uncovered** sub-header matching v1.1's shape:
+18, 19, 20, 21, 21.5, 22.
+
+Three constraints held while writing them. The entries are **transcription against the
+verified phase records**, not new authoring — every claim traces to a VERIFICATION or a
+SUMMARY. Measurements are quoted **frozen** (37/38 vs 32/38, $9.90 against $17.48, Fly
+v21) rather than derived, because `test_the_readme_eval_counts_are_derived_from_the_tree`
+scopes to the `## Tests and evals` section and cannot reach Status — a live count here
+would be precisely the next thing to go stale unnoticed. And each entry was checked
+against the four deleted phrases, since a Status entry is the easiest place to
+accidentally resurrect a limitation this phase just deleted; all four still grep **zero**.
+
+The debt was five phases old — 18 through 21.5 each skipped their entry — so this closes
+it rather than creating it. Gates after: 828 passed / 72 skipped, evals 65/65 exit 0,
+ruff clean. This changes no verdict above; it removes the document's last internal
+contradiction before archival.
+
 ---
 
 _Verified: 2026-08-16T11:32:14Z_
