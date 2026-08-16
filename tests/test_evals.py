@@ -21,6 +21,7 @@ import pytest
 import tomllib
 
 from evals import __main__ as M
+from evals import classifier_probe
 from evals import fixtures as F
 from evals import graders as G
 from evals.__main__ import main
@@ -3602,3 +3603,64 @@ def test_a_refused_recording_fails_the_build_at_a_rate_that_would_pass(
     out = capsys.readouterr().out
     assert "1 case(s) were NOT recorded" in out
     assert "judge_grounding" in out
+
+
+# --------------------------------------------------------------------------
+# The classifier probe (Phase 21.5)
+#
+# A committed tool that CAN spend needs its refusal proven, not assumed, and
+# its prompt proven to be the shipped one rather than a copy of it. Those are
+# the only two things about it CI can check -- the measurement itself is 76
+# paid calls and belongs to the operator.
+# --------------------------------------------------------------------------
+
+
+def test_the_probe_refuses_to_spend_without_yes(monkeypatch, capsys):
+    """The refusal proven at the level that matters: no client is CONSTRUCTED.
+
+    `anthropic.Anthropic` is replaced with a bomb, so a probe that built its
+    client before checking the flag would raise here rather than returning 2 --
+    which is the difference between "refused" and "refused after reading your
+    key and getting one edit away from spending". The preview is asserted to
+    have printed too: an operator who sees no quote has no way to tell a
+    refusal from a crash.
+    """
+    import anthropic
+
+    def bomb(*args, **kwargs):
+        raise AssertionError("a client was constructed on the refusal path")
+
+    monkeypatch.setattr(anthropic, "Anthropic", bomb)
+
+    assert classifier_probe.main([]) == 2
+
+    captured = capsys.readouterr()
+    assert "classifier probe:" in captured.out
+    assert "labelled case(s) x 2 models" in captured.out
+    assert "estimated total: $" in captured.out
+    assert "--yes is required to spend" in captured.err
+
+
+def test_the_probe_sends_the_shipped_prompt_by_identity():
+    """`is`, not `==`, and the distinction is the whole pin.
+
+    A probe carrying its own copy of the prompt would satisfy an equality
+    assertion on the day it was written and then silently measure a prompt the
+    pipeline no longer sends, the first time anyone edited the real one. There
+    is no way to notice that from the report -- the numbers would look
+    perfectly reasonable. Identity makes the drift structurally impossible
+    instead of merely unlikely.
+    """
+    assert classifier_probe.PROMPT_TEMPLATE is graph.CLASSIFIER_PROMPT_TEMPLATE
+
+
+def test_the_probes_case_list_is_derived_from_the_dataset():
+    """Derived, never hardcoded. Phase 21.5's own relabelling moves which
+    values are expected without moving which cases are present, and a pinned
+    denominator would turn any later dataset edit into a probe quietly
+    measuring a different population."""
+    cases = classifier_probe.labelled_cases()
+
+    assert cases == [c for c in GOLDEN if c.expect_topic_type is not None]
+    assert all(c.expect_topic_type for c in cases)
+    assert len(cases) < len(GOLDEN)  # it is a filter, not the whole dataset
