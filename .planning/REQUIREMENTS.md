@@ -58,6 +58,15 @@ about to be replaced would file verdicts from an abandoned judge.
   `topic_type`-refused recordings under the fixed classifier; successes move from
   `evals/REFUSALS.json` to fixtures, failures stay documented.
 
+- [ ] **REQ-demo-shows-progress** *(inserted 2026-08-16 as Phase 22.5, from a live report)*:
+  The demo announces the stage it is starting, not only the stage it finished. Measured on
+  the deployed service: the classifier's completion event arrives at +2s and the
+  researcher's at +122s, so the page shows one stale label for two minutes and reads as
+  frozen — visitors reload and lose the run they were watching. The fix forwards the
+  supervisor's existing `routed_to`, which `_stream` currently discards. Phase 19's
+  streaming contract (exactly one terminal event; the `run_finished`/`run_failed` pair) and
+  its derived CSP must both survive the change.
+
 ### Observability
 
 - [ ] **REQ-health-credential-validity**: `/health` reports whether the Anthropic and

@@ -143,6 +143,7 @@ phases close.
 - [x] **Phase 21: Forty recorded answers** - Every golden case is recorded or carries a documented refusal (amended mid-run, user-ratified): 19 recorded, 21 in `evals/REFUSALS.json`, union enforced by test; $9.90 actual vs $17.48 quoted
 - [x] **Phase 21.5: Classifier on Opus 5** - The classifier runs `claude-opus-5`, measured 37/38 vs Sonnet 5's 32/38 against the corrected labels (five fixes, zero regressions, +0.2%/run); three disputed labels relabelled and one left with its structural conflict recorded; six of eight topic_type-refused cases re-recorded, the two remaining refusing on different graders
 - [x] **Phase 22: Limitations recorded** - Every surviving README limitation points at a record; the closed bullets are deleted, not rewritten into release notes — seven bullets became three, the four deletions verified on the git axis and orphan-free everywhere the sweep reaches
+- [ ] **Phase 22.5: The demo shows progress (INSERTED, hotfix)** - The stream announces the stage it is STARTING, not only the one it finished, so the demo stops looking dead for the two minutes the researcher runs
 
 ## Phase Details
 
@@ -395,6 +396,35 @@ Phase 21's record run measured the drift. Runs BEFORE Phase 22 so the close-out 
 only what genuinely survives. The user proposed the upgrade; the measurement confirmed it
 against the orchestrator's initial skepticism, which is worth remembering when weighing
 "differently right" intuitions against a $0.05 probe.
+
+### Phase 22.5: The demo shows progress (INSERTED, hotfix)
+**Goal**: A visitor watching the demo sees the stage that is running, not the last one that
+finished, so the two minutes the researcher spends searching read as progress rather than
+a hang
+**Depends on**: Nothing. Inserted 2026-08-16 from a live report, the third time a demo-facing
+problem arrived from outside the roadmap (after 10.5 and 17.5)
+**Requirements**: REQ-demo-shows-progress
+**Success Criteria** (what must be TRUE):
+  1. The stream emits an event when a stage STARTS, derived from the supervisor's existing
+     `routed_to`, in addition to the completion events it already sends.
+  2. The demo page renders the starting stage immediately and resolves it when the matching
+     completion arrives — no stage row is ever orphaned or duplicated.
+  3. Phase 19's streaming guarantees survive: exactly one terminal event per stream, the
+     `run_finished`/`run_failed` pair unchanged, and the derived CSP still matches the page
+     after the edit (hashes re-derived, never hand-maintained).
+  4. The gap a visitor sees between the first and second visible stage is bounded by the
+     supervisor's routing, not by the researcher's runtime — measured, not asserted.
+  5. The blocking `/research` route and the follow-up routes are unaffected in shape.
+
+**Measured evidence this phase exists (2026-08-16, one $0.2235 reproduction against v21):**
+`classifier` at +2s, `researcher` at **+122s**, then writer/critic every 5–12s to a terminal
+`result` at +183s. The stream, the pipeline and the terminal contract were all healthy — the
+run recorded and was billed. The only defect is 120 seconds of silence at the front, which is
+exactly where a first-time visitor decides whether the thing works. `_stream` discards the
+supervisor event as "pure noise on the wire"; that comment was true when only completions
+mattered and is now backwards, because `routed_to` is the sole signal of what is starting.
+
+**Plans**: TBD
 
 ### Phase 22: Limitations recorded
 **Goal**: Every surviving README limitation points at a record, and the Limitations section
