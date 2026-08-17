@@ -20,16 +20,28 @@ research — and it is demonstrable to a stranger in one click.
 
 ## Current State
 
-**Shipped: v1.1 "Closing the limitations list"** — 2026-08-11, Fly release **v12**, two machines
-in `syd` against Supabase Postgres. Live at `research-agent.fly.dev`.
+**Shipped: v1.2 "Nothing uncovered"** — 2026-08-17, Fly release **v23**, two machines in `syd`
+against Supabase Postgres. Live at `research-agent.fly.dev`.
+(Previously: v1.1, 2026-08-11, Fly v12.)
+
+The README's Limitations section went from seven bullets to three. The four closures were
+**deleted** rather than reworded into the list, and each of the three survivors ends at an ADR
+or an operations note that argues it — so what remains is chosen, not owed.
+
+The milestone's own lesson is bigger than its scope. One phase spent **$9.90 recording real
+answers**, and that paid run found three things the keyless suite is structurally incapable of
+seeing: a classifier mislabelling a whole stratum, a judge whose verdicts truncate against a
+shared token budget, and two grading paths that disagree. Two of the seven phases exist only
+because of what that run — or a user trying the demo — reported. Its close-out then found a gap
+in its own bookkeeping: the most expensive phase had plans ticked whose records did not exist.
 
 All nine limitations the v1.0 README listed are closed. Six were deliberate reversals, each
 superseding a numbered ADR rather than quietly contradicting prose — and the reversal register
 the milestone opened with closed as spent, then was reopened once, deliberately, by v1.2's
 ADR-0012. `docs/adr/` holds 14 records, four of them superseded.
 
-828 tests pass with no API keys, and 72 more are Postgres-gated and skip without
-`DATABASE_URL` — 900 collected. (Measured 2026-08-16, keyless, at Phase 22's close. The
+835 tests pass with no API keys, and 72 more are Postgres-gated and skip without
+`DATABASE_URL` — 907 collected. (Measured 2026-08-17, keyless, at v1.2's archive. The
 with-Postgres pass count used to be quoted here as 801; it is not restated because nobody has
 run that arm recently and deriving it from the keyless delta would be arithmetic, not a
 measurement. CI runs it on every push.) Offline evals grade 65 cases keylessly on every push —
