@@ -58,7 +58,7 @@ about to be replaced would file verdicts from an abandoned judge.
   `topic_type`-refused recordings under the fixed classifier; successes move from
   `evals/REFUSALS.json` to fixtures, failures stay documented.
 
-- [ ] **REQ-demo-shows-progress** *(inserted 2026-08-16 as Phase 22.5, from a live report)*:
+- [x] **REQ-demo-shows-progress** *(complete — shipped PR #34, deployed Fly v22; the Manual-Only human observation was given by the project owner on 2026-08-17: "The demo bug has been fixed." The optional ~$0.22 wall-clock timing of the first researcher signal remains deliberately unspent)* *(inserted 2026-08-16 as Phase 22.5, from a live report)*:
   The demo announces the stage it is starting, not only the stage it finished. Measured on
   the deployed service: the classifier's completion event arrives at +2s and the
   researcher's at +122s, so the page shows one stale label for two minutes and reads as
@@ -69,7 +69,7 @@ about to be replaced would file verdicts from an abandoned judge.
 
 ### Observability
 
-- [ ] **REQ-health-credential-validity**: `/health` reports whether the Anthropic and
+- [x] **REQ-health-credential-validity** *(complete — deployed Fly v18; Manual-Only closed by measurement against production 2026-08-17: both providers report valid=true with checked_at timestamps minutes old, which is the real provider round trip the row required)*: `/health` reports whether the Anthropic and
   Voyage keys actually *work*, via a cached async validity probe (`count_tokens` is free
   for Anthropic; a micro-embed for Voyage), surfaced as new fields beside the existing
   presence booleans. The liveness path still never calls a provider — Fly must not restart
@@ -94,7 +94,7 @@ about to be replaced would file verdicts from an abandoned judge.
 
 ### Security
 
-- [ ] **REQ-demo-csp-header**: The demo page ships a Content-Security-Policy header that
+- [x] **REQ-demo-csp-header** *(complete — deployed Fly v18; Manual-Only closed by measurement against production 2026-08-17: the served header's two hashes recomputed from the served page's own inline blocks and matched, exactly one script and one style block, no unsafe-inline. The page working live is what shows the policy does not block its own JS)*: The demo page ships a Content-Security-Policy header that
   its inline JS survives (hash-based, not `unsafe-inline`), verified against the live page.
   Open since Phase 12's deferred items.
 
