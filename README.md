@@ -24,6 +24,9 @@ the demo link never signs up for anything.
 
 ## Status
 
+<details>
+<summary><b>v1.0 — the pipeline, shipped</b> (1–9) and <b>v1.1 — closing the limitations list</b> (10–17.5) — 19 entries</summary>
+
 - [x] **1 — Core loop.** Supervisor pattern: classifier, researcher, writer, critic. Routing is deterministic Python over state, not a model call.
 - [x] **2 — Memory.** Voyage embeddings, cosine recall with a relevance floor, persisted across runs.
 - [x] **3 — Conversation & resilience.** Follow-ups over prior notes; pluggable stores; per-node retry with jittered backoff. *(A follow-up reaches for new notes when the old ones can't answer now — see 17.)*
@@ -47,6 +50,8 @@ README used to list as a known gap, or reverses a design decision on purpose.
 - [x] **16 — Independent critic.** `CRITIC_MODEL` gives the critic its own model, priced per node at every place a model is named, and production pins it to Opus 5 — the gate now runs on a *more capable* model than the writer it checks. The eval judge's rationale is re-derived rather than inherited, including what the choice costs in independence ([ADR-0010](docs/adr/0010-judge-rederived-for-an-independent-critic.md)).
 - [x] **17 — Follow-ups reach for new information.** A follow-up whose notes can't answer no longer refuses: the responder signals the gap, and that signal routes the turn to the researcher for exactly one pass. Grounding is unchanged and was never what was being given up — an answer still comes only from notes the critic reviewed, and the window in between ships nothing at all. This closes the last of the nine limitations v1.0 listed ([ADR-0011](docs/adr/0011-followups-reach-for-new-information.md), superseding ADR-0003 — the sharpest reversal in the milestone).
 - [x] **17.5 — Row level security.** Every Postgres table the service creates denies every role but its owner, enabled by the schema DDL itself rather than by hand — so a table created later, like the one an embedding migration builds, is covered the moment it exists. Found by a provider's security linter rather than by the plan, which is the second time a live exposure arrived from outside the roadmap (see 10.5). Live on Fly release v13.
+
+</details>
 
 **v1.2 — nothing uncovered.** v1.1 closed all nine of v1.0's limitations but left
 seven behind it. This milestone closes four of those without successors, records
@@ -252,38 +257,13 @@ test derives every number in this section from that file and from
 
 The fifteen split three ways, and the split is the point. **Seven are the
 machinery working** — a grader or the judge declined a recording, which is what
-they are for; two of those entries were rewritten when the Opus 5 classifier
-removed their original reason, rather than left carrying a cause that no longer
-applies. The other eight are two defects a paid run found, and **neither is
-fixed here**.
-
-**Two are a real defect.** The judge's verdict truncates against a
-`max_tokens=1500` budget it shares with adaptive thinking, so a long
-deliberation cuts the JSON off mid-object. `Judge.verdict`'s own docstring in
-`evals/graders.py` predicted this before any run had hit it, which is why it
-surfaces by name as truncation rather than as a malformed verdict — the failure
-is labelled correctly and still costs the recording. Raising or splitting that
-budget is a change to the judge, and
-[ADR-0012](docs/adr/0012-judge-independent-of-the-critic.md) is where the judge's
-configuration is decided; it does not move in a phase that is not about the
-judge. Successor-milestone work, deliberately.
-
-**Six are recordings that passed at record time and then failed replay**, which
-is its own finding about the two grading paths disagreeing. Five are contested-topic
-cases whose pins require the words *proponents* and *critics*; the recordings
-argue both sides at length in different words. The pins cannot simply be
-re-authored, and that was tried: the same `must_mention` must also hold against
-the case's hand-authored reference report in `dataset.py`, which is written in
-that vocabulary, so any replacement collapses to a word testing less than the pin
-it replaced. The sixth is a follow-up that admitted no source covered a forecast
-and then supplied a reasoned estimate anyway — the hedged half-answer the
-recorded-refusal grader's own docstring says it cannot catch. That record-time
-grading approved it at all is the finding; widening the patterns to keep it would
-teach the suite to accept the failure the pipeline exists to prevent.
-
-Neither defect is a limitation this project chose. They are things a paid run
-found that free testing structurally could not see, written down with their
-per-case evidence rather than averaged into a pass rate.
+they are for. The other eight are two defects a paid run found, and **neither is
+fixed here**. **Two are a real defect** — the judge's verdict truncating against
+a `max_tokens` budget it shares with adaptive thinking. **Six are recordings that
+passed at record time** and then failed replay, which is its own finding about the
+two grading paths disagreeing. Both are written up with their
+per-case evidence in [DESIGN](docs/DESIGN.md#testing), because they are defects
+rather than positions — they belong in the record, not in a list of choices.
 
 Recording is `python -m evals --record`, and it is the only command here that
 spends money on purpose. It always prints a per-case cost preview and then
@@ -346,32 +326,18 @@ migration, CI, the embedding-migration procedure, and the full configuration tab
 ## Limitations
 
 Known, and deliberate for the scope. **The v1.0 README listed nine limitations
-and v1.1 closed all nine; v1.2 has now closed four more.** The eval judge
-stopped sharing the critic's model, `/health` stopped calling a revoked key
-healthy, notes gained a second bound beside expiry, and the recorded-answers
-claim was rebuilt on a real paid run — the eval section above reports what that
-bought, refusals included, every number in it derived from the tree rather than
-typed. Those four are *gone* from this list rather than reworded into it, which
-is the only version of "closed" worth writing.
+and v1.1 closed all nine; v1.2 has now closed four more** — the judge stopped
+sharing the critic's model, `/health` stopped calling a revoked key healthy,
+notes gained a second bound beside expiry, and the recorded-answers claim was
+rebuilt on a real paid run. Those four are *gone* from this list rather than
+reworded into it, which is the only version of "closed" worth writing.
 
-**Three remain, and this milestone's work was to stop them standing bare.**
-Several of the nine closed by narrowing rather than erasing, so their narrower
-successors are still here; each of the three below is one of those or a limit
-the v1.1 work created, and each now ends at the record that argues it — an ADR,
-or an operations note — so the position can be checked rather than taken.
-
-**The paid run also found three things free testing structurally could not
-see**, and a close-out claiming otherwise would be the one dishonest sentence in
-the section. The classifier was mislabelling: 32 of 38 labelled cases where Opus
-5 got 37, on a probe run once and kept, and *fixed* rather than recorded
-([ADR-0013](docs/adr/0013-classifier-on-its-own-model.md)). The other two are
-defects rather than positions — the judge's verdict truncating against a token
-budget it shares with adaptive thinking, and record-time grading disagreeing
-with replay-time grading — and they sit in the eval section above with their
-per-case evidence and the reason neither is fixed here. A defect belongs there,
-not in a list of choices.
-
-What remains below is **chosen, recorded, and argued for**.
+**Three remain, and the work was to stop them standing bare.** Each is either a
+narrower successor to one of the nine or a limit the v1.1 work created, and each
+now ends at the record that argues it — an ADR, or an operations note — so the
+position can be checked rather than taken. The two defects that same paid run
+found are *not* here: a defect belongs in the record with its evidence, not in a
+list of choices. What remains below is **chosen, recorded, and argued for**.
 
 - **Reported cost is an approximation, never the invoice.** Nothing here reads a bill: provider token counts are telemetry — measured live, Voyage reported 25 tokens where the tokenizer counted 40, and 0 for a one-word document that embedded fine. Recorded as [ADR-0014](docs/adr/0014-cost-approximation-by-design.md), which also states why reconciling against Anthropic's Admin cost API was rejected.
 - **Identities are free to mint.** Clearing browser storage gets you a fresh one with fresh limits, so per-caller limits buy fairness, not a bound on the bill. The global rolling daily spend cap is the actual backstop. Recorded as [ADR-0007](docs/adr/0007-anonymous-identity-fairness-global-cap.md).

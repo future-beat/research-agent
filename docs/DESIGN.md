@@ -78,6 +78,42 @@ The machinery stays, for a reason worth stating rather than assuming: the argume
 **The evals found a real bug on their first run.** `MAX_ITERATIONS` was 8 and `MAX_REVISIONS` 2, which made the revision cap **unreachable in research mode** — reaching `revision_count > 2` needs supervisor turn 10, so the iteration backstop always fired first. A run where the critic kept rejecting reported `max_iterations_exceeded`, which reads like an internal fault, instead of `max_revisions_exceeded`, which is the truth: the draft never got grounded. Both caps "worked"; they were just the wrong way round. `MAX_ITERATIONS` is now derived from `MAX_REVISIONS` so the backstop stays above the cap, and a test pins the relationship. No unit test caught this, because each cap was correct in isolation — it took running whole scenarios and asserting on *which* guardrail fired.
 
 
+**A paid record run found three things free testing structurally could not.** The offline
+suite stubs the classifier and the critic, so drift between the shipped pipeline and what the
+golden cases assert is invisible to it by construction. Recording 40 real answers in Phase 21
+($9.90 against a $17.48 quote) surfaced all three at once, and the split of what came back is
+the useful part — 25 cases recorded, 15 refused, in `evals/REFUSALS.json` with a per-case
+reason.
+
+*Seven refusals are the machinery working*: a grader or the judge declined a recording, which
+is what they are for. Two of those entries were rewritten when the Opus 5 classifier removed
+their original cause, rather than left carrying a reason that no longer applies. The other
+eight are defects, and neither is fixed:
+
+**The judge's verdict truncates.** `max_tokens=1500` is shared with adaptive thinking, so a
+long deliberation cuts the JSON off mid-object. `Judge.verdict`'s own docstring in
+`evals/graders.py` predicted this before any run hit it, which is why it surfaces by name as
+truncation rather than as a malformed verdict — labelled correctly, and still costing the
+recording. Raising or splitting that budget changes the judge, and
+[ADR-0012](adr/0012-judge-independent-of-the-critic.md) is where the judge's configuration is
+decided; it should not move in a phase that is not about the judge.
+
+**Record-time and replay-time grading disagree.** Six recordings passed at record time and
+failed replay, because `grade_case_pins` runs only on the replay path. Five are contested-topic
+cases whose pins require the words *proponents* and *critics* while the recordings argue both
+sides at length in other words. Re-authoring the pins was tried and **reverted**: the same
+`must_mention` must also hold against the case's hand-authored reference report in
+`dataset.py`, which is written in that vocabulary, so every replacement collapsed to a word
+testing less than the pin it replaced. The sixth is a follow-up that admitted no source covered
+a forecast and then supplied a reasoned estimate anyway — the hedged half-answer the
+recorded-refusal grader's docstring says it cannot catch. That record-time grading approved it
+at all is the finding; widening the patterns to keep it would teach the suite to accept the
+failure the pipeline exists to prevent.
+
+Neither is a limitation the project chose, which is why neither sits in the README's
+Limitations list. They are written down with their per-case evidence instead of averaged into
+a pass rate.
+
 ## Packaging
 
 **The image ships what it runs, and nothing else.** the base package is the agent alone; the web server lives in the `[service]` extra, so a worker or batch job that imports the graph doesn't drag in FastAPI and uvicorn. The image installs `[service]`, not `[dev]`, and `src/` layout keeps `tests/` and `evals/` outside the package entirely — the eval dataset contains scripted model output, which has no business inside a production image.
