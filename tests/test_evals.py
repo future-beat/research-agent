@@ -2492,6 +2492,32 @@ def documented_refusals() -> dict[str, dict]:
     return json.loads((pathlib.Path("evals") / "REFUSALS.json").read_text())["refusals"]
 
 
+def test_no_committed_fixture_carries_a_superseded_judge():
+    """Every committed fixture's verdict came from the judge we ship today.
+
+    `stale_judges()` existed from Phase 21 and was called only ever with a tmp
+    directory -- so it proved its own logic and guarded nothing. Phase 21's risk
+    register named this exact miss (T-21-09) and the gate was never written;
+    Phase 21's retrospective verification demonstrated the consequence by
+    planting `claude-opus-5` into a committed fixture and watching the whole
+    suite stay green.
+
+    The premise this defends is narrow and worth restating, because it is the
+    opposite of what `grade_fixture_current` does. Replay deliberately does NOT
+    compare the judge: an old verdict remains a true statement about what the old
+    judge said, so failing replay on it would be wrong. This phase's premise is
+    stricter -- verdicts are recorded ONCE, under the judge ADR-0012 settled --
+    so here the judge IS checked, and a future judge change firing this is the
+    re-record signal working rather than flakiness.
+    """
+    stale = stale_judges()
+
+    assert stale == [], (
+        "fixtures carry a judge that is no longer "
+        f"{G.DEFAULT_JUDGE_MODEL}, so their verdicts predate the settled judge: {stale}"
+    )
+
+
 def test_every_golden_case_is_recorded_or_documented_as_refused():
     """The amended completeness criterion, on the real tree.
 

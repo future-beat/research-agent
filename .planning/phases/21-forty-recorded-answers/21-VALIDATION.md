@@ -1,13 +1,23 @@
 ---
 phase: 21
 slug: forty-recorded-answers
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-15
+reconciled: 2026-08-17
+reconciled_retrospectively: true
 ---
 
 # Phase 21 — Validation Strategy
+
+> **RECONCILED RETROSPECTIVELY, 2026-08-17.** This contract sat at `status: draft` with
+> every row `pending` for two days after the phase merged and deployed — found while
+> running `/gsd:complete-milestone`, alongside two missing wave summaries and a missing
+> verification. The Status cells below are filled from `21-VERIFICATION.md`, which measured
+> each one independently rather than reading them off the summaries. Two rows record
+> outcomes that differ from what the contract anticipated, and both are marked as such
+> rather than smoothed.
 
 > Per-phase validation contract. This phase is unusual: its central deliverable is DATA
 > (40 fixtures) produced by a PAID run, so the gates split into keyless gates that CI can
@@ -83,14 +93,14 @@ refusals, and it belongs in a successor phase rather than being papered over her
 
 | Task ID | Plan | Wave | Requirement | Criterion | Test Type | Automated Command / Mutation | Status |
 |---------|------|------|-------------|-----------|-----------|------------------------------|--------|
-| 21-01 T1 (logic) → 21-03 T1 (pin) | 01, 03 | 1, 3 | REQ-forty-recorded-answers | **Completeness gate exists and bites:** the set of committed fixtures equals the 40 golden case IDs — the researched gap: today NOTHING asserts this; replay grades whatever exists. New keyless gate (pytest and/or the CLI exit rule) | unit/structural | mutation: delete one fixture → the gate reds naming the missing case id; add a fixture for a nonexistent case id → reds too (both directions, or the gate only half-bites) | pending |
-| 21-01 T1 (logic) → 21-03 T1 (pin) | 01, 03 | 1, 3 | REQ-forty-recorded-answers | Every fixture carries the SETTLED judge's verdict: `models.judge == "claude-opus-4-8"` for all 40 — which also proves the stale 2026-08-10 fixture was re-recorded, not grandfathered | unit | keyless scan over fixture JSONs; mutation: flip one fixture's judge field → red naming the file | pending |
-| 21-03 T2 | 03 | 3 | REQ-forty-recorded-answers | All 40 replay and grade keylessly: `python -m evals` with empty keys grades 40 golden + 40 recorded = **80** checks (researched denominator), exit 0, honest print of the new denominator (DEC-13) | integration (keyless) | run with keys explicitly emptied; capture the count line; mutation: corrupt one fixture's answer → the replay leg reds and the exit code is nonzero | pending |
-| 21-02 T1–T2 | 02 | 2 | REQ-forty-recorded-answers | Calibration stage (PAID, checkpoint 1): exactly one case recorded via `--case`, actual cost captured from the report, quote re-based (expect "2 measured" language or tighter assumed basis) | paid checkpoint | evidence: stage report JSON + the recorder's own printed actual; NO automated gate can run this — the checkpoint approval in the transcript is the authorization record | pending |
-| 21-02 T3–T4 | 02 | 2 | REQ-forty-recorded-answers | Bulk stage (PAID, checkpoint 2): remaining 39 recorded in explicit `--case` batches (researched: a blind full re-run RE-SPENDS on existing fixtures — batching is the resume mechanism), refusals surfaced as findings with the recorder's own output preserved, never auto-retried | paid checkpoint | evidence: per-batch report JSONs; refusal list (possibly empty) in the SUMMARY; any re-run of a refused case is its own user-approved micro-checkpoint with incremental cost stated | pending |
-| 21-03 T3 | 03 | 3 | REQ-forty-recorded-answers | Actual-vs-quote reported (success criterion 4): per-stage actuals summed against $17.4812, in the SUMMARY and the PR body | prose gate | numbers come from report JSONs, not memory; the delta is stated even if embarrassing in either direction | pending |
-| 21-03 T2 (before-timing: 21-01 T2) | 01, 03 | 1, 3 | REQ-forty-recorded-answers | CI stays keyless and green with the new denominator; runtime measured before/after (41 → 80 graded checks); `--min-pass-rate 0.9` semantics stated against the grown denominator | integration | CI-equivalent local run with keys emptied; before/after runtime in the SUMMARY | pending |
-| 21-03 T3 | 03 | 3 | REQ-forty-recorded-answers | Doc surfaces: README whole-file pass (eval counts at `:200`/`:221`, test counts if they move), OPERATIONS if it quotes eval counts; the Limitations bullet at README:286 BYTE-UNTOUCHED (Phase 22's) | grep gate + prose | bullet grep count 1 before and after, on the git axis; test-count sites measured not assumed | pending |
+| 21-01 T1 (logic) → 21-03 T1 (pin) | 01, 03 | 1, 3 | REQ-forty-recorded-answers | **Completeness gate exists and bites:** the set of committed fixtures equals the 40 golden case IDs — the researched gap: today NOTHING asserts this; replay grades whatever exists. New keyless gate (pytest and/or the CLI exit rule) | unit/structural | mutation: delete one fixture → the gate reds naming the missing case id; add a fixture for a nonexistent case id → reds too (both directions, or the gate only half-bites) | **MET** — union total over the 40 golden cases, overlap empty, zero orphans in either direction, at the close commit `5c38735` (19+21) and at HEAD (25+15). Verification applied **four** mutations, one per arm — unaccounted, overlap, orphan refusal, orphan fixture — and each redded. |
+| 21-01 T1 (logic) → 21-03 T1 (pin) | 01, 03 | 1, 3 | REQ-forty-recorded-answers | Every fixture carries the SETTLED judge's verdict: `models.judge == "claude-opus-4-8"` for all 40 — which also proves the stale 2026-08-10 fixture was re-recorded, not grandfathered | unit | keyless scan over fixture JSONs; mutation: flip one fixture's judge field → red naming the file | **MET as data; the GATE WAS MISSING for two days.** All 19 fixtures at close and all 25 today carry `models.judge == claude-opus-4-8`. But the pin this row promised was never written: `stale_judges()` was only ever called with a tmp directory, so it proved its own logic and guarded nothing — verification demonstrated the consequence by planting `claude-opus-5` in a committed fixture and watching all 834 tests stay green. Phase 21's own risk register named this miss (T-21-09). **Closed 2026-08-17** by `test_no_committed_fixture_carries_a_superseded_judge`, which calls the scan on the real tree; mutation observed red naming the file and the stale value. |
+| 21-03 T2 | 03 | 3 | REQ-forty-recorded-answers | All 40 replay and grade keylessly: `python -m evals` with empty keys grades 40 golden + 40 recorded = **80** checks (researched denominator), exit 0, honest print of the new denominator (DEC-13) | integration (keyless) | run with keys explicitly emptied; capture the count line; mutation: corrupt one fixture's answer → the replay leg reds and the exit code is nonzero | **MET** — CI runs on `push: branches: ["**"]` with all three keys exported empty; the PR #30 merge run passed. Reproduced 59/59 exit 0 at the close commit and 65/65 exit 0 at HEAD. Corrupting a recorded draft yields a non-zero exit naming the case. |
+| 21-02 T1–T2 | 02 | 2 | REQ-forty-recorded-answers | Calibration stage (PAID, checkpoint 1): exactly one case recorded via `--case`, actual cost captured from the report, quote re-based (expect "2 measured" language or tighter assumed basis) | paid checkpoint | evidence: stage report JSON + the recorder's own printed actual; NO automated gate can run this — the checkpoint approval in the transcript is the authorization record | **MET** — one case via `--case`, `$0.2496` metered against a `$0.3577` quote (`stage1-report.json`). The quote did NOT re-base as the contract expected: the re-quote still read `0 measured, 39 assumed`, which is why checkpoint 2 was presented as an unvalidated upper bound. |
+| 21-02 T3–T4 | 02 | 2 | REQ-forty-recorded-answers | Bulk stage (PAID, checkpoint 2): remaining 39 recorded in explicit `--case` batches (researched: a blind full re-run RE-SPENDS on existing fixtures — batching is the resume mechanism), refusals surfaced as findings with the recorder's own output preserved, never auto-retried | paid checkpoint | evidence: per-batch report JSONs; refusal list (possibly empty) in the SUMMARY; any re-run of a refused case is its own user-approved micro-checkpoint with incremental cost stated | **MET** — four explicit `--case` batches, refusals surfaced and never auto-retried, nothing forced (`written == passed` in all five reports; zero `forced` stamps). Recorded/refused per batch 7/3, 9/2, 4/6, 4/4. |
+| 21-03 T3 | 03 | 3 | REQ-forty-recorded-answers | Actual-vs-quote reported (success criterion 4): per-stage actuals summed against $17.4812, in the SUMMARY and the PR body | prose gate | numbers come from report JSONs, not memory; the delta is stated even if embarrassing in either direction | **MET** — recomputed from the five archived JSONs: `$9.901940` against `$17.4812` = **56.64%**, every per-batch actual matching to four decimals, 85 judge calls unmetered and stated as such. |
+| 21-03 T2 (before-timing: 21-01 T2) | 01, 03 | 1, 3 | REQ-forty-recorded-answers | CI stays keyless and green with the new denominator; runtime measured before/after (41 → 80 graded checks); `--min-pass-rate 0.9` semantics stated against the grown denominator | integration | CI-equivalent local run with keys emptied; before/after runtime in the SUMMARY | **MET** — denominator 41 → 59 at close (40 behavioural + 19 replayed), grown honestly; `--min-pass-rate` semantics unchanged because the replay leg is all-must-pass regardless. |
+| 21-03 T3 | 03 | 3 | REQ-forty-recorded-answers | Doc surfaces: README whole-file pass (eval counts at `:200`/`:221`, test counts if they move), OPERATIONS if it quotes eval counts; the Limitations bullet at README:286 BYTE-UNTOUCHED (Phase 22's) | grep gate + prose | bullet grep count 1 before and after, on the git axis; test-count sites measured not assumed | **MET** — README and OPERATIONS re-derived by measurement; README's Limitations section byte-untouched for Phase 22, verified on the git axis by Phase 22's own deletion gate. |
 
 ---
 
@@ -112,4 +122,4 @@ refusals, and it belongs in a successor phase rather than being papered over her
 - [ ] Suite + evals green with the new denominator; ruff clean
 - [ ] `nyquist_compliant: true` set at reconciliation
 
-**Approval:** pending execution.
+**Approval:** reconciled retrospectively 2026-08-17 against `21-VERIFICATION.md`.

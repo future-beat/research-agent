@@ -1,0 +1,110 @@
+# Phase 21 — Wave 2 Summary (the paid stages)
+
+> **RECONSTRUCTED 2026-08-17 from committed evidence, not written at execution time.**
+> Wave 2's two plans were executed inline by the orchestrator rather than by an executor
+> subagent, because both stages sit behind blocking spend checkpoints that only the
+> orchestrator can obtain from the user — and the summaries were never written afterwards.
+> The ROADMAP ticked both plans `[x]` while these files did not exist, so for a day the
+> record was ahead of the evidence. Every number below is re-derived from the five report
+> JSONs in this directory and from the commits named, never from memory. The v1.0 remaster
+> set the precedent for reconstructing a record and labelling it as reconstructed.
+
+**Executed:** 2026-08-15 · **Plan:** 21-02 · **Both checkpoints user-approved**
+
+---
+
+## Checkpoint 1 — calibration
+
+Approved at a fresh keyless quote of **$0.3577** for one case, after the P-06 assertions
+(`CRITIC_MODEL`, `EVAL_JUDGE_MODEL`, `VECTOR_STORE`, `DATABASE_URL` all unset) passed.
+
+`technical-figures` re-recorded: **$0.2496 measured pipeline, 2 judge calls**
+(`stage1-report.json`). It was the mandatory first pick — its committed fixture carried
+`models.judge: claude-opus-5`, the judge ADR-0012 superseded, so it was stale before the
+run began and re-recording it retired that staleness.
+
+**The correction that mattered.** The metered $0.2496 against a $0.3577 quote reads as 30%
+under, and reporting it that way would have been wrong: the recorder states that judge
+calls "bill separately and are not metered here". Adding the quote's own assumed judge
+share puts the true figure at roughly **$0.365 against $0.3577 — on target, possibly a
+hair over**. The flattering number was an artefact of reading one field.
+
+**The staging assumption also failed, and was reported rather than smoothed.** The plan
+expected calibration to re-base the remaining quote; it did not. The re-quote still read
+`0 measured, 39 assumed`, because a case's measured basis comes only from its own fixture.
+That is why checkpoint 2 was presented as an unvalidated upper bound.
+
+---
+
+## Checkpoint 2 — the bulk, four batches
+
+Approved for **batch A only** first, deliberately: the calibration could not validate the
+assumed-token model for never-recorded cases, so batch A bought that basis. Batches B–D
+followed under the ratified "record what passes" decision.
+
+| batch | quoted | actual (metered pipeline) | recorded | refused | judge calls |
+|---|---|---|---|---|---|
+| calibration | $0.3577 | **$0.2496** | 1 | 0 | 2 |
+| A (10) | $3.8900 | **$1.9011** | 7 | 3 | 17 |
+| B (11) | $4.2790 | **$2.1556** | 9 | 2 | 22 |
+| C (10) | $3.8900 | **$2.2025** | 4 | 6 | 20 |
+| D (8, follow-ups) | $5.0645 | **$3.3932** | 4 | 4 | 24 |
+| **total** | **$17.4812** | **$9.9019 — 56.6%** | **25** | **15** | **85** |
+
+Metered pipeline only; the 85 judge calls bill separately and the recorder does not meter
+them, which is stated rather than folded into a better-looking total.
+
+> **Read the 25/15 in that total row carefully — it is a coincidence trap.** Here it means
+> *recordings written* vs *refused at record time*. The phase CLOSED at **19 recorded / 21
+> refused**, because six of those 25 passed record-time grading and then failed replay and
+> moved into `REFUSALS.json`. Today the tree reads 25/15 again — a different 25 and a
+> different 15, after Phase 21.5 re-recorded six. Three different pairs of numbers, two of
+> them identical.
+
+---
+
+## The criterion amendment, user-ratified mid-run
+
+Batch A refused 3 of 10 and made the requirement's two halves visibly incompatible on the
+real pipeline: *all forty recorded* versus *only grader-and-judge-approved fixtures get
+committed*. The ratified resolution — recorded in full in `21-VALIDATION.md` — is that
+**every case is either recorded or carries a documented refusal**, with `--force` refused
+outright, because buying the number forty by stamping fixtures `forced` would discard the
+property that makes a fixture worth grading.
+
+## The findings the run bought
+
+**One systematic cause, not many scattered ones.** **Eight** of the refusals name the
+identical mismatch — `topic_type expected 'general', got 'technical'` — hitting every
+`general-*` case and more. The keyless suite is structurally blind to this: it stubs the
+classifier, so drift between the shipped pipeline and what the golden cases assert cannot
+surface until something pays to run it. This finding became Phase 21.5, which fixed it.
+
+> **Correction, 2026-08-17.** This reconstruction first said *six*, which is Phase 21.5's
+> later RE-RECORD count imported backwards onto Phase 21's refusals. Verification measured
+> eight from `REFUSALS.json` at `5c38735`. The same error was written into `STATE.md` on
+> 2026-08-15 and is corrected there too.
+
+**A judge-harness defect, distinct in kind.** Two cases died on
+`ValueError: Judge verdict was TRUNCATED at max_tokens` — the 1500-token budget shared with
+adaptive thinking, exactly as `evals/graders.py`'s own comment predicted. Recorded under a
+separate `kind` so it never reads as a quality refusal.
+
+**The full decomposition at close** — 21 refusals, and grader mentions exceed case counts
+because a case can fail several graders at once: `grader` 13, `recorded_then_failed_replay`
+6, `judge_truncated` 2. Within the 13 grader refusals the mentions are `topic_type` 8,
+`approval` 3, `forced_stop` 3, `followup_research_bounded` 3, `judge_grounding` 2,
+`judge_followup_honesty` 1.
+
+> **Correction, 2026-08-17.** The first version of this section listed "three
+> max_revisions_exceeded and two judge_grounding" as completing the set. It did not
+> complete: it double-counted `empty-label-falls-back` and omitted
+> `followup_research_bounded` entirely. Numbers above are recomputed from the committed
+> JSON.
+
+## Discipline held
+
+`--case`-explicit invocation throughout; the P-06 env assertions in front of every `--yes`;
+no auto-retry of any refusal; report JSONs archived to this directory as they were produced.
+Commits: `6bdd4c4` (calibration + batch A), `47dd8d3` (batches B and C), `5c38735` (batch D,
+the union gates, and the refusal record).
