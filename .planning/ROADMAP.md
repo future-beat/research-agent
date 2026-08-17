@@ -437,9 +437,9 @@ Plans:
   `/ask/stream` inheritance, and byte-identical proof for the two protected Phase 19 tests);
   T3 README's public SSE example checked against a real capture, the VALIDATION record closed
   with the paid post-deploy row honestly left open, and the arithmetic re-measured against
-  827/72 (wave 1)
+  828/72 (wave 1)
 
-**Executed 2026-08-16.** 832 passed / 72 skipped keyless (827 → 832; `-k stream` 23 → 28);
+**Executed 2026-08-16.** 833 passed / 72 skipped keyless (828 → 833; `-k stream` 23 → 28);
 evals 65/65 exit 0; ruff clean. **The headline gate was observed red on a wholly unmodified
 tree** — `assert 1 == 2`, one researcher event where the gate demands two — which is what
 makes it evidence rather than ceremony. Eight mutations, each paired with the green half

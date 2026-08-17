@@ -54,6 +54,13 @@ followed under the ratified "record what passes" decision.
 Metered pipeline only; the 85 judge calls bill separately and the recorder does not meter
 them, which is stated rather than folded into a better-looking total.
 
+> **Read the 25/15 in that total row carefully — it is a coincidence trap.** Here it means
+> *recordings written* vs *refused at record time*. The phase CLOSED at **19 recorded / 21
+> refused**, because six of those 25 passed record-time grading and then failed replay and
+> moved into `REFUSALS.json`. Today the tree reads 25/15 again — a different 25 and a
+> different 15, after Phase 21.5 re-recorded six. Three different pairs of numbers, two of
+> them identical.
+
 ---
 
 ## The criterion amendment, user-ratified mid-run
@@ -67,19 +74,33 @@ property that makes a fixture worth grading.
 
 ## The findings the run bought
 
-**One systematic cause, not eleven scattered ones.** Of the refusals, six were the
+**One systematic cause, not many scattered ones.** **Eight** of the refusals name the
 identical mismatch — `topic_type expected 'general', got 'technical'` — hitting every
-`general-*` case. The keyless suite is structurally blind to this: it stubs the classifier,
-so drift between the shipped pipeline and what the golden cases assert cannot surface
-until something pays to run it. This finding became Phase 21.5, which fixed it.
+`general-*` case and more. The keyless suite is structurally blind to this: it stubs the
+classifier, so drift between the shipped pipeline and what the golden cases assert cannot
+surface until something pays to run it. This finding became Phase 21.5, which fixed it.
+
+> **Correction, 2026-08-17.** This reconstruction first said *six*, which is Phase 21.5's
+> later RE-RECORD count imported backwards onto Phase 21's refusals. Verification measured
+> eight from `REFUSALS.json` at `5c38735`. The same error was written into `STATE.md` on
+> 2026-08-15 and is corrected there too.
 
 **A judge-harness defect, distinct in kind.** Two cases died on
 `ValueError: Judge verdict was TRUNCATED at max_tokens` — the 1500-token budget shared with
 adaptive thinking, exactly as `evals/graders.py`'s own comment predicted. Recorded under a
 separate `kind` so it never reads as a quality refusal.
 
-**Three grader-quality refusals** (`max_revisions_exceeded`) and **two `judge_grounding`
-catches** of genuine overstatement complete the set.
+**The full decomposition at close** — 21 refusals, and grader mentions exceed case counts
+because a case can fail several graders at once: `grader` 13, `recorded_then_failed_replay`
+6, `judge_truncated` 2. Within the 13 grader refusals the mentions are `topic_type` 8,
+`approval` 3, `forced_stop` 3, `followup_research_bounded` 3, `judge_grounding` 2,
+`judge_followup_honesty` 1.
+
+> **Correction, 2026-08-17.** The first version of this section listed "three
+> max_revisions_exceeded and two judge_grounding" as completing the set. It did not
+> complete: it double-counted `empty-label-falls-back` and omitted
+> `followup_research_bounded` entirely. Numbers above are recomputed from the committed
+> JSON.
 
 ## Discipline held
 

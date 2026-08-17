@@ -59,13 +59,14 @@ replay path.
 All six are documented in `REFUSALS.json` under `recorded_then_failed_replay` with their
 reasons, rather than quietly dropped.
 
-## One test went stale by the phase's own success
+## A section this reconstruction wrongly claimed
 
-`test_cli_writes_the_report` pinned `len(report["cases"]) == 1` for `general-summary` —
-true only while that case had no fixture. Recording it made the CLI correctly grade two
-legs (behavioural + `@recorded`). Fixed deliberately: the assertion now derives its
-expectation from whether the fixture exists and compares the graded **set**, so no future
-record run can falsify it again.
+> **Correction, 2026-08-17.** This file originally credited Phase 21 with finding and
+> fixing `test_cli_writes_the_report`'s stale `len(cases) == 1` literal. **That is Phase
+> 21.5's work** (`60c93e9`). When Phase 21 closed, `general-summary` was still *refused*,
+> so the literal was still true and nothing had gone stale. `git log -S` on both the old
+> and the new assertion returns only 21.5's commit. Removed rather than reworded — a
+> reconstruction that annexes a later phase's finding is worse than one that omits it.
 
 ## Gates at close
 
