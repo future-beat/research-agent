@@ -12,11 +12,12 @@ worth seeing.
 A production service, not a notebook: bounded loops, per-run cost accounting,
 a spend cap that survives concurrency and multiple machines, per-caller
 identity with owned and expiring sessions, swappable Postgres/pgvector
-backends, an eval harness that grades real recorded answers, and 835 tests
+backends, an eval harness that grades real recorded answers, and 837 tests
 that run with no API keys.
 
-It runs on two machines against Supabase Postgres, and a stranger following
-the demo link never signs up for anything.
+It runs on two machines that suspend when idle and wake on the next request,
+against Supabase Postgres, and a stranger following the demo link never signs
+up for anything.
 
 **Stack:** Python (3.14 in CI and the image) · LangGraph · Claude Sonnet 5 (Opus 5 critic and classifier) · Voyage embeddings · FastAPI · SQLite/Supabase Postgres + pgvector
 
@@ -221,7 +222,7 @@ other calls that could have gone the other way.
 ## Tests and evals
 
 ```bash
-pytest                    # 835 tests, ~30s, no API keys, no network
+pytest                    # 837 tests, ~30s, no API keys, no network
 python -m evals           # 40 golden cases + every recording, offline and free
 python -m evals --live    # real API + LLM-judge graders (costs money)
 python -m evals --record  # price a recording run; refuses to spend without --yes
@@ -288,6 +289,15 @@ session and stored note dies with the container. In production `DATABASE_URL`
 points at Supabase Postgres — one variable moves sessions, metrics and notes to
 Postgres and pgvector, over a pool shared by all three — which is what lets the
 service run on more than one machine.
+
+On Fly the two machines are 512 MB and **neither stays running**: the proxy
+suspends one once it has no open requests and resumes it in under a second when
+the next one arrives. That fits because every run starts with an HTTP request —
+there is no polling loop or in-process scheduler to keep alive — and because a
+run never needed the memory: 164 MB at its measured peak. Deploys wait up to
+300s for an in-flight run to finish rather than cutting it off. A daily
+scheduled request to `/health` stands in for the health checks a suspended
+machine no longer runs, which were what kept the free-tier database from pausing.
 
 Changing the embedding model or its dimension runs through
 `python -m research_agent.migrate embeddings` — `copy` moves a corpus with its

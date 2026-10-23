@@ -1,0 +1,42 @@
+name: keepalive
+
+# Keeps the free-tier Supabase project from pausing.
+#
+# Supabase pauses a free project after ~7 days of low activity. Fly's 30s
+# health checks used to be that activity, but since 2026-10-23 both machines
+# suspend when idle (min_machines_running = 0 in fly.toml), and a suspended
+# machine runs no checks. A quiet week would pause the database and take the
+# demo down until someone restored it from the dashboard.
+#
+# One request a day is enough: it wakes a machine through Fly's proxy, and
+# /health queries all three stores. It never calls a model provider, so this
+# costs nothing beyond a few minutes of machine time.
+#
+# The job fails when the stores do not answer, so a paused or broken database
+# shows up as a failed run and a notification rather than as a dead demo.
+#
+# GitHub disables scheduled workflows in a public repository after 60 days
+# with no commits. If that happens it says so on the Actions tab, and
+# re-enabling it there is the fix. tests/test_deploy_config.py requires this
+# file whenever fly.toml's floor of always-on machines is zero.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # daily, off the hour to dodge GitHub's busiest minute
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    name: wake the service and touch the database
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: request /health
+        run: |
+          set -euo pipefail
+          body=$(curl -fsS --retry 5 --retry-delay 10 --retry-all-errors \
+            --max-time 30 https://research-agent.fly.dev/health)
+          echo "$body"
+          echo "$body" | jq -e '.dependencies == "ok"' > /dev/null

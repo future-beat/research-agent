@@ -26,6 +26,15 @@
 app = 'research-agent'
 primary_region = 'syd'
 
+# How long Fly waits after SIGINT before killing a machine on deploy. The
+# default is 5s, and a research run streams for about three minutes (174s
+# measured 2026-10-23), so a deploy used to cut any in-flight run off.
+# uvicorn handles SIGINT and SIGTERM by refusing new connections and waiting
+# for open ones to finish, so this window is what lets that wait complete.
+# 300s is Fly's ceiling. Idle suspend never needs it: the proxy only
+# suspends a machine with no open connections.
+kill_timeout = '300s'
+
 [build]
   dockerfile = 'Dockerfile'
 
@@ -113,19 +122,34 @@ primary_region = 'syd'
 [http_service]
   internal_port = 8000
   force_https = true
-  # Two machines. This was 1 for as long as the stores lived on a per-machine
-  # volume, because a second machine would have held its own database and a
-  # follow-up could land on one that had never heard of the session.
+  # Two machines, neither kept running. The fleet is still two (`fly scale
+  # count 2`), so host maintenance on one leaves the other to wake; the floor
+  # of always-on machines is zero, so an idle demo bills almost nothing.
   #
-  # All three preconditions now hold, in order: DATABASE_URL is set and
-  # /health shows three Postgres-backed stores; the [[mounts]] block and the
-  # three *_DB_PATH vars are gone; the three backend pins are in [env]. Do
-  # not lower it back to 1 without restoring the mount AND removing the pins
-  # -- a mounted machine with the pins still set refuses to boot without a
-  # DSN. tests/test_deploy_config.py asserts both directions of that pairing.
+  # History: this was 1 while the stores lived on a per-machine volume, then 2
+  # once they moved to Postgres, and 0 since 2026-10-23. Two always-on 1 GB
+  # machines were nearly the whole Fly bill for a service whose work is
+  # request-driven -- no polling loop, no in-process scheduler -- so the proxy
+  # waking a machine on the next request loses nothing.
+  #
+  # 'suspend', not 'stop': a suspended machine resumes from a memory snapshot
+  # in well under a second, where a stopped one boots Python from scratch.
+  # Both bill the same while asleep (rootfs only). A pooled database
+  # connection held across a suspend may be dead on resume; cursor()'s
+  # retry-once already covers a stale connection.
+  #
+  # Two consequences that are NOT in this file:
+  #   * Suspended machines run no health checks, and those checks were what
+  #     kept the free-tier Supabase project from pausing after ~7 idle days.
+  #     .github/workflows/keepalive.yml now requests /health daily for that.
+  #   * auto_start_machines must stay true. With a floor of zero, a fleet that
+  #     cannot be woken is a fleet that is down.
+  #
+  # The mount pairing still holds: do not restore [[mounts]] without removing
+  # the backend pins. tests/test_deploy_config.py asserts both directions.
   auto_stop_machines = 'suspend'
   auto_start_machines = true
-  min_machines_running = 2
+  min_machines_running = 0
 
   # These numbers are why the connection pool is sized the way it is:
   # hard_limit 16 x 2 machines = up to 32 in-flight requests against one
@@ -172,12 +196,19 @@ primary_region = 'syd'
     method = 'GET'
     path = '/health'
 
+# 512 MB, down from 1 GB on 2026-10-23. Measured on both machines: the
+# uvicorn process sits at 162 MB idle and peaked at 164 MB during a full
+# research run, because the work is API calls -- embeddings go to Voyage,
+# vectors live in Postgres, and nothing loads a model, a PDF or a browser.
+# 256 MB is too tight: the app plus Fly's own processes are ~190 MB before
+# the kernel takes its share. Re-measure before adding anything that holds
+# data in process memory.
 [[vm]]
   size = 'shared-cpu-1x'
-  memory = '1gb'
+  memory = '512mb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 512
 
 # --- Going stateless (Phase 11) -----------------------------------------
 #
