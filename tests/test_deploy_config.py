@@ -160,14 +160,18 @@ def test_the_machine_count_matches_the_topology(fly):
     hold two independent databases, and a follow-up routed to the wrong one
     404s on a session that demonstrably exists.
 
-    **Without a mount:** at least two. A stateless single machine is the
-    downtime this phase exists to remove -- host maintenance still takes the
-    service offline, which is the whole reason for detaching the volume.
+    **Without a mount:** never exactly one always-on machine with nothing
+    behind it. Either at least two stay running, or the floor is lower and
+    the proxy must be able to wake the rest. Production runs a fleet of two
+    with a floor of zero (2026-10-23), so it is the second branch that holds:
+    `auto_start_machines = false` there would leave a suspended fleet that
+    nothing ever wakes, with every deploy-time check still green.
 
     Skipping either arm would let plan 11-05's mount removal pass through
     unguarded.
     """
-    running = fly["http_service"].get("min_machines_running", 1)
+    service = fly["http_service"]
+    running = service.get("min_machines_running", 1)
 
     if fly.get("mounts") or []:
         assert running <= 1, (
@@ -175,12 +179,56 @@ def test_the_machine_count_matches_the_topology(fly):
             "machine would hold its own database. Move the stores to Postgres "
             "and remove [[mounts]] before raising this."
         )
-    else:
-        assert running >= 2, (
-            f"min_machines_running={running} with no volume. The stores are "
-            "on Postgres and the machine holds no state, so a single machine "
-            "is downtime for nothing."
+    elif running < 2:
+        assert service.get("auto_start_machines") is True, (
+            f"min_machines_running={running} without auto_start_machines = "
+            "true. Machines past the floor are stopped or suspended when idle, "
+            "and only the proxy's auto-start brings them back."
         )
+
+
+# A research run streams for about three minutes: 174s measured on
+# 2026-10-23, and the demo's own reproduction saw a terminal result at +183s.
+LONGEST_MEASURED_RUN_SECONDS = 183
+
+
+def _seconds(value) -> int:
+    if isinstance(value, int):
+        return value
+    match = re.fullmatch(r"(\d+)s", str(value).strip())
+    assert match, f"unrecognised duration {value!r}"
+    return int(match.group(1))
+
+
+def test_a_deploy_waits_for_an_in_flight_run(fly):
+    """Fly's default kill_timeout is 5s. uvicorn finishes open requests on
+    SIGINT, but only for as long as Fly lets it, so with the default every
+    deploy cuts off any run in progress -- billed and never delivered."""
+    timeout = _seconds(fly.get("kill_timeout", 5))
+    assert timeout >= LONGEST_MEASURED_RUN_SECONDS, (
+        f"kill_timeout={timeout}s is shorter than a research run "
+        f"({LONGEST_MEASURED_RUN_SECONDS}s measured)."
+    )
+
+
+KEEPALIVE = ROOT / ".github" / "workflows" / "keepalive.yml"
+
+
+def test_an_idle_fleet_still_keeps_the_database_awake(fly):
+    """Supabase pauses a free project after ~7 days of low activity. While a
+    machine is always running, its 30s /health checks are that activity. A
+    suspended machine runs no checks, so with a floor of zero something
+    outside Fly has to request /health -- the keepalive workflow, on a
+    schedule. Without it, a quiet week takes the demo down until someone
+    restores the project from the dashboard."""
+    if fly["http_service"].get("min_machines_running", 1) >= 1:
+        pytest.skip("an always-on machine's health checks keep the database awake")
+
+    assert KEEPALIVE.exists(), "floor of zero with no keepalive workflow"
+    text = KEEPALIVE.read_text()
+    assert re.search(r"^\s*schedule:", text, re.M), "keepalive has no schedule"
+    assert re.search(r"cron:\s*['\"][^'\"]+['\"]", text), "keepalive has no cron entry"
+    assert "/health" in text, "keepalive does not request /health"
 
 
 def test_the_database_url_is_not_committed(fly):

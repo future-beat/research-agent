@@ -55,10 +55,44 @@ demo still works, but a caller bounced between machines becomes a new visitor
 and loses their sessions. `/health` reports `credentials.identity_signing` so
 you can tell which of the two you are running, without exposing the value.
 
-`fly.toml` pins `min_machines_running = 1` on purpose: SQLite with a single
+A volume-backed deploy must keep to **one machine**: SQLite with a single
 writer and a per-machine volume does not scale horizontally, because a second
 machine would hold its own database and 404 on sessions that demonstrably
 exist. Setting `DATABASE_URL` lifts that constraint — see below.
+
+**Production: two 512 MB machines, none kept running (since 2026-10-23).**
+`min_machines_running = 0` with `auto_stop_machines = 'suspend'`, so Fly's proxy
+suspends a machine once it has no open connections and resumes it on the next
+request. Two always-on 1 GB machines were nearly the whole Fly bill, for a
+service whose every unit of work arrives as an HTTP request. The measurements
+behind the sizing, taken on both machines that day:
+
+| | uvicorn RSS |
+|---|---|
+| idle | 162 MB |
+| peak over ~6.5 days of uptime | 162 MB |
+| peak during a full research run (174s, $0.20) | 164 MB |
+
+What this relies on, and what to check if it is ever changed:
+
+- **`auto_start_machines` must stay `true`.** With a floor of zero, a fleet the
+  proxy cannot wake is a fleet that is down. `tests/test_deploy_config.py`
+  fails on it.
+- **`kill_timeout = '300s'`.** Fly's default of 5s cut off any run in flight at
+  deploy time. uvicorn finishes open requests on SIGINT; this is what gives it
+  the time. Idle suspend never needs it — a machine with an open connection is
+  not suspended.
+- **A suspended machine runs no health checks**, so it no longer keeps the
+  database awake. `.github/workflows/keepalive.yml` requests `/health` daily
+  instead — see [the free-tier posture](#the-free-tier-posture-and-the-upgrade-path).
+- **`suspend`, not `stop`.** Resume is from a memory snapshot and takes well
+  under a second; a stop means booting Python from scratch. Both bill only
+  rootfs while asleep. A pooled connection that died during a suspend is
+  handled by `cursor()`'s existing retry-once.
+- **Re-measure before raising or lowering memory.** 256 MB is too tight: the
+  app plus Fly's own processes are ~190 MB before the kernel takes its share.
+  `ps` is not in the slim image; read `VmRSS` and `VmHWM` from
+  `/proc/<pid>/status` over `fly ssh console` instead.
 
 > **Don't merge Fly's "New files from Fly.io Launch" pull requests.** They
 > regenerate `fly.toml` from the web UI's defaults and have twice broken this
@@ -156,9 +190,11 @@ permanently awake bills ~730 hours a month. The project would be suspended
 around day 16 of every month, which drops existing connections and refuses new
 ones. Neon's scale-to-zero can't rescue it: the probes are exactly what stops
 it firing. Supabase's free tier has **no compute meter**, and its only idle
-hazard — a pause after ~7 days of low activity — is *prevented* by the same
-probes. The design that disqualifies one provider is the design that keeps the
-other alive.
+hazard — a pause after ~7 days of low activity — was *prevented* by the same
+probes. The design that disqualifies one provider was the design that kept the
+other alive. Since the machines began suspending when idle (2026-10-23) the
+probes stop with them, and a daily scheduled request to `/health` does that job
+instead.
 
 The cost of that choice is a networking wrinkle: Supabase's direct endpoint is
 IPv6-only on the free tier, so the DSN points at the **session-mode Supavisor
@@ -186,11 +222,15 @@ part of it is visible from the outside and none of it is explained by the sectio
   probes cost 2.84 / 3.23 / 3.39 ms at the p50 against a `HEALTH_PROBE_BUDGET` of 3000 ms —
   roughly 435× headroom at the worst observed sample. A read replica's job is to take read
   load off a primary that is struggling; this primary answers in single-digit milliseconds.
-- **The free tier's one idle hazard is already prevented, by design rather than by luck.**
-  A free project pauses after ~7 days of low activity. `/health` queries all three stores
-  every 30s per machine — the same probes that disqualify Neon's compute meter are what keep
-  this project awake. The pause is also non-destructive: it restores from the dashboard and
-  loses no data.
+- **The free tier's one idle hazard is prevented, by design rather than by luck.**
+  A free project pauses after ~7 days of low activity. `/health` queries all three stores,
+  but Fly's 30s checks only run while a machine is awake, and the machines suspend when
+  idle. `.github/workflows/keepalive.yml` therefore requests `/health` once a day, which
+  wakes a machine and touches all three stores; the run **fails** when the stores do not
+  answer, so a paused database shows up as a failed scheduled run rather than a dead demo.
+  GitHub disables a public repository's scheduled workflows after 60 days without a
+  commit — the Actions tab says so, and re-enabling it there is the fix. The pause is also
+  non-destructive: it restores from the dashboard and loses no data.
 
 Fine at this traffic, in other words — and the first thing to look at if it isn't.
 
@@ -329,7 +369,7 @@ unqualified `::vector` cast does not resolve by default. `db.py` sets a
 connection-level `search_path` that includes it.
 
 **A paused free-tier project** — the state Supabase enters after ~7 days of
-inactivity, which this deployment's health probes prevent — is restored
+inactivity, which the daily keepalive workflow prevents — is restored
 manually from the dashboard and loses no data.
 
 **Connection budget.** `hard_limit = 16` × 2 machines = up to 32 in-flight
@@ -649,9 +689,13 @@ path is the work, not a flag.
 ## CI
 
 ```
-lint · tests · evals            ruff, 835 tests, 65 offline eval cases
+lint · tests · evals            ruff, 837 tests, 65 offline eval cases
 image build · smoke test        docker build, boot the container, probe it
 ```
+
+A third workflow, `keepalive`, is not a gate: it runs daily on a schedule and
+requests the live `/health` so the free-tier database never sits idle long
+enough to pause. See [the free-tier posture](#the-free-tier-posture-and-the-upgrade-path).
 
 Every gate runs with `ANTHROPIC_API_KEY=""`. A CI suite that needs a live key
 breaks on forks, on key rotation, and during someone else's outage — and bills
